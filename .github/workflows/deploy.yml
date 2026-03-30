@@ -18,6 +18,30 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           script: |
             ~/deploy.sh
+            PROJECT_DIRS="$(find "$HOME" -maxdepth 5 -type f -name 'docker-compose.prod.yml' 2>/dev/null | sed 's|/docker-compose.prod.yml$||' | sort -u)"
+
+            REDEPLOY_DONE=0
+            for dir in $PROJECT_DIRS; do
+              if [ ! -d "$dir" ] || [ ! -f "$dir/docker-compose.prod.yml" ]; then
+                continue
+              fi
+
+              if ! grep -q 'moka_solar_backend' "$dir/docker-compose.prod.yml" 2>/dev/null; then
+                continue
+              fi
+
+              echo "Rebuilding compose stack in $dir"
+              (
+                cd "$dir" && \
+                docker compose -f docker-compose.prod.yml build backend frontend && \
+                docker compose -f docker-compose.prod.yml up -d backend frontend
+              ) && REDEPLOY_DONE=1 && break
+            done
+
+            if [ "$REDEPLOY_DONE" -ne 1 ]; then
+              echo "Could not locate production docker-compose.prod.yml for moka_solar_backend"
+            fi
+
             SUDO=""
             if command -v sudo >/dev/null 2>&1; then
               SUDO="sudo"
