@@ -6,6 +6,8 @@
     "build": "nest build",
     "start": "node dist/src/main.js",
     "start:dev": "nest start --watch",
+    "admin:reset": "node dist/src/admin-reset.js",
+    "admin:reset:dev": "ts-node src/admin-reset.ts",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:seed": "ts-node prisma/seed.ts",

@@ -10,7 +10,22 @@ export class BootstrapService implements OnModuleInit {
 
   async onModuleInit() {
     await this.ensureRoles();
-    await this.ensureSuperAdmin();
+    await this.ensureRoleAccount({
+      roleCode: 'SUPER_ADMIN',
+      roleLabel: 'SUPER_ADMIN',
+      email: process.env.BOOTSTRAP_SUPERADMIN_EMAIL?.trim().toLowerCase(),
+      password: process.env.BOOTSTRAP_SUPERADMIN_PASSWORD?.trim(),
+      fullName: process.env.BOOTSTRAP_SUPERADMIN_NAME?.trim() || 'Platform Owner',
+      updatePasswordOnEnsure: false,
+    });
+    await this.ensureRoleAccount({
+      roleCode: 'ADMIN',
+      roleLabel: 'ADMIN',
+      email: process.env.BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase(),
+      password: process.env.BOOTSTRAP_ADMIN_PASSWORD?.trim(),
+      fullName: process.env.BOOTSTRAP_ADMIN_NAME?.trim() || 'Moka Operations Admin',
+      updatePasswordOnEnsure: false,
+    });
   }
 
   private async ensureRoles() {
@@ -30,21 +45,25 @@ export class BootstrapService implements OnModuleInit {
     }
   }
 
-  private async ensureSuperAdmin() {
-    const email = process.env.BOOTSTRAP_SUPERADMIN_EMAIL?.trim().toLowerCase();
-    const password = process.env.BOOTSTRAP_SUPERADMIN_PASSWORD?.trim();
-    const fullName = process.env.BOOTSTRAP_SUPERADMIN_NAME?.trim() || 'Platform Owner';
-
+  private async ensureRoleAccount(params: {
+    roleCode: string;
+    roleLabel: string;
+    email?: string;
+    password?: string;
+    fullName: string;
+    updatePasswordOnEnsure: boolean;
+  }) {
+    const { roleCode, roleLabel, email, password, fullName, updatePasswordOnEnsure } = params;
     if (!email || !password) {
       return;
     }
 
-    const superAdminRole = await this.prisma.role.findUnique({
-      where: { code: 'SUPER_ADMIN' },
+    const role = await this.prisma.role.findUnique({
+      where: { code: roleCode },
     });
 
-    if (!superAdminRole) {
-      this.logger.warn('SUPER_ADMIN role is missing during bootstrap.');
+    if (!role) {
+      this.logger.warn(`${roleLabel} role is missing during bootstrap.`);
       return;
     }
 
@@ -53,16 +72,22 @@ export class BootstrapService implements OnModuleInit {
     });
 
     if (existingUser) {
+      const data: Record<string, unknown> = {
+        fullName,
+        roleId: role.id,
+        deletedAt: null,
+      };
+
+      if (updatePasswordOnEnsure) {
+        data.passwordHash = await bcrypt.hash(password, 10);
+      }
+
       await this.prisma.user.update({
         where: { id: existingUser.id },
-        data: {
-          fullName,
-          roleId: superAdminRole.id,
-          deletedAt: null,
-        },
+        data,
       });
 
-      this.logger.log(`Bootstrapped SUPER_ADMIN role ensured for ${email}`);
+      this.logger.log(`Bootstrapped ${roleLabel} account ensured for ${email}`);
       return;
     }
 
@@ -73,10 +98,10 @@ export class BootstrapService implements OnModuleInit {
         email,
         fullName,
         passwordHash,
-        roleId: superAdminRole.id,
+        roleId: role.id,
       },
     });
 
-    this.logger.log(`Bootstrapped SUPER_ADMIN account created for ${email}`);
+    this.logger.log(`Bootstrapped ${roleLabel} account created for ${email}`);
   }
 }

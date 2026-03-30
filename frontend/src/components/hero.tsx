@@ -83,10 +83,6 @@ export function Hero() {
               </a>
             </div>
 
-            <p className="text-xs font-medium uppercase tracking-[0.2em] text-amber-200">
-              TEST AUTO DEPLOY OK AGAIN
-            </p>
-
             <div className="rounded-[22px] border border-white/10 bg-white/[0.04] px-4 py-4">
               <p className="text-xs leading-6 text-slate-300">
                 <span className="font-semibold text-white">{siteConfig.brand.name}</span> là

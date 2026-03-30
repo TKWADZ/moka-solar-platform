@@ -4,6 +4,19 @@ import { buildDefaultFeaturePlugins } from '../src/feature-plugins/default-featu
 import { buildDefaultMarketingPages } from '../src/marketing-pages/default-marketing-pages';
 
 const prisma = new PrismaClient();
+const defaultSeedPassword = process.env.SEED_DEFAULT_PASSWORD?.trim() || '123456';
+const bootstrapSuperAdminEmail =
+  process.env.BOOTSTRAP_SUPERADMIN_EMAIL?.trim().toLowerCase() || 'superadmin@example.com';
+const bootstrapSuperAdminName =
+  process.env.BOOTSTRAP_SUPERADMIN_NAME?.trim() || 'Moka Super Admin';
+const bootstrapSuperAdminPassword =
+  process.env.BOOTSTRAP_SUPERADMIN_PASSWORD?.trim() || defaultSeedPassword;
+const bootstrapAdminEmail =
+  process.env.BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase() || 'admin@mokasolar.com';
+const bootstrapAdminName =
+  process.env.BOOTSTRAP_ADMIN_NAME?.trim() || 'Moka Operations Admin';
+const bootstrapAdminPassword =
+  process.env.BOOTSTRAP_ADMIN_PASSWORD?.trim() || defaultSeedPassword;
 
 function fixed(value: number) {
   return Number(value.toFixed(2));
@@ -230,22 +243,23 @@ async function main() {
     }),
   ]);
 
-  const passwordHash = await bcrypt.hash('123456', 10);
+  const superAdminPasswordHash = await bcrypt.hash(bootstrapSuperAdminPassword, 10);
+  const adminPasswordHash = await bcrypt.hash(bootstrapAdminPassword, 10);
 
   const superAdmin = await prisma.user.create({
     data: {
-      email: 'superadmin@example.com',
-      fullName: 'Moka Super Admin',
-      passwordHash,
+      email: bootstrapSuperAdminEmail,
+      fullName: bootstrapSuperAdminName,
+      passwordHash: superAdminPasswordHash,
       roleId: superAdminRole.id,
     },
   });
 
   const admin = await prisma.user.create({
     data: {
-      email: 'admin@example.com',
-      fullName: 'Moka Operations Admin',
-      passwordHash,
+      email: bootstrapAdminEmail,
+      fullName: bootstrapAdminName,
+      passwordHash: adminPasswordHash,
       roleId: adminRole.id,
     },
   });
@@ -551,7 +565,7 @@ async function main() {
         email: account.email,
         fullName: account.fullName,
         phone: account.phone,
-        passwordHash,
+        passwordHash: adminPasswordHash,
         roleId: customerRole.id,
       },
     });
