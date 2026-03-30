@@ -84,7 +84,7 @@ export function Hero() {
             </div>
 
             <p className="text-xs font-medium uppercase tracking-[0.2em] text-amber-200">
-              Moka Solar test auto deploy
+              TEST AUTO DEPLOY OK
             </p>
 
             <div className="rounded-[22px] border border-white/10 bg-white/[0.04] px-4 py-4">
