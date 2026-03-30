@@ -1,0 +1,131 @@
+services:
+  db:
+    image: postgres:16
+    container_name: moka_solar_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - moka_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.prod
+    container_name: moka_solar_backend
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      JWT_SECRET: ${JWT_SECRET}
+      PORT: 4000
+      CORS_ORIGIN: ${CORS_ORIGIN:-}
+      ENABLE_CUSTOMER_MOCK_PAYMENT: ${ENABLE_CUSTOMER_MOCK_PAYMENT:-false}
+      BOOTSTRAP_SUPERADMIN_EMAIL: ${BOOTSTRAP_SUPERADMIN_EMAIL:-}
+      BOOTSTRAP_SUPERADMIN_PASSWORD: ${BOOTSTRAP_SUPERADMIN_PASSWORD:-}
+      BOOTSTRAP_SUPERADMIN_NAME: ${BOOTSTRAP_SUPERADMIN_NAME:-}
+      SEMS_LOGIN_URL: ${SEMS_LOGIN_URL:-}
+      SEMS_ACCOUNT: ${SEMS_ACCOUNT:-}
+      SEMS_PASSWORD: ${SEMS_PASSWORD:-}
+      SOLARMAN_BASE_URL: ${SOLARMAN_BASE_URL:-}
+      SOLARMAN_APP_ID: ${SOLARMAN_APP_ID:-}
+      SOLARMAN_APP_SECRET: ${SOLARMAN_APP_SECRET:-}
+      SOLARMAN_USERNAME: ${SOLARMAN_USERNAME:-}
+      SOLARMAN_PASSWORD: ${SOLARMAN_PASSWORD:-}
+      SOLARMAN_STATION_ID: ${SOLARMAN_STATION_ID:-}
+      SOLARMAN_MONTHLY_ENDPOINTS: ${SOLARMAN_MONTHLY_ENDPOINTS:-}
+      SOLARMAN_PREFERRED_MODE: ${SOLARMAN_PREFERRED_MODE:-auto}
+      SOLARMAN_WEB_LOGIN_URL: ${SOLARMAN_WEB_LOGIN_URL:-}
+      SOLARMAN_WEB_STATION_LIST_URL: ${SOLARMAN_WEB_STATION_LIST_URL:-}
+      SOLARMAN_WEB_MONTHLY_URL: ${SOLARMAN_WEB_MONTHLY_URL:-}
+      SOLARMAN_WEB_MONTHLY_ENDPOINTS: ${SOLARMAN_WEB_MONTHLY_ENDPOINTS:-}
+      SOLARMAN_WEB_ORIGIN: ${SOLARMAN_WEB_ORIGIN:-}
+      SOLARMAN_WEB_REFERER: ${SOLARMAN_WEB_REFERER:-}
+      SOLARMAN_WEB_EXTRA_HEADERS: ${SOLARMAN_WEB_EXTRA_HEADERS:-{}}
+      SOLARMAN_SYNC_INTERVAL_MINUTES: ${SOLARMAN_SYNC_INTERVAL_MINUTES:-0}
+      SOLARMAN_SETTINGS_SECRET: ${SOLARMAN_SETTINGS_SECRET:-}
+      DEYE_SETTINGS_SECRET: ${DEYE_SETTINGS_SECRET:-}
+      DEYE_SYNC_INTERVAL_MINUTES: ${DEYE_SYNC_INTERVAL_MINUTES:-0}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.4-mini}
+      AI_SETTINGS_SECRET: ${AI_SETTINGS_SECRET:-}
+      REQUEST_TIMEOUT: ${REQUEST_TIMEOUT:-20000}
+      MEDIA_STORAGE_DIR: ${MEDIA_STORAGE_DIR:-storage/media}
+    ports:
+      - "${BACKEND_PORT}:4000"
+    volumes:
+      - ./backend/storage:/app/storage
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:4000/api/health').then((res)=>process.exit(res.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      args:
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api}
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
+        NEXT_PUBLIC_ENABLE_DEMO_FALLBACK: ${NEXT_PUBLIC_ENABLE_DEMO_FALLBACK:-false}
+        NEXT_PUBLIC_ENABLE_CUSTOMER_MOCK_PAYMENT: ${NEXT_PUBLIC_ENABLE_CUSTOMER_MOCK_PAYMENT:-false}
+        NEXT_PUBLIC_ENABLE_SAMPLE_ACCOUNTS: ${NEXT_PUBLIC_ENABLE_SAMPLE_ACCOUNTS:-false}
+        NEXT_PUBLIC_ENABLE_SELF_REGISTER: ${NEXT_PUBLIC_ENABLE_SELF_REGISTER:-false}
+        NEXT_PUBLIC_SAMPLE_SUPERADMIN_EMAIL: ${NEXT_PUBLIC_SAMPLE_SUPERADMIN_EMAIL:-}
+        NEXT_PUBLIC_SAMPLE_SUPERADMIN_PASSWORD: ${NEXT_PUBLIC_SAMPLE_SUPERADMIN_PASSWORD:-}
+        NEXT_PUBLIC_SAMPLE_ADMIN_EMAIL: ${NEXT_PUBLIC_SAMPLE_ADMIN_EMAIL:-}
+        NEXT_PUBLIC_SAMPLE_ADMIN_PASSWORD: ${NEXT_PUBLIC_SAMPLE_ADMIN_PASSWORD:-}
+        NEXT_PUBLIC_SAMPLE_CUSTOMER_EMAIL: ${NEXT_PUBLIC_SAMPLE_CUSTOMER_EMAIL:-}
+        NEXT_PUBLIC_SAMPLE_CUSTOMER_PASSWORD: ${NEXT_PUBLIC_SAMPLE_CUSTOMER_PASSWORD:-}
+    container_name: moka_solar_frontend
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api}
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-}
+      NEXT_PUBLIC_ENABLE_DEMO_FALLBACK: ${NEXT_PUBLIC_ENABLE_DEMO_FALLBACK:-false}
+      NEXT_PUBLIC_ENABLE_CUSTOMER_MOCK_PAYMENT: ${NEXT_PUBLIC_ENABLE_CUSTOMER_MOCK_PAYMENT:-false}
+      NEXT_PUBLIC_ENABLE_SAMPLE_ACCOUNTS: ${NEXT_PUBLIC_ENABLE_SAMPLE_ACCOUNTS:-false}
+      NEXT_PUBLIC_ENABLE_SELF_REGISTER: ${NEXT_PUBLIC_ENABLE_SELF_REGISTER:-false}
+      NEXT_PUBLIC_SAMPLE_SUPERADMIN_EMAIL: ${NEXT_PUBLIC_SAMPLE_SUPERADMIN_EMAIL:-}
+      NEXT_PUBLIC_SAMPLE_SUPERADMIN_PASSWORD: ${NEXT_PUBLIC_SAMPLE_SUPERADMIN_PASSWORD:-}
+      NEXT_PUBLIC_SAMPLE_ADMIN_EMAIL: ${NEXT_PUBLIC_SAMPLE_ADMIN_EMAIL:-}
+      NEXT_PUBLIC_SAMPLE_ADMIN_PASSWORD: ${NEXT_PUBLIC_SAMPLE_ADMIN_PASSWORD:-}
+      NEXT_PUBLIC_SAMPLE_CUSTOMER_EMAIL: ${NEXT_PUBLIC_SAMPLE_CUSTOMER_EMAIL:-}
+      NEXT_PUBLIC_SAMPLE_CUSTOMER_PASSWORD: ${NEXT_PUBLIC_SAMPLE_CUSTOMER_PASSWORD:-}
+    ports:
+      - "${FRONTEND_PORT}:3000"
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3000').then((res)=>process.exit(res.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+volumes:
+  moka_pgdata:

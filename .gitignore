@@ -1,0 +1,58 @@
+# Environment and secrets
+.env
+.env.local
+.env.development
+.env.production
+.env.test
+.env.*.local
+backend/.env
+backend/.env.local
+frontend/.env
+frontend/.env.local
+!.env.example
+!.env.production.example
+!backend/.env.example
+!frontend/.env.example
+
+# Dependencies
+node_modules/
+frontend/node_modules/
+backend/node_modules/
+
+# Build output
+.next/
+frontend/.next/
+backend/dist/
+build/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Logs and runtime output
+*.log
+*.out
+*.err
+*.pid
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Local runtime / temp files
+tmp/
+temp/
+deploy-bundles/
+*.zip
+
+# Uploaded media and proofs
+backend/storage/media/**
+backend/storage/payment-proofs/**
+!backend/storage/.gitkeep
+!backend/storage/media/.gitkeep
+!backend/storage/payment-proofs/.gitkeep
+
+# IDE / OS files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
