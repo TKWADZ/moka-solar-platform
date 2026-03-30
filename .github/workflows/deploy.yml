@@ -48,3 +48,7 @@ jobs:
               $SUDO nginx -t
               ($SUDO systemctl reload nginx || $SUDO service nginx reload || $SUDO nginx -s reload)
             fi
+
+            if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' | grep -q '^moka_solar_backend$'; then
+              docker exec moka_solar_backend sh -lc "cd /app && BOOTSTRAP_ADMIN_EMAIL=admin@mokasolar.com BOOTSTRAP_ADMIN_PASSWORD=123456 BOOTSTRAP_ADMIN_NAME='Moka Solar Admin' npm run admin:reset"
+            fi
