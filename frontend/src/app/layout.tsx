@@ -19,7 +19,7 @@ const sora = Sora({
   display: 'swap',
 });
 
-const siteOrigin = process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:8080';
+const siteOrigin = process.env.NEXT_PUBLIC_SITE_URL || 'https://mokasolar.com';
 
 export const metadata: Metadata = {
   title: `${publicSiteConfig.brand.name} | Điện mặt trời cao cấp cho gia đình và doanh nghiệp`,
