@@ -2,6 +2,10 @@ server {
     listen 80;
     server_name mokasolar.com www.mokasolar.com;
 
+    if ($host = www.mokasolar.com) {
+        return 301 https://mokasolar.com$request_uri;
+    }
+
     client_max_body_size 25m;
 
     location /api/ {

@@ -26,6 +26,9 @@ export const metadata: Metadata = {
   description:
     'Moka Solar tư vấn, triển khai và vận hành điện mặt trời cho villa, homestay, quán cà phê, nhà hàng và doanh nghiệp nhỏ. Có mô hình thuê, PPA, trả góp và hybrid.',
   metadataBase: new URL(siteOrigin),
+  alternates: {
+    canonical: '/',
+  },
   manifest: '/manifest.webmanifest',
   applicationName: 'Moka Solar',
   icons: {
@@ -41,6 +44,7 @@ export const metadata: Metadata = {
     title: `${publicSiteConfig.brand.name} | Điện mặt trời cao cấp cho gia đình và doanh nghiệp`,
     description:
       'Dịch vụ điện mặt trời cho villa, homestay, quán cà phê, nhà hàng và doanh nghiệp nhỏ do Công ty TNHH Truyền thông Moka vận hành.',
+    url: siteOrigin,
     images: [publicSiteConfig.brand.media.ogImage],
   },
   keywords: [

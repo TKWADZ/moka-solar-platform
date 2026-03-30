@@ -49,6 +49,46 @@ jobs:
               ($SUDO systemctl reload nginx || $SUDO service nginx reload || $SUDO nginx -s reload)
             fi
 
+            python3 - <<'PY'
+            from pathlib import Path
+
+            redirect_line = "    if ($host = www.mokasolar.com) {\n        return 301 https://mokasolar.com$request_uri;\n    }\n"
+            candidates = []
+            for root in ("/etc/nginx/sites-enabled", "/etc/nginx/sites-available", "/etc/nginx/conf.d"):
+                path = Path(root)
+                if not path.exists():
+                    continue
+                candidates.extend([item for item in path.rglob("*") if item.is_file()])
+
+            for file_path in candidates:
+                try:
+                    text = file_path.read_text()
+                except Exception:
+                    continue
+
+                if "mokasolar.com" not in text:
+                    continue
+
+                if "www.mokasolar.com" in text and "return 301 https://mokasolar.com$request_uri;" in text:
+                    continue
+
+                updated = text.replace(
+                    "server_name mokasolar.com www.mokasolar.com;\n",
+                    "server_name mokasolar.com www.mokasolar.com;\n" + redirect_line,
+                )
+
+                updated = updated.replace(
+                    "server_name www.mokasolar.com mokasolar.com;\n",
+                    "server_name www.mokasolar.com mokasolar.com;\n" + redirect_line,
+                )
+
+                if updated != text:
+                    file_path.write_text(updated)
+            PY
+
+            $SUDO nginx -t
+            ($SUDO systemctl reload nginx || $SUDO service nginx reload || $SUDO nginx -s reload)
+
             if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' | grep -q '^moka_solar_backend$'; then
               docker exec moka_solar_backend sh -lc "cd /app && BOOTSTRAP_ADMIN_EMAIL=admin@mokasolar.com BOOTSTRAP_ADMIN_PASSWORD=123456 BOOTSTRAP_ADMIN_NAME='Moka Solar Admin' npm run admin:reset"
             fi
