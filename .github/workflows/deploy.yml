@@ -52,3 +52,38 @@ jobs:
             if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' | grep -q '^moka_solar_backend$'; then
               docker exec moka_solar_backend sh -lc "cd /app && BOOTSTRAP_ADMIN_EMAIL=admin@mokasolar.com BOOTSTRAP_ADMIN_PASSWORD=123456 BOOTSTRAP_ADMIN_NAME='Moka Solar Admin' npm run admin:reset"
             fi
+
+            if ! command -v docker >/dev/null 2>&1 || ! docker ps --format '{{.Names}}' | grep -q '^moka_solar_backend$'; then
+              BACKEND_DIRS="$(find "$HOME" -maxdepth 5 -type f \( -path '*/backend/package.json' -o -path '*/dist/src/admin-reset.js' -o -path '*/src/admin-reset.ts' \) 2>/dev/null | sed -e 's|/package.json$||' -e 's|/dist/src/admin-reset.js$||' -e 's|/src/admin-reset.ts$||' | sort -u)"
+
+              RESET_DONE=0
+              for dir in $BACKEND_DIRS; do
+                if [ ! -d "$dir" ]; then
+                  continue
+                fi
+
+                if [ -f "$dir/dist/src/admin-reset.js" ]; then
+                  (
+                    cd "$dir" && \
+                    BOOTSTRAP_ADMIN_EMAIL=admin@mokasolar.com \
+                    BOOTSTRAP_ADMIN_PASSWORD=123456 \
+                    BOOTSTRAP_ADMIN_NAME='Moka Solar Admin' \
+                    npm run admin:reset
+                  ) && RESET_DONE=1 && break
+                fi
+
+                if [ -f "$dir/src/admin-reset.ts" ] && command -v npx >/dev/null 2>&1; then
+                  (
+                    cd "$dir" && \
+                    BOOTSTRAP_ADMIN_EMAIL=admin@mokasolar.com \
+                    BOOTSTRAP_ADMIN_PASSWORD=123456 \
+                    BOOTSTRAP_ADMIN_NAME='Moka Solar Admin' \
+                    npx ts-node src/admin-reset.ts
+                  ) && RESET_DONE=1 && break
+                fi
+              done
+
+              if [ "$RESET_DONE" -ne 1 ]; then
+                echo "Could not locate backend to reset admin account"
+              fi
+            fi
