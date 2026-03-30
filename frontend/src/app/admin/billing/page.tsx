@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2, FileCheck2, FileDown, ReceiptText, RefreshCw, XCircle } from 'lucide-react';
+import { CheckCircle2, FileCheck2, FileDown, ReceiptText, RefreshCw, Send, XCircle } from 'lucide-react';
 import { MonthlyPvBillingTable } from '@/components/monthly-pv-billing-table';
 import { SectionCard } from '@/components/section-card';
 import { StatCard } from '@/components/stat-card';
@@ -12,18 +12,25 @@ import {
   generateMonthlyPvBillingInvoiceRequest,
   listAdminSystemsRequest,
   listCustomersRequest,
+  listInvoicesRequest,
   listMonthlyPvBillingsRequest,
   listPaymentsRequest,
+  listZaloMessageLogsRequest,
   mockPayInvoiceRequest,
   reviewPaymentRequest,
+  sendZaloInvoiceNotificationRequest,
+  zaloNotificationsStatusRequest,
 } from '@/lib/api';
 import { formatCurrency, formatDate, formatDateTime, formatMonthPeriod, formatNumber } from '@/lib/utils';
 import {
   AdminSystemRecord,
   CustomerRecord,
+  InvoiceRecord,
   MonthlyPvBillingRecord,
   PaymentRecord,
   StatCardItem,
+  ZaloMessageLogRecord,
+  ZaloNotificationStatus,
 } from '@/types';
 
 function parseOptionalInteger(value: string) {
@@ -71,11 +78,29 @@ function outstandingInvoiceAmount(record: MonthlyPvBillingRecord) {
   );
 }
 
+function zaloSendStatusLabel(status: string) {
+  switch (status) {
+    case 'SENT':
+      return 'Da gui';
+    case 'DRY_RUN':
+      return 'Dry run';
+    case 'BLOCKED':
+      return 'Bi chan';
+    case 'FAILED':
+      return 'That bai';
+    default:
+      return status;
+  }
+}
+
 export default function AdminBillingPage() {
   const [systems, setSystems] = useState<AdminSystemRecord[]>([]);
   const [customers, setCustomers] = useState<CustomerRecord[]>([]);
   const [records, setRecords] = useState<MonthlyPvBillingRecord[]>([]);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
+  const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
+  const [zaloStatus, setZaloStatus] = useState<ZaloNotificationStatus | null>(null);
+  const [zaloLogs, setZaloLogs] = useState<ZaloMessageLogRecord[]>([]);
   const [systemId, setSystemId] = useState('');
   const [customerId, setCustomerId] = useState('');
   const [month, setMonth] = useState('');
@@ -86,6 +111,7 @@ export default function AdminBillingPage() {
   const [paymentLoadingId, setPaymentLoadingId] = useState('');
   const [proofLoadingId, setProofLoadingId] = useState('');
   const [reviewLoadingId, setReviewLoadingId] = useState('');
+  const [zaloLoadingId, setZaloLoadingId] = useState('');
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -103,6 +129,21 @@ export default function AdminBillingPage() {
   async function loadPayments() {
     const nextPayments = await listPaymentsRequest();
     setPayments(nextPayments);
+  }
+
+  async function loadInvoices() {
+    const nextInvoices = await listInvoicesRequest();
+    setInvoices(nextInvoices);
+  }
+
+  async function loadZaloData(invoiceId?: string) {
+    const [nextStatus, nextLogs] = await Promise.all([
+      zaloNotificationsStatusRequest(),
+      listZaloMessageLogsRequest(invoiceId, 8),
+    ]);
+
+    setZaloStatus(nextStatus);
+    setZaloLogs(nextLogs);
   }
 
   async function loadRecords(nextFilters?: {
@@ -134,7 +175,13 @@ export default function AdminBillingPage() {
     month?: string;
     year?: string;
   }) {
-    await Promise.all([loadReferenceData(), loadRecords(nextFilters), loadPayments()]);
+    await Promise.all([
+      loadReferenceData(),
+      loadRecords(nextFilters),
+      loadPayments(),
+      loadInvoices(),
+      loadZaloData(),
+    ]);
   }
 
   useEffect(() => {
@@ -151,6 +198,18 @@ export default function AdminBillingPage() {
   const pendingPayments = useMemo(
     () => payments.filter((payment) => payment.status === 'PENDING'),
     [payments],
+  );
+
+  const recentInvoices = useMemo(
+    () =>
+      [...invoices]
+        .sort((left, right) => {
+          const leftTime = new Date(left.issuedAt || 0).getTime();
+          const rightTime = new Date(right.issuedAt || 0).getTime();
+          return rightTime - leftTime;
+        })
+        .slice(0, 6),
+    [invoices],
   );
 
   const stats = useMemo<StatCardItem[]>(() => {
@@ -268,6 +327,32 @@ export default function AdminBillingPage() {
       );
     } finally {
       setPaymentLoadingId('');
+    }
+  }
+
+  async function handleSendZalo(invoiceId: string, loadingKey = invoiceId) {
+    setZaloLoadingId(loadingKey);
+    setMessage('');
+    setError('');
+
+    try {
+      const result = await sendZaloInvoiceNotificationRequest(invoiceId, {
+        templateType: 'INVOICE',
+      });
+
+      await loadZaloData(invoiceId);
+
+      setMessage(
+        result.dryRun
+          ? `Zalo dry-run cho ${result.invoiceNumber}: ${result.providerMessage || 'Khong gui that trong moi truong hien tai.'}`
+          : `Da gui Zalo cho ${result.invoiceNumber} toi ${result.recipientPhone || 'nguoi nhan'}.`,
+      );
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error ? nextError.message : 'Khong the gui thong bao Zalo.',
+      );
+    } finally {
+      setZaloLoadingId('');
     }
   }
 
@@ -413,6 +498,152 @@ export default function AdminBillingPage() {
             {error}
           </div>
         ) : null}
+      </SectionCard>
+
+      <SectionCard
+        title="Zalo invoice notifications"
+        eyebrow="Nen tang gui template an toan cho hoa don"
+        dark
+      >
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)]">
+          <div className="portal-card-soft p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                  Trang thai ket noi
+                </p>
+                <h3 className="mt-2 text-lg font-semibold text-white">
+                  {zaloStatus?.configuredForSend ? 'San sang gui' : 'Dang o che do test-safe'}
+                </h3>
+              </div>
+              <StatusPill
+                label={zaloStatus?.dryRun ? 'Dry run' : 'Live send'}
+                tone={zaloStatus?.dryRun ? 'warning' : 'success'}
+              />
+            </div>
+
+            <div className="mt-4 grid gap-2 text-sm text-slate-300 md:grid-cols-2">
+              <p>
+                OA ID: <span className="font-medium text-white">{zaloStatus?.oaIdPreview || '-'}</span>
+              </p>
+              <p>
+                Access token:{' '}
+                <span className="font-medium text-white">
+                  {zaloStatus?.hasAccessToken ? 'Da cau hinh' : 'Chua cau hinh'}
+                </span>
+              </p>
+              <p>
+                Template invoice:{' '}
+                <span className="font-medium text-white">
+                  {zaloStatus?.templateIds.INVOICE.configured ? 'Da gan' : 'Chua gan'}
+                </span>
+              </p>
+              <p>
+                API base URL:{' '}
+                <span className="font-medium text-white">{zaloStatus?.apiBaseUrl || '-'}</span>
+              </p>
+            </div>
+
+            {zaloStatus?.missingRequired?.length ? (
+              <p className="mt-4 rounded-[18px] border border-amber-300/15 bg-amber-400/10 px-4 py-3 text-sm leading-6 text-amber-100">
+                Missing required env: {zaloStatus.missingRequired.join(', ')}
+              </p>
+            ) : null}
+
+            {zaloStatus?.missingRecommended?.length ? (
+              <p className="mt-3 text-sm leading-6 text-slate-400">
+                Recommended env chua co: {zaloStatus.missingRecommended.join(', ')}
+              </p>
+            ) : null}
+          </div>
+
+          <div className="portal-card-soft p-5">
+            <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+              Nhat ky gui gan day
+            </p>
+            <div className="mt-4 grid gap-3">
+              {zaloLogs.length ? (
+                zaloLogs.map((log) => (
+                  <div key={log.id} className="rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-3">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-medium text-white">
+                          {log.invoiceNumber || log.customerName}
+                        </p>
+                        <p className="mt-1 text-xs text-slate-400">
+                          {log.recipientPhone || '-'} · {formatDateTime(log.createdAt)}
+                        </p>
+                      </div>
+                      <StatusPill label={zaloSendStatusLabel(log.sendStatus)} />
+                    </div>
+                    <p className="mt-2 text-sm leading-6 text-slate-300">
+                      {log.providerMessage || 'Khong co thong diep tra ve tu provider.'}
+                    </p>
+                  </div>
+                ))
+              ) : (
+                <p className="text-sm leading-6 text-slate-300">
+                  Chua co log gui Zalo nao. Khi admin bam &quot;Gui Zalo&quot;, ket qua se duoc luu tai day.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="mt-4 portal-card-soft p-5">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                Hoa don gan day de test template
+              </p>
+              <h3 className="mt-2 text-lg font-semibold text-white">
+                Gui thu tu khu vuc admin billing
+              </h3>
+            </div>
+            <p className="max-w-xl text-sm leading-6 text-slate-400">
+              Bang nay dung de test an toan truoc khi noi workflow nhac hoa don tu dong. Neu thieu OA/token/template,
+              he thong se giu o dry-run va van luu log.
+            </p>
+          </div>
+
+          <div className="mt-4 grid gap-3">
+            {recentInvoices.length ? (
+              recentInvoices.map((invoice) => (
+                <div
+                  key={invoice.id}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-3"
+                >
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-white">
+                      {invoice.invoiceNumber}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      {(invoice.customer?.companyName || invoice.customer?.user?.fullName || 'Khach hang')} ·{' '}
+                      {formatMonthPeriod(invoice.billingMonth, invoice.billingYear)} · {formatCurrency(invoice.totalAmount)}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusPill label={invoice.status} />
+                    <button
+                      type="button"
+                      className="btn-ghost !min-h-[42px] !px-3 !py-2 text-xs"
+                      disabled={zaloLoadingId === invoice.id}
+                      onClick={() => void handleSendZalo(invoice.id)}
+                    >
+                      <Send className="h-3.5 w-3.5" />
+                      {zaloLoadingId === invoice.id ? 'Dang gui...' : 'Gui Zalo'}
+                    </button>
+                  </div>
+                </div>
+              ))
+            ) : (
+              <p className="text-sm leading-6 text-slate-300">
+                Chua co hoa don nao de test. Khi he thong co invoice, admin co the gui template Zalo truc tiep tai day.
+              </p>
+            )}
+          </div>
+        </div>
       </SectionCard>
 
       <SectionCard
@@ -564,6 +795,15 @@ export default function AdminBillingPage() {
                 >
                   <FileDown className="h-3.5 w-3.5" />
                   Tải PDF
+                </button>
+                <button
+                  type="button"
+                  className="btn-ghost !min-h-[42px] !px-3 !py-2 text-xs"
+                  disabled={zaloLoadingId === record.id}
+                  onClick={() => void handleSendZalo(record.invoice!.id, record.id)}
+                >
+                  <Send className="h-3.5 w-3.5" />
+                  {zaloLoadingId === record.id ? 'Dang gui...' : 'Gui Zalo'}
                 </button>
                 {record.invoice.status !== 'PAID' ? (
                   <button

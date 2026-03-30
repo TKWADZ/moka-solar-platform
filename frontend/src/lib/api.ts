@@ -40,6 +40,10 @@ import {
   UserRole,
   WebsiteAiChatResponse,
   WebsiteSettingRecord,
+  ZaloMessageLogRecord,
+  ZaloNotificationStatus,
+  ZaloSendResult,
+  ZaloTemplateType,
 } from '@/types';
 import {
   adminContracts,
@@ -3109,6 +3113,36 @@ export async function downloadPaymentProofRequest(paymentId: string) {
   link.click();
   link.remove();
   URL.revokeObjectURL(href);
+}
+
+export async function zaloNotificationsStatusRequest() {
+  return apiFetch<ZaloNotificationStatus>('/zalo-notifications/status');
+}
+
+export async function listZaloMessageLogsRequest(invoiceId?: string, limit = 20) {
+  const query = new URLSearchParams();
+  if (invoiceId) {
+    query.set('invoiceId', invoiceId);
+  }
+  query.set('limit', String(limit));
+
+  return apiFetch<ZaloMessageLogRecord[]>(
+    `/zalo-notifications/logs${query.toString() ? `?${query.toString()}` : ''}`,
+  );
+}
+
+export async function sendZaloInvoiceNotificationRequest(
+  invoiceId: string,
+  payload?: {
+    templateType?: ZaloTemplateType;
+    recipientPhone?: string;
+    dryRun?: boolean;
+  },
+) {
+  return apiFetch<ZaloSendResult>(`/zalo-notifications/invoices/${invoiceId}/send`, {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  });
 }
 
 export async function aiAssistantStatusRequest(): Promise<AiAssistantStatus> {

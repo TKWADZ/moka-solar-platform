@@ -155,6 +155,7 @@ model Customer {
   contracts           Contract[]
   invoices            Invoice[]
   payments            Payment[]
+  zaloMessageLogs     ZaloMessageLog[]
   deyeConnections     DeyeConnection[]
   solarmanConnections SolarmanConnection[]
   monthlyEnergyRecords MonthlyEnergyRecord[]
@@ -663,6 +664,7 @@ model Invoice {
   items          InvoiceItem[]
   payments       Payment[]
   monthlyPvBilling MonthlyPvBilling?
+  zaloMessageLogs ZaloMessageLog[]
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
   deletedAt      DateTime?
@@ -671,6 +673,33 @@ model Invoice {
   @@index([contractId])
   @@index([status])
   @@index([billingYear, billingMonth])
+  @@index([deletedAt])
+}
+
+model ZaloMessageLog {
+  id              String    @id @default(cuid())
+  invoiceId       String?
+  invoice         Invoice?  @relation(fields: [invoiceId], references: [id], onDelete: SetNull)
+  customerId      String?
+  customer        Customer? @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customerName    String
+  recipientPhone  String
+  templateType    String
+  templateId      String?
+  sendStatus      String
+  providerCode    String?
+  providerMessage String?
+  dryRun          Boolean   @default(false)
+  requestPayload  Json?
+  responsePayload Json?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  deletedAt       DateTime?
+
+  @@index([invoiceId, createdAt])
+  @@index([customerId, createdAt])
+  @@index([sendStatus, createdAt])
+  @@index([templateType])
   @@index([deletedAt])
 }
 

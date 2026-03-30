@@ -33,9 +33,9 @@ const statusLabelMap: Record<string, string> = {
   Attention: 'Cần chú ý',
 };
 
-export function StatusPill({ label }: { label: string }) {
+export function StatusPill({ label, tone: toneOverride }: { label: string; tone?: 'success' | 'warning' | 'danger' | 'default' }) {
   const { tt } = useI18n();
-  const tone = statusTone(label);
+  const tone = toneOverride ?? statusTone(label);
   const displayLabel = statusLabelMap[label] || statusLabelMap[label.toUpperCase()] || tt(label);
 
   return (

@@ -462,6 +462,61 @@ export type NotificationRecord = {
   updatedAt: string;
 };
 
+export type ZaloTemplateType = 'INVOICE' | 'REMINDER' | 'PAID';
+
+export type ZaloTemplateStatus = {
+  configured: boolean;
+  idPreview?: string | null;
+};
+
+export type ZaloNotificationStatus = {
+  configuredForSend: boolean;
+  dryRun: boolean;
+  apiBaseUrl: string;
+  hasAppId: boolean;
+  hasAppSecret: boolean;
+  hasAccessToken: boolean;
+  oaIdPreview?: string | null;
+  templateIds: {
+    INVOICE: ZaloTemplateStatus;
+    REMINDER: ZaloTemplateStatus;
+    PAID: ZaloTemplateStatus;
+  };
+  missingRequired: string[];
+  missingRecommended: string[];
+};
+
+export type ZaloMessageLogRecord = {
+  id: string;
+  invoiceId?: string | null;
+  invoiceNumber?: string | null;
+  customerName: string;
+  recipientPhone: string;
+  templateType: ZaloTemplateType | string;
+  templateId?: string | null;
+  sendStatus: string;
+  providerCode?: string | null;
+  providerMessage?: string | null;
+  dryRun: boolean;
+  createdAt: string;
+};
+
+export type ZaloSendResult = {
+  success: boolean;
+  dryRun: boolean;
+  status: string;
+  invoiceId: string;
+  invoiceNumber: string;
+  customerName: string;
+  recipientPhone?: string | null;
+  templateType: ZaloTemplateType | string;
+  templateId?: string | null;
+  providerCode?: string | null;
+  providerMessage?: string | null;
+  logId: string;
+  sentAt: string;
+};
+
 export type FeaturePlugin = {
   id: string;
   key: string;
