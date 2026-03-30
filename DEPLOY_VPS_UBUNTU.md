@@ -93,6 +93,12 @@ Sample config có sẵn tại:
 - `/` -> frontend `127.0.0.1:3000`
 - `/api/` -> backend `127.0.0.1:4000`
 
+Lưu ý quan trọng:
+
+- Không dùng `proxy_pass http://127.0.0.1:4000/;` trong `location /api/`
+- Với NestJS đang có global prefix `api`, Nginx phải giữ nguyên `/api/...`
+- Mẫu an toàn là `proxy_pass http://127.0.0.1:4000;`
+
 Sau khi đặt config:
 
 ```bash
