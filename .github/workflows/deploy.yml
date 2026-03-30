@@ -18,9 +18,19 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           script: |
             ~/deploy.sh
-            PROJECT_DIRS="$(find "$HOME" -maxdepth 5 -type f -name 'docker-compose.prod.yml' 2>/dev/null | sed 's|/docker-compose.prod.yml$||' | sort -u)"
-
             REDEPLOY_DONE=0
+            PROJECT_DIRS=""
+            if command -v docker >/dev/null 2>&1 && docker ps -a --format '{{.Names}}' | grep -q '^moka_solar_backend$'; then
+              INSPECT_DIR="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' moka_solar_backend 2>/dev/null || true)"
+              if [ -n "$INSPECT_DIR" ]; then
+                PROJECT_DIRS="$INSPECT_DIR"
+              fi
+            fi
+
+            if [ -z "$PROJECT_DIRS" ]; then
+              PROJECT_DIRS="$(find "$HOME" -maxdepth 7 -type f -name 'docker-compose.prod.yml' 2>/dev/null | sed 's|/docker-compose.prod.yml$||' | sort -u)"
+            fi
+
             for dir in $PROJECT_DIRS; do
               if [ ! -d "$dir" ] || [ ! -f "$dir/docker-compose.prod.yml" ]; then
                 continue
