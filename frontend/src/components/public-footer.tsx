@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { BrandLogo } from '@/components/brand-logo';
+import { FooterSection } from '@/config/public-site';
 import { usePublicSiteConfig } from '@/components/public-site-provider';
 import { openPublicChat } from '@/lib/public-site-events';
 
@@ -16,6 +17,20 @@ function isExternalHref(href: string) {
 
 export function PublicFooter() {
   const { siteConfig } = usePublicSiteConfig();
+  const footerSections = (Array.isArray(siteConfig.footer.sections)
+    ? (siteConfig.footer.sections as unknown[])
+    : []
+  ).filter(
+    (section): section is FooterSection =>
+      Boolean(
+        section &&
+          typeof section === 'object' &&
+          'title' in section &&
+          typeof (section as FooterSection).title === 'string' &&
+          'links' in section &&
+          Array.isArray((section as FooterSection).links),
+      ),
+  );
 
   return (
     <footer className="public-section-wide pb-8 sm:pb-10">
@@ -56,7 +71,7 @@ export function PublicFooter() {
             </div>
           </div>
 
-          {siteConfig.footer.sections.map((section) => (
+          {footerSections.map((section) => (
             <div key={section.title} className="min-w-0">
               {section.href ? (
                 isExternalHref(section.href) ? (
@@ -81,7 +96,12 @@ export function PublicFooter() {
               )}
 
               <ul className="mt-3 min-w-0 space-y-2 text-sm leading-6 text-slate-300">
-                {section.links.map((link) => (
+                {section.links
+                  .filter(
+                    (link): link is { label: string; href: string } =>
+                      Boolean(link && typeof link.label === 'string' && typeof link.href === 'string'),
+                  )
+                  .map((link) => (
                   <li key={`${section.title}-${link.label}`}>
                     {isExternalHref(link.href) ? (
                       <a

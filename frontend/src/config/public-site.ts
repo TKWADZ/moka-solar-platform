@@ -879,7 +879,11 @@ function deepMerge<T>(base: T, override: unknown): T {
   }
 
   if (Array.isArray(base)) {
-    if (!Array.isArray(override) || containsMojibake(override)) {
+    if (
+      !Array.isArray(override) ||
+      containsMojibake(override) ||
+      override.some((item) => item === null || item === undefined)
+    ) {
       return base;
     }
 
