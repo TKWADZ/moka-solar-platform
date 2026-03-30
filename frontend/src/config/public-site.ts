@@ -134,8 +134,8 @@ const rawPublicSiteConfig = {
     legalCompanyLabel: "Công ty TNHH Truyền thông Moka",
     hotlineLabel: "0342608192",
     hotlineHref: "tel:0342608192",
-    emailLabel: "mokamediacompany@gmail.com",
-    emailHref: "mailto:mokamediacompany@gmail.com",
+    emailLabel: "hello@mokasolar.com",
+    emailHref: "mailto:hello@mokasolar.com",
     addressLabel:
       "11A Đường 2, Khu đô thị Vạn Phúc, phường Hiệp Bình, TP. Hồ Chí Minh",
     businessHoursLabel: "Giờ làm việc: 8h đến 17h",
@@ -192,7 +192,7 @@ const rawPublicSiteConfig = {
   },
   ctas: {
     consultation: {
-      label: "Nhận tư vấn cho công trình của tôi",
+      label: "Nhận phương án sơ bộ",
       href: "/contact",
     },
     login: {
@@ -224,18 +224,18 @@ const rawPublicSiteConfig = {
   } satisfies PublicPricingPolicy,
   homepage: {
     hero: {
-      eyebrow: "Giải pháp điện mặt trời rõ chi phí, gọn vận hành",
+      eyebrow: "Giải pháp điện mặt trời cho công trình cần tối ưu chi phí điện ban ngày",
       title:
-        "Xem nhanh công suất gợi ý, sản lượng PV tháng và mức thanh toán theo chính sách Moka.",
+        "Giảm chi phí điện ban ngày mà không cần bỏ vốn lớn ngay từ đầu",
       description:
-        "Moka Solar tư vấn và triển khai điện mặt trời theo mô hình thuê hệ thống, PPA, trả góp và hybrid có lưu trữ. Phù hợp cho villa, homestay, quán cà phê, nhà hàng và doanh nghiệp cần một giải pháp cao cấp, rõ chi phí và dễ theo dõi sau lắp đặt.",
+        "Moka Solar tư vấn và triển khai điện mặt trời cho villa, homestay, quán cà phê, nhà hàng và doanh nghiệp theo các mô hình thuê hệ thống, PPA, trả góp và hybrid có lưu trữ. Rõ chi phí, dễ theo dõi và thuận tiện vận hành lâu dài.",
       highlights: [
         "Tiết kiệm tham khảo 20% đến 40% chi phí điện ban ngày",
         "Mức tham chiếu 2.500 đ/kWh, chưa gồm VAT",
         "Theo dõi sản lượng, hóa đơn và hỗ trợ trên một portal riêng",
       ],
-      primaryCtaLabel: "Nhận tư vấn nhanh",
-      secondaryCtaLabel: "Chat Zalo ngay",
+      primaryCtaLabel: "Nhận phương án sơ bộ",
+      secondaryCtaLabel: "Chat Zalo",
       tertiaryCtaLabel: "Gọi hotline",
       metricCards: [
         {
@@ -257,11 +257,11 @@ const rawPublicSiteConfig = {
       visualCards: [
         {
           label: "Khách hàng mục tiêu",
-          title: "Villa, homestay, quán cà phê, nhà hàng và doanh nghiệp nhỏ",
+          title: "Villa, homestay, quán cà phê, nhà hàng và doanh nghiệp nhỏ cần phương án rõ chi phí",
         },
         {
-          label: "Trải nghiệm vận hành",
-          title: "Portal riêng để xem sản lượng, hóa đơn và lịch sử hỗ trợ",
+          label: "Theo dõi sau lắp đặt",
+          title: "Portal riêng để xem sản lượng, hóa đơn và lịch sử hỗ trợ sau triển khai",
         },
       ],
       visualStats: [
@@ -277,40 +277,44 @@ const rawPublicSiteConfig = {
     },
     benefits: [
       {
-        title: "Không ép khách theo một mô hình duy nhất",
-        body: "Mỗi công trình được tư vấn theo dòng tiền, phụ tải và mục tiêu vận hành thực tế.",
+        title: "Phương án tài chính rõ ràng",
+        body: "Hiển thị cách tính sản lượng, mức thanh toán và phần tiết kiệm trước khi chốt.",
       },
       {
-        title: "Dễ hiểu cho người ra quyết định",
-        body: "Báo giá, lộ trình triển khai và phần tiết kiệm được trình bày gọn, rõ và dễ so sánh.",
+        title: "Phù hợp nhiều mô hình công trình",
+        body: "Villa, homestay, quán cà phê, nhà hàng và doanh nghiệp nhỏ.",
       },
       {
-        title: "Có lớp vận hành sau lắp đặt",
-        body: "Khách hàng theo dõi hệ thống, hóa đơn và yêu cầu hỗ trợ trên cùng một trải nghiệm thống nhất.",
+        title: "Theo dõi sau lắp đặt",
+        body: "Portal riêng để xem sản lượng, hóa đơn và lịch sử hỗ trợ.",
+      },
+      {
+        title: "Quy trình triển khai rõ bước",
+        body: "Khảo sát, đề xuất, triển khai, nghiệm thu và vận hành.",
       },
     ] satisfies HomepageBenefit[],
     companyStory: {
       eyebrow: "Vì sao chọn Moka Solar",
       title:
-        "Một thương hiệu dịch vụ năng lượng được xây để đi cùng khách hàng sau ngày nghiệm thu.",
+        "Một đầu mối rõ ràng từ khảo sát, triển khai đến vận hành sau lắp đặt.",
       body:
-        "Moka Solar là thương hiệu điện mặt trời do Công ty TNHH Truyền thông Moka phát triển. Chúng tôi tập trung vào phương án rõ ràng, cấu trúc tài chính linh hoạt và khả năng chăm sóc sau triển khai để phục vụ khách hàng lâu dài.",
+        "Moka Solar là thương hiệu điện mặt trời do Công ty TNHH Truyền thông Moka phát triển. Chúng tôi tập trung vào phương án tài chính dễ hiểu, lộ trình triển khai rõ bước và lớp hỗ trợ sau lắp đặt để khách hàng yên tâm vận hành dài hạn.",
       trustPoints: [
         {
-          title: "Bài toán tài chính được nói rõ ngay từ đầu",
-          body: "Khách hàng nhìn thấy cách tính tiền, phần tiết kiệm và trách nhiệm vận hành trước khi quyết định.",
+          title: "Tư vấn theo phụ tải và dòng tiền",
+          body: "Mỗi công trình được đánh giá theo cách dùng điện, mức đầu tư và mục tiêu vận hành thực tế.",
         },
         {
-          title: "Thiết kế phù hợp nhóm khách hàng cao cấp",
-          body: "Ưu tiên công trình villa, homestay, quán cà phê, nhà hàng và SME cần một phương án rõ ràng, đáng tin và dễ đi vào triển khai.",
+          title: "Ưu tiên nhóm công trình cần hiệu quả thực thi",
+          body: "Tập trung vào villa, homestay, quán cà phê, nhà hàng và doanh nghiệp nhỏ cần giải pháp rõ ràng, gọn vận hành.",
         },
         {
-          title: "Có lớp báo cáo và hỗ trợ sau bán hàng",
-          body: "Từ sản lượng, hóa đơn đến ticket hỗ trợ đều được tổ chức theo một quy trình rõ ràng.",
+          title: "Có đầu mối theo dõi sau lắp đặt",
+          body: "Khách hàng xem sản lượng, hóa đơn và lịch sử hỗ trợ trên cùng một hành trình theo dõi.",
         },
         {
-          title: "Dễ mở rộng khi danh mục công trình tăng lên",
-          body: "Hệ thống đã sẵn sàng cho việc theo dõi nhiều site và nhiều mô hình hợp đồng trong tương lai.",
+          title: "Quy trình triển khai và vận hành rõ bước",
+          body: "Khảo sát, đề xuất, triển khai, nghiệm thu và hỗ trợ kỹ thuật được tổ chức theo từng giai đoạn.",
         },
       ] satisfies HomepageTrustPoint[],
     },
@@ -318,7 +322,7 @@ const rawPublicSiteConfig = {
       eyebrow: "Tình huống triển khai tham khảo",
       title: "Ba kịch bản tiêu biểu để hình dung nhanh mức phù hợp trước buổi khảo sát.",
       description:
-        "Các số liệu dưới đây là ví dụ tham khảo để khách hàng hình dung phương án phù hợp theo từng loại công trình.",
+        "Các ví dụ dưới đây giúp khách hàng hình dung nhanh mức phù hợp theo từng loại công trình.",
       items: [
         {
           title: "Biệt thự tại Vạn Phúc",
@@ -382,15 +386,35 @@ const rawPublicSiteConfig = {
         answer:
           "Khách hàng có thể gửi ticket trên portal, nhắn Zalo hoặc gọi trực tiếp tới đội vận hành trong giờ làm việc.",
       },
+      {
+        question: "Nếu mái có bóng che hoặc diện tích hạn chế thì sao?",
+        answer:
+          "Moka Solar sẽ khảo sát thực tế để đánh giá mức phù hợp của hệ thống, sản lượng kỳ vọng và phương án triển khai tối ưu theo điều kiện mái.",
+      },
+      {
+        question: "Khi mất điện lưới, hệ thống có tiếp tục sử dụng được không?",
+        answer:
+          "Điều này phụ thuộc vào cấu hình hệ thống. Với phương án hybrid có lưu trữ và thiết kế phù hợp, công trình có thể tăng tính chủ động nguồn điện khi cần.",
+      },
+      {
+        question: "Thời gian khảo sát và lắp đặt thường bao lâu?",
+        answer:
+          "Thời gian thực hiện phụ thuộc vào quy mô công trình, điều kiện mái và mô hình triển khai. Sau khảo sát, Moka Solar sẽ đề xuất lộ trình cụ thể để khách hàng dễ sắp xếp.",
+      },
+      {
+        question: "Ai chịu trách nhiệm bảo trì và xử lý sự cố sau lắp đặt?",
+        answer:
+          "Tùy theo mô hình hợp đồng, Moka Solar sẽ là đầu mối tiếp nhận, theo dõi và phản hồi các yêu cầu vận hành, bảo trì và hỗ trợ kỹ thuật.",
+      },
     ] satisfies HomepageFaq[],
     finalCta: {
       eyebrow: "Sẵn sàng nhận tư vấn",
       title:
         "Nếu bạn đang cân nhắc điện mặt trời, hãy bắt đầu từ một buổi trao đổi ngắn và rõ.",
       body:
-        "Moka Solar sẽ giúp bạn chốt công suất phù hợp, cấu trúc thanh toán hợp lý và lộ trình triển khai đủ thực tế để ra quyết định.",
-      primaryLabel: "Để lại thông tin ngay",
-      secondaryLabel: "Nhắn Zalo cho Moka Solar",
+        "Moka Solar sẽ giúp bạn hình dung công suất phù hợp, cấu trúc thanh toán và lộ trình triển khai trước buổi khảo sát thực tế.",
+      primaryLabel: "Nhận phương án sơ bộ",
+      secondaryLabel: "Chat Zalo",
     },
   },
   footer: {
@@ -398,10 +422,10 @@ const rawPublicSiteConfig = {
     headline:
       "Moka Solar đồng hành từ khảo sát, triển khai đến vận hành và hỗ trợ sau bán hàng.",
     description:
-      "Moka Solar là thương hiệu dịch vụ năng lượng mặt trời do Công ty TNHH Truyền thông Moka vận hành. Chúng tôi tập trung vào tư vấn rõ ràng, vận hành gọn và khả năng phục vụ khách hàng dài hạn.",
-    ctaLabel: "Nhận tư vấn nhanh",
+      "Moka Solar là thương hiệu dịch vụ năng lượng mặt trời do Công ty TNHH Truyền thông Moka vận hành. Chúng tôi tập trung vào tư vấn rõ ràng, triển khai gọn và khả năng đồng hành dài hạn.",
+    ctaLabel: "Nhận phương án sơ bộ",
     ctaHref: "/contact",
-    secondaryCtaLabel: "Mở chat tư vấn",
+    secondaryCtaLabel: "Chat Zalo",
     sections: [
       {
         title: "Giải pháp",
@@ -425,8 +449,8 @@ const rawPublicSiteConfig = {
         links: [
           { label: "Hotline: 0342608192", href: "tel:0342608192" },
           {
-            label: "Email: mokamediacompany@gmail.com",
-            href: "mailto:mokamediacompany@gmail.com",
+            label: "Email: hello@mokasolar.com",
+            href: "mailto:hello@mokasolar.com",
           },
           { label: "Chat Zalo", href: "https://zalo.me/0342608192" },
         ],
@@ -762,7 +786,7 @@ const rawPublicSiteConfig = {
           "Nhắc bảo trì và ghi nhận lịch sử chăm sóc sau bán hàng.",
         ],
         support:
-          "Đây là lớp giúp Moka Solar khác với một website giới thiệu đơn thuần: khách hàng cảm nhận được có hệ thống, có quy trình và có người chịu trách nhiệm.",
+          "Đây là lớp giúp khách hàng thấy rõ có dữ liệu, có quy trình và có đầu mối đồng hành sau lắp đặt.",
         process: [
           "Chuẩn hóa cách tiếp nhận và theo dõi khách hàng.",
           "Kết nối dữ liệu hợp đồng, hóa đơn và hệ thống.",

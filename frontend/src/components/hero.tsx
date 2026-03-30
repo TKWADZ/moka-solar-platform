@@ -66,7 +66,7 @@ export function Hero() {
               ))}
             </div>
 
-            <div className="grid gap-3 lg:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2">
               <Link
                 href={buildContactHref('Tư vấn điện mặt trời cho công trình của tôi', siteConfig)}
                 className="btn-primary w-full"
@@ -77,10 +77,22 @@ export function Hero() {
               <a href={siteConfig.contact.zaloHref} className="btn-ghost w-full">
                 {hero.secondaryCtaLabel}
               </a>
-              <a href={siteConfig.contact.hotlineHref} className="btn-dark w-full">
+            </div>
+
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm text-slate-400">
+              <a
+                href={siteConfig.contact.hotlineHref}
+                className="inline-flex items-center font-medium text-slate-300 transition hover:text-white"
+              >
                 <PhoneCall className="mr-2 h-4 w-4" />
                 {hero.tertiaryCtaLabel}
               </a>
+              <Link
+                href={siteConfig.ctas.login.href}
+                className="inline-flex font-medium text-slate-400 transition hover:text-white"
+              >
+                {siteConfig.ctas.login.label}
+              </Link>
             </div>
 
             <div className="rounded-[22px] border border-white/10 bg-white/[0.04] px-4 py-4">

@@ -108,7 +108,10 @@ export function PublicHeader() {
                 <PhoneCall className="mr-2 h-4 w-4" />
                 {siteConfig.contact.hotlineLabel}
               </a>
-              <Link href={siteConfig.ctas.login.href} className="btn-ghost">
+              <Link
+                href={siteConfig.ctas.login.href}
+                className="text-sm font-semibold text-slate-400 transition hover:text-white"
+              >
                 {siteConfig.ctas.login.label}
               </Link>
               <Link href={siteConfig.ctas.consultation.href} className="btn-primary">
@@ -194,7 +197,7 @@ export function PublicHeader() {
                 <Link
                   href={siteConfig.ctas.login.href}
                   onClick={() => setMobileMenuOpen(false)}
-                  className="btn-ghost w-full"
+                  className="px-3 py-2 text-center text-sm font-medium text-slate-400 transition hover:text-white"
                 >
                   {siteConfig.ctas.login.label}
                 </Link>

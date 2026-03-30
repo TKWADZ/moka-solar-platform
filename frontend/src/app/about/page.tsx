@@ -33,8 +33,8 @@ export default function AboutPage() {
               <p className="eyebrow text-slate-500">Định hướng thương hiệu</p>
               <h2 className="mt-3 text-2xl font-semibold text-white">Premium, hiện đại, tối giản</h2>
               <p className="mt-3 text-sm leading-7 text-slate-300">
-                Moka Solar theo đuổi cách trình bày gọn, sạch và đáng tin cho website, tài liệu bàn
-                giao và cổng khách hàng.
+                Moka Solar theo đuổi cách làm việc gọn, sạch và đáng tin trong tài liệu triển khai,
+                hồ sơ bàn giao và cổng khách hàng.
               </p>
             </div>
 
@@ -52,7 +52,7 @@ export default function AboutPage() {
               <h2 className="mt-3 text-2xl font-semibold text-white">Từ tư vấn đến vận hành</h2>
               <p className="mt-3 text-sm leading-7 text-slate-300">
                 Moka Solar không chỉ dừng ở phần triển khai. Chúng tôi chuẩn bị cả lớp theo dõi sản
-                lượng, hóa đơn, ticket hỗ trợ và quy trình vận hành để khách hàng an tâm hơn lâu dài.
+                lượng, hóa đơn, hỗ trợ vận hành và quy trình chăm sóc để khách hàng an tâm hơn lâu dài.
               </p>
             </div>
           </div>

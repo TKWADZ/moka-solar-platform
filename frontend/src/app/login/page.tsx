@@ -18,33 +18,28 @@ import { loginRequest } from '@/lib/api';
 import { getDefaultRouteForRole, getSession, saveSession } from '@/lib/auth';
 import { UserRole } from '@/types';
 
-const SAMPLE_ACCOUNTS_ENABLED =
-  process.env.NEXT_PUBLIC_ENABLE_SAMPLE_ACCOUNTS === 'true';
-const SELF_REGISTER_ENABLED =
-  process.env.NEXT_PUBLIC_ENABLE_SELF_REGISTER === 'true';
+const SAMPLE_ACCOUNTS_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SAMPLE_ACCOUNTS === 'true';
+const SELF_REGISTER_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SELF_REGISTER === 'true';
 
 const sampleAccounts = [
   {
     role: 'SUPER_ADMIN' as UserRole,
     label: 'Quản trị hệ thống',
-    description:
-      'Theo dõi báo cáo điều hành, người dùng, cấu hình hệ thống và các tích hợp.',
+    description: 'Theo dõi báo cáo điều hành, người dùng, cấu hình hệ thống và các tích hợp.',
     email: process.env.NEXT_PUBLIC_SAMPLE_SUPERADMIN_EMAIL || '',
     password: process.env.NEXT_PUBLIC_SAMPLE_SUPERADMIN_PASSWORD || '',
   },
   {
     role: 'ADMIN' as UserRole,
     label: 'Nhân sự vận hành',
-    description:
-      'Quản lý khách hàng, hóa đơn, ticket hỗ trợ và dữ liệu điện năng hằng ngày.',
+    description: 'Quản lý khách hàng, hóa đơn, ticket hỗ trợ và dữ liệu điện năng hằng ngày.',
     email: process.env.NEXT_PUBLIC_SAMPLE_ADMIN_EMAIL || '',
     password: process.env.NEXT_PUBLIC_SAMPLE_ADMIN_PASSWORD || '',
   },
   {
     role: 'CUSTOMER' as UserRole,
     label: 'Khách hàng',
-    description:
-      'Xem sản lượng điện, hóa đơn, thanh toán và tình trạng hệ thống của mình.',
+    description: 'Xem sản lượng điện, hóa đơn, thanh toán và tình trạng hệ thống của mình.',
     email: process.env.NEXT_PUBLIC_SAMPLE_CUSTOMER_EMAIL || '',
     password: process.env.NEXT_PUBLIC_SAMPLE_CUSTOMER_PASSWORD || '',
   },

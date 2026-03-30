@@ -38,11 +38,12 @@ export default function HomePage() {
 
         <PublicSection>
           <SectionIntro
-            eyebrow="Lợi ích chính"
-            title="Rõ chi phí, rõ mô hình triển khai và rõ cách liên hệ ngay từ lần xem đầu."
+            eyebrow="Bằng chứng tham khảo"
+            title="Cơ sở để bạn ra quyết định nhanh hơn"
+            body="Bốn điểm cốt lõi giúp khách hàng hình dung nhanh mức phù hợp trước buổi khảo sát."
           />
 
-          <div className="public-grid-3">
+          <div className="grid gap-4 md:grid-cols-2">
             {siteConfig.homepage.benefits.map((benefit) => (
               <div key={benefit.title} className="public-card">
                 <p className="text-lg font-semibold text-white">{benefit.title}</p>
@@ -68,7 +69,7 @@ export default function HomePage() {
                     openPublicChat('contact', 'Tôi muốn được tư vấn chọn mô hình điện mặt trời phù hợp.')
                   }
                 >
-                  Tư vấn mô hình phù hợp
+                  {siteConfig.ctas.consultation.label}
                 </button>
               </>
             }
@@ -218,18 +219,12 @@ export default function HomePage() {
 
               <div className="cta-row">
                 <Link href={siteConfig.homepage.implementation.operationsCtaHref} className="btn-primary w-full sm:w-auto">
-                  {siteConfig.homepage.implementation.operationsCtaLabel}
+                  {siteConfig.ctas.consultation.label}
                   <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
-                <button
-                  type="button"
-                  className="btn-ghost w-full sm:w-auto"
-                  onClick={() =>
-                    openPublicChat('contact', 'Tôi muốn tìm hiểu cách Moka Solar vận hành và hỗ trợ sau lắp đặt.')
-                  }
-                >
-                  Nhắn đội ngũ tư vấn
-                </button>
+                <a href={siteConfig.contact.zaloHref} className="btn-ghost w-full sm:w-auto">
+                  {siteConfig.homepage.finalCta.secondaryLabel}
+                </a>
               </div>
             </div>
           </div>
@@ -289,7 +284,7 @@ export default function HomePage() {
                     Moka Solar x Công ty TNHH Truyền thông Moka
                   </p>
                   <p className="mt-2 text-lg font-semibold text-white sm:text-2xl">
-                    Một website đủ đẹp để chốt khách hàng, và đủ rõ để vận hành lâu dài.
+                    Một giải pháp đủ rõ để ra quyết định và đủ chắc để vận hành dài hạn.
                   </p>
                 </div>
               </div>

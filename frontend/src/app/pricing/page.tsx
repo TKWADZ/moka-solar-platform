@@ -86,7 +86,7 @@ export default function PricingPage() {
                   openPublicChat('contact', 'Tôi muốn được tư vấn chọn mô hình điện mặt trời phù hợp.')
                 }
               >
-                Nhận tư vấn nhanh
+                Nhận phương án sơ bộ
               </button>
             }
           />
@@ -164,22 +164,22 @@ export default function PricingPage() {
             <div className="hero-panel px-5 py-6 sm:px-8">
               <p className="eyebrow text-slate-400">Bước tiếp theo</p>
               <h3 className="mt-3 text-3xl font-semibold text-white">
-                Nhận một đề xuất đủ rõ để biết công trình của bạn nên đi theo hướng nào.
+                Nhận một phương án sơ bộ đủ rõ để biết công trình của bạn nên đi theo hướng nào.
               </h3>
               <p className="mt-4 max-w-2xl text-sm leading-7 text-slate-300">
                 Moka Solar sẽ cùng bạn chốt công suất phù hợp, cấu trúc thanh toán hợp lý và lộ trình
-                triển khai khả thi thay vì chỉ gửi một bảng giá chung chung.
+                triển khai khả thi trước buổi khảo sát thực tế.
               </p>
               <div className="cta-row">
                 <Link
-                  href={buildContactHref('Tư vấn đề xuất thương mại điện mặt trời', siteConfig)}
+                  href={buildContactHref('Tư vấn phương án điện mặt trời cho công trình', siteConfig)}
                   className="btn-primary w-full sm:w-auto"
                 >
-                  Nhận tư vấn
+                  Nhận phương án sơ bộ
                   <ArrowUpRight className="ml-2 h-4 w-4" />
                 </Link>
                 <a href={siteConfig.contact.zaloHref} className="btn-ghost w-full sm:w-auto">
-                  Nhắn Zalo ngay
+                  Chat Zalo
                 </a>
               </div>
             </div>

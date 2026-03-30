@@ -210,6 +210,19 @@ export function QuoteEstimator({ dark = false }: { dark?: boolean }) {
           </div>
 
           <div className="sm:col-span-2">
+            <div className="rounded-[20px] border border-white/8 bg-white/[0.035] px-4 py-4 sm:px-5">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-slate-400">
+                Lưu ý
+              </p>
+              <p className="mt-2 text-sm leading-7 text-slate-300">
+                Đây là ước tính sơ bộ trước khảo sát thực tế. Sản lượng và hiệu quả phụ thuộc vào
+                diện tích mái, hướng nắng, bóng che, thời gian sử dụng tải và cấu hình hệ thống.
+                Đơn giá thực tế sẽ được xác nhận trong hợp đồng.
+              </p>
+            </div>
+          </div>
+
+          <div className="sm:col-span-2">
             <div className="public-card-soft">
               <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
                 Chính sách giá tham chiếu
@@ -260,14 +273,11 @@ export function QuoteEstimator({ dark = false }: { dark?: boolean }) {
                     )
                   }
                 >
-                  Nhận tư vấn theo số liệu này
+                  {siteConfig.ctas.consultation.label}
                 </button>
-                <Link
-                  href={buildContactHref('Tư vấn từ công cụ ước tính điện mặt trời', siteConfig)}
-                  className="btn-ghost w-full sm:w-auto"
-                >
-                  Để lại thông tin
-                </Link>
+                <a href={siteConfig.contact.zaloHref} className="btn-ghost w-full sm:w-auto">
+                  {siteConfig.homepage.finalCta.secondaryLabel}
+                </a>
               </div>
             </div>
           </div>

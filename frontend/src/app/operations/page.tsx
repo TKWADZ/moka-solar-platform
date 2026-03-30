@@ -118,11 +118,11 @@ export default function OperationsPage() {
                 )}
                 className="btn-primary w-full sm:w-auto"
               >
-                Nhận tư vấn
+                Nhận phương án sơ bộ
                 <ArrowUpRight className="ml-2 h-4 w-4" />
               </Link>
               <a href={siteConfig.contact.zaloHref} className="btn-ghost w-full sm:w-auto">
-                Nhắn Zalo
+                Chat Zalo
               </a>
             </div>
           </div>
