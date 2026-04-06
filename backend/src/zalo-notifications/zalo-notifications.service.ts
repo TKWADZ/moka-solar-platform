@@ -34,6 +34,26 @@ type SendExecutionParams = {
   missingRecommended?: string[];
 };
 
+type ProviderAttemptResult = {
+  sendStatus: 'SENT' | 'FAILED';
+  responsePayload: unknown;
+  providerCode: string | null;
+  providerMessage: string;
+  httpStatus: number;
+};
+
+type RefreshTokenResult = {
+  success: boolean;
+  accessToken?: string;
+  refreshToken?: string | null;
+  accessTokenExpiresAt?: Date | null;
+  providerCode?: string | null;
+  providerMessage: string;
+  responsePayload?: unknown;
+  persisted: boolean;
+  persistMode: 'database' | 'env-only' | 'disabled';
+};
+
 @Injectable()
 export class ZaloNotificationsService {
   constructor(
@@ -313,12 +333,255 @@ export class ZaloNotificationsService {
           simulated: true,
           missingRequired: params.config.missingRequired,
           missingRecommended: params.config.missingRecommended,
+          accessTokenSource: params.config.accessTokenSource,
+          refreshTokenSource: params.config.refreshTokenSource,
+          autoRefreshEnabled: params.config.autoRefreshEnabled,
         },
         missingRequired: params.config.missingRequired,
         missingRecommended: params.config.missingRecommended,
       });
     }
 
+    let activeAccessToken = params.config.accessToken;
+
+    if (!activeAccessToken && params.config.autoRefreshEnabled) {
+      const refreshOutcome = await this.tryRefreshAccessToken({
+        config: params.config,
+        actorId: params.actorId,
+      });
+
+      if (!refreshOutcome.success || !refreshOutcome.accessToken) {
+        return this.logAndReturnResult({
+          invoice: params.invoice || null,
+          actorId: params.actorId,
+          customerId: params.customerId || null,
+          customerName: params.customerName,
+          templateType: params.templateType,
+          templateId: params.templateId,
+          recipientPhone: params.recipientPhone,
+          dryRun: false,
+          requestPayload: params.requestPayload,
+          responsePayload: {
+            refresh: refreshOutcome.responsePayload || {
+              status: refreshOutcome.success ? 'SUCCESS' : 'FAILED',
+              persistMode: refreshOutcome.persistMode,
+              providerMessage: refreshOutcome.providerMessage,
+            },
+          },
+          sendStatus: 'FAILED',
+          providerCode: refreshOutcome.providerCode || 'REFRESH_FAILED',
+          providerMessage: refreshOutcome.providerMessage,
+          missingRequired: params.config.missingRequired,
+          missingRecommended: params.config.missingRecommended,
+        });
+      }
+
+      activeAccessToken = refreshOutcome.accessToken;
+    }
+
+    if (!activeAccessToken) {
+      return this.logAndReturnResult({
+        invoice: params.invoice || null,
+        actorId: params.actorId,
+        customerId: params.customerId || null,
+        customerName: params.customerName,
+        templateType: params.templateType,
+        templateId: params.templateId,
+        recipientPhone: params.recipientPhone,
+        dryRun: false,
+        requestPayload: params.requestPayload,
+        sendStatus: 'FAILED',
+        providerCode: 'MISSING_ACCESS_TOKEN',
+        providerMessage: 'Khong co access token hop le de gui thong bao Zalo.',
+        missingRequired: params.config.missingRequired,
+        missingRecommended: params.config.missingRecommended,
+      });
+    }
+
+    const primaryAttempt = await this.performProviderSend({
+      accessToken: activeAccessToken,
+      config: params.config,
+      requestPayload: params.requestPayload,
+    });
+
+    if (primaryAttempt.sendStatus === 'SENT') {
+      await this.zaloSettingsService.recordTokenStatus({
+        actorId: params.actorId,
+        status: 'AVAILABLE',
+        message: 'Access token duoc Zalo chap nhan.',
+        accessTokenExpiresAt: params.config.accessTokenExpiresAt
+          ? new Date(params.config.accessTokenExpiresAt)
+          : null,
+      });
+
+      return this.logAndReturnResult({
+        invoice: params.invoice || null,
+        actorId: params.actorId,
+        customerId: params.customerId || null,
+        customerName: params.customerName,
+        templateType: params.templateType,
+        templateId: params.templateId,
+        recipientPhone: params.recipientPhone,
+        dryRun: false,
+        requestPayload: params.requestPayload,
+        responsePayload: primaryAttempt.responsePayload,
+        sendStatus: primaryAttempt.sendStatus,
+        providerCode: primaryAttempt.providerCode,
+        providerMessage: primaryAttempt.providerMessage,
+        missingRequired: params.config.missingRequired,
+        missingRecommended: params.config.missingRecommended,
+      });
+    }
+
+    return this.handleProviderFailure({
+      actorId: params.actorId,
+      config: params.config,
+      invoice: params.invoice || null,
+      customerId: params.customerId || null,
+      customerName: params.customerName,
+      templateType: params.templateType,
+      templateId: params.templateId,
+      recipientPhone: params.recipientPhone,
+      requestPayload: params.requestPayload,
+      primaryAttempt,
+    });
+  }
+
+  private async handleProviderFailure(params: {
+    actorId?: string;
+    config: ResolvedZaloConfig;
+    invoice?: any | null;
+    customerId?: string | null;
+    customerName: string;
+    templateType: ZaloTemplateType | 'TEST';
+    templateId: string | null;
+    recipientPhone: string;
+    requestPayload: Record<string, unknown>;
+    primaryAttempt: ProviderAttemptResult;
+  }) {
+    if (this.isTokenRejected(params.primaryAttempt) && params.config.autoRefreshEnabled) {
+      await this.zaloSettingsService.recordTokenStatus({
+        actorId: params.actorId,
+        status: 'REJECTED',
+        message: params.primaryAttempt.providerMessage,
+      });
+
+      const refreshOutcome = await this.tryRefreshAccessToken({
+        config: params.config,
+        actorId: params.actorId,
+      });
+
+      if (!refreshOutcome.success || !refreshOutcome.accessToken) {
+        return this.logAndReturnResult({
+          invoice: params.invoice || null,
+          actorId: params.actorId,
+          customerId: params.customerId || null,
+          customerName: params.customerName,
+          templateType: params.templateType,
+          templateId: params.templateId,
+          recipientPhone: params.recipientPhone,
+          dryRun: false,
+          requestPayload: params.requestPayload,
+          responsePayload: {
+            primaryAttempt: params.primaryAttempt.responsePayload,
+            refresh: refreshOutcome.responsePayload || {
+              status: refreshOutcome.success ? 'SUCCESS' : 'FAILED',
+              persistMode: refreshOutcome.persistMode,
+              providerMessage: refreshOutcome.providerMessage,
+            },
+          },
+          sendStatus: 'FAILED',
+          providerCode: refreshOutcome.providerCode || params.primaryAttempt.providerCode,
+          providerMessage: `${params.primaryAttempt.providerMessage}. Auto-refresh that bai: ${refreshOutcome.providerMessage}`,
+          missingRequired: params.config.missingRequired,
+          missingRecommended: params.config.missingRecommended,
+        });
+      }
+
+      const retryAttempt = await this.performProviderSend({
+        accessToken: refreshOutcome.accessToken,
+        config: params.config,
+        requestPayload: params.requestPayload,
+      });
+
+      if (retryAttempt.sendStatus === 'SENT') {
+        await this.zaloSettingsService.recordTokenStatus({
+          actorId: params.actorId,
+          status: 'AVAILABLE',
+          message: 'Access token duoc refresh va gui lai thanh cong.',
+          accessTokenExpiresAt: refreshOutcome.accessTokenExpiresAt || null,
+        });
+      } else if (this.isTokenRejected(retryAttempt)) {
+        await this.zaloSettingsService.recordTokenStatus({
+          actorId: params.actorId,
+          status: 'REJECTED',
+          message: retryAttempt.providerMessage,
+          accessTokenExpiresAt: refreshOutcome.accessTokenExpiresAt || null,
+        });
+      }
+
+      return this.logAndReturnResult({
+        invoice: params.invoice || null,
+        actorId: params.actorId,
+        customerId: params.customerId || null,
+        customerName: params.customerName,
+        templateType: params.templateType,
+        templateId: params.templateId,
+        recipientPhone: params.recipientPhone,
+        dryRun: false,
+        requestPayload: params.requestPayload,
+        responsePayload: {
+          primaryAttempt: params.primaryAttempt.responsePayload,
+          refresh: refreshOutcome.responsePayload || {
+            status: refreshOutcome.success ? 'SUCCESS' : 'FAILED',
+            persistMode: refreshOutcome.persistMode,
+            providerMessage: refreshOutcome.providerMessage,
+          },
+          retryAttempt: retryAttempt.responsePayload,
+        },
+        sendStatus: retryAttempt.sendStatus,
+        providerCode: retryAttempt.providerCode,
+        providerMessage:
+          retryAttempt.sendStatus === 'SENT'
+            ? `${retryAttempt.providerMessage} (Da auto-refresh access token)`
+            : retryAttempt.providerMessage,
+        missingRequired: params.config.missingRequired,
+        missingRecommended: params.config.missingRecommended,
+      });
+    }
+
+    if (this.isTokenRejected(params.primaryAttempt)) {
+      await this.zaloSettingsService.recordTokenStatus({
+        actorId: params.actorId,
+        status: 'REJECTED',
+        message: params.primaryAttempt.providerMessage,
+      });
+    }
+
+    return this.logAndReturnResult({
+      invoice: params.invoice || null,
+      actorId: params.actorId,
+      customerId: params.customerId || null,
+      customerName: params.customerName,
+      templateType: params.templateType,
+      templateId: params.templateId,
+      recipientPhone: params.recipientPhone,
+      dryRun: false,
+      requestPayload: params.requestPayload,
+      responsePayload: params.primaryAttempt.responsePayload,
+      sendStatus: params.primaryAttempt.sendStatus,
+      providerCode: params.primaryAttempt.providerCode,
+      providerMessage: params.primaryAttempt.providerMessage,
+      missingRequired: params.config.missingRequired,
+      missingRecommended: params.config.missingRecommended,
+    });
+  }
+
+  private async performProviderSend(params: {
+    accessToken: string;
+    config: ResolvedZaloConfig;
+    requestPayload: Record<string, unknown>;
+  }): Promise<ProviderAttemptResult> {
     const sendUrl = this.buildSendUrl(params.config.apiBaseUrl);
     let response: Response;
     let responseBody: unknown = null;
@@ -328,7 +591,7 @@ export class ZaloNotificationsService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${params.config.accessToken}`,
+          Authorization: `Bearer ${params.accessToken}`,
           'X-Zalo-OA-ID': params.config.oaId || '',
         },
         body: JSON.stringify(params.requestPayload),
@@ -353,23 +616,143 @@ export class ZaloNotificationsService {
       (response.ok ? 'Zalo API accepted the request.' : `HTTP ${response.status}`);
     const sendStatus = response.ok && this.isProviderSuccess(responseBody) ? 'SENT' : 'FAILED';
 
-    return this.logAndReturnResult({
-      invoice: params.invoice || null,
-      actorId: params.actorId,
-      customerId: params.customerId || null,
-      customerName: params.customerName,
-      templateType: params.templateType,
-      templateId: params.templateId,
-      recipientPhone: params.recipientPhone,
-      dryRun: false,
-      requestPayload: params.requestPayload,
-      responsePayload: responseBody,
+    return {
       sendStatus,
+      responsePayload: responseBody,
       providerCode: normalizedProviderCode,
       providerMessage: normalizedProviderMessage,
-      missingRequired: params.config.missingRequired,
-      missingRecommended: params.config.missingRecommended,
+      httpStatus: response.status,
+    };
+  }
+
+  private async tryRefreshAccessToken(params: {
+    config: ResolvedZaloConfig;
+    actorId?: string;
+  }): Promise<RefreshTokenResult> {
+    if (!params.config.autoRefreshEnabled) {
+      await this.zaloSettingsService.recordRefreshResult({
+        actorId: params.actorId,
+        status: 'SKIPPED',
+        message: 'Auto-refresh dang tat vi thieu refresh token, App ID hoac App Secret.',
+      });
+
+      return {
+        success: false,
+        providerCode: 'AUTO_REFRESH_DISABLED',
+        providerMessage: 'Auto-refresh dang tat vi thieu refresh token, App ID hoac App Secret.',
+        persisted: false,
+        persistMode: 'disabled',
+      };
+    }
+
+    const refreshUrl = this.buildRefreshUrl(params.config.oauthBaseUrl);
+    const requestBody = new URLSearchParams({
+      app_id: params.config.appId || '',
+      refresh_token: params.config.refreshToken || '',
+      grant_type: 'refresh_token',
     });
+
+    let response: Response;
+    let responseBody: unknown = null;
+
+    try {
+      response = await fetch(refreshUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/x-www-form-urlencoded',
+          secret_key: params.config.appSecret || '',
+        },
+        body: requestBody.toString(),
+      });
+    } catch (error) {
+      const providerMessage =
+        error instanceof Error
+          ? `Khong the refresh token Zalo: ${error.message}`
+          : 'Khong the refresh token Zalo.';
+
+      await this.zaloSettingsService.recordRefreshResult({
+        actorId: params.actorId,
+        status: 'FAILED',
+        message: providerMessage,
+        nextTokenState: 'REJECTED',
+      });
+
+      return {
+        success: false,
+        providerCode: 'REFRESH_REQUEST_FAILED',
+        providerMessage,
+        persisted: false,
+        persistMode: params.config.autoRefreshPersistMode,
+      };
+    }
+
+    try {
+      responseBody = await response.json();
+    } catch {
+      responseBody = null;
+    }
+
+    const normalizedResponse = this.unwrapRefreshPayload(responseBody);
+    const providerCode = this.extractProviderCode(normalizedResponse);
+    const providerMessage =
+      this.extractProviderMessage(normalizedResponse) ||
+      (response.ok
+        ? 'Zalo OAuth da tra ve access token moi.'
+        : `HTTP ${response.status}`);
+    const accessToken = this.extractStringValue(normalizedResponse, [
+      'access_token',
+      'accessToken',
+    ]);
+
+    if (!response.ok || !accessToken) {
+      await this.zaloSettingsService.recordRefreshResult({
+        actorId: params.actorId,
+        status: 'FAILED',
+        message: providerMessage,
+        nextTokenState: 'REJECTED',
+      });
+
+      return {
+        success: false,
+        providerCode,
+        providerMessage,
+        responsePayload: normalizedResponse,
+        persisted: false,
+        persistMode: params.config.autoRefreshPersistMode,
+      };
+    }
+
+    const refreshToken =
+      this.extractStringValue(normalizedResponse, ['refresh_token', 'refreshToken']) ||
+      params.config.refreshToken;
+    const expiresInSeconds = this.extractNumericValue(normalizedResponse, [
+      'expires_in',
+      'expiresIn',
+      'expires',
+    ]);
+    const accessTokenExpiresAt =
+      expiresInSeconds && Number.isFinite(expiresInSeconds)
+        ? new Date(Date.now() + expiresInSeconds * 1000)
+        : null;
+
+    const persisted = await this.zaloSettingsService.persistRefreshedTokens({
+      actorId: params.actorId,
+      accessToken,
+      refreshToken,
+      accessTokenExpiresAt,
+    });
+
+    return {
+      success: true,
+      accessToken,
+      refreshToken,
+      accessTokenExpiresAt,
+      providerCode,
+      providerMessage,
+      responsePayload: normalizedResponse,
+      persisted: persisted.persisted,
+      persistMode: persisted.persistMode,
+    };
   }
 
   private async logAndReturnResult(params: SendExecutionParams) {
@@ -439,6 +822,13 @@ export class ZaloNotificationsService {
     return trimmed.endsWith('/message/template')
       ? trimmed
       : `${trimmed}/message/template`;
+  }
+
+  private buildRefreshUrl(oauthBaseUrl: string) {
+    const trimmed = oauthBaseUrl.replace(/\/$/, '');
+    return trimmed.endsWith('/access_token')
+      ? trimmed
+      : `${trimmed}/access_token`;
   }
 
   private async resolveHotline() {
@@ -516,7 +906,12 @@ export class ZaloNotificationsService {
     }
 
     const source = payload as Record<string, unknown>;
-    const candidate = source.error || source.code || source.error_code || source.status;
+    const candidate =
+      source.error ||
+      source.code ||
+      source.error_code ||
+      source.status ||
+      source.err;
     return candidate !== undefined && candidate !== null ? String(candidate) : null;
   }
 
@@ -526,7 +921,12 @@ export class ZaloNotificationsService {
     }
 
     const source = payload as Record<string, unknown>;
-    const candidate = source.message || source.msg || source.error_message || source.description;
+    const candidate =
+      source.message ||
+      source.msg ||
+      source.error_message ||
+      source.description ||
+      source.error_name;
     return candidate !== undefined && candidate !== null ? String(candidate) : null;
   }
 
@@ -549,5 +949,73 @@ export class ZaloNotificationsService {
     }
 
     return false;
+  }
+
+  private isTokenRejected(attempt: ProviderAttemptResult) {
+    const providerCode = `${attempt.providerCode || ''}`.toLowerCase();
+    const providerMessage = `${attempt.providerMessage || ''}`.toLowerCase();
+
+    return (
+      attempt.httpStatus === 401 ||
+      attempt.httpStatus === 403 ||
+      providerCode === '401' ||
+      providerCode === '403' ||
+      providerMessage.includes('access token is invalid') ||
+      providerMessage.includes('invalid access token') ||
+      providerMessage.includes('token is invalid') ||
+      providerMessage.includes('token invalid') ||
+      providerMessage.includes('expired token')
+    );
+  }
+
+  private unwrapRefreshPayload(payload: unknown) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return payload;
+    }
+
+    const source = payload as Record<string, unknown>;
+    const nested = source.data;
+
+    if (typeof nested === 'string') {
+      try {
+        return JSON.parse(nested);
+      } catch {
+        return source;
+      }
+    }
+
+    if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+      return nested;
+    }
+
+    return source;
+  }
+
+  private extractStringValue(payload: unknown, keys: string[]) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return null;
+    }
+
+    const source = payload as Record<string, unknown>;
+    const match = keys.find((key) => typeof source[key] === 'string' && source[key]);
+
+    return match ? String(source[match]) : null;
+  }
+
+  private extractNumericValue(payload: unknown, keys: string[]) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return null;
+    }
+
+    const source = payload as Record<string, unknown>;
+
+    for (const key of keys) {
+      const numeric = Number(source[key]);
+      if (Number.isFinite(numeric) && numeric > 0) {
+        return numeric;
+      }
+    }
+
+    return null;
   }
 }

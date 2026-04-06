@@ -29,6 +29,10 @@ import {
   RoleRecord,
   ServicePackageRecord,
   SessionPayload,
+  LuxPowerConnectionRecord,
+  LuxPowerSyncLogRecord,
+  LuxPowerSyncResponse,
+  LuxPowerTestResponse,
   SolarmanConnectionRecord,
   SolarmanSyncLogRecord,
   SolarmanSyncResponse,
@@ -566,6 +570,25 @@ const demoFeaturePlugins: FeaturePlugin[] = [
     areas: ['admin'],
     sortOrder: 45,
     config: { routes: ['/admin/solarman'], apiPrefixes: ['/solarman-connections'] },
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    deletedAt: null,
+  },
+  {
+    id: 'plugin-luxpower-connections',
+    key: 'luxpower_connections',
+    name: 'LuxPower Cloud',
+    description: 'Backend-only LuxPower cloud session integration for monitor snapshots, battery SOC and inverter health sync.',
+    category: 'operations',
+    version: '1.0.0',
+    installed: true,
+    enabled: true,
+    editable: true,
+    isCore: false,
+    routePath: '/admin/luxpower',
+    areas: ['admin'],
+    sortOrder: 46,
+    config: { routes: ['/admin/luxpower'], apiPrefixes: ['/luxpower-connections'] },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     deletedAt: null,
@@ -1643,6 +1666,81 @@ export async function syncSolarmanConnectionRequest(
       };
     });
   }
+}
+
+export async function listLuxPowerConnectionsRequest() {
+  return apiFetch<LuxPowerConnectionRecord[]>('/luxpower-connections');
+}
+
+export async function getLuxPowerConnectionRequest(id: string) {
+  return apiFetch<LuxPowerConnectionRecord>(`/luxpower-connections/${id}`);
+}
+
+export async function listLuxPowerSyncLogsRequest(id: string) {
+  return apiFetch<LuxPowerSyncLogRecord[]>(`/luxpower-connections/${id}/logs`);
+}
+
+export async function createLuxPowerConnectionRequest(payload: {
+  accountName: string;
+  username?: string;
+  password?: string;
+  plantId?: string;
+  inverterSerial?: string;
+  solarSystemId?: string;
+  pollingIntervalMinutes?: number;
+  useDemoMode?: boolean;
+  status?: string;
+  notes?: string;
+}) {
+  return apiFetch<LuxPowerConnectionRecord>('/luxpower-connections', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function updateLuxPowerConnectionRequest(
+  id: string,
+  payload: {
+    accountName?: string;
+    username?: string;
+    password?: string;
+    plantId?: string;
+    inverterSerial?: string;
+    solarSystemId?: string;
+    pollingIntervalMinutes?: number;
+    useDemoMode?: boolean;
+    status?: string;
+    notes?: string;
+  },
+) {
+  return apiFetch<LuxPowerConnectionRecord>(`/luxpower-connections/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteLuxPowerConnectionRequest(id: string) {
+  return apiFetch<{ success: boolean }>(`/luxpower-connections/${id}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function testLuxPowerConnectionRequest(id: string) {
+  return apiFetch<LuxPowerTestResponse>(`/luxpower-connections/${id}/test`, {
+    method: 'POST',
+  });
+}
+
+export async function syncLuxPowerConnectionRequest(
+  id: string,
+  payload?: {
+    forceRelogin?: boolean;
+  },
+) {
+  return apiFetch<LuxPowerSyncResponse>(`/luxpower-connections/${id}/sync`, {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
+  });
 }
 
 export async function listDeyeConnectionsRequest() {
@@ -3130,6 +3228,7 @@ export async function updateZaloNotificationsSettingsRequest(payload: {
   appSecret?: string;
   oaId?: string;
   accessToken?: string;
+  refreshToken?: string;
   apiBaseUrl?: string;
   templateInvoiceId?: string;
   templateReminderId?: string;

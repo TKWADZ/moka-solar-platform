@@ -1,6 +1,6 @@
 export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'STAFF' | 'CUSTOMER';
 export type CustomerStatus = 'ACTIVE' | 'ONBOARDING' | 'ON_HOLD' | 'INACTIVE';
-export type MonitoringProvider = 'SEMS_PORTAL' | 'SOLARMAN' | 'DEYE';
+export type MonitoringProvider = 'SEMS_PORTAL' | 'SOLARMAN' | 'DEYE' | 'LUXPOWER';
 export type MarketingPageKey = 'home' | 'about' | 'pricing' | 'solutions' | 'contact';
 export type MarketingLocale = 'vi' | 'en';
 
@@ -467,15 +467,18 @@ export type ZaloTemplateType = 'INVOICE' | 'REMINDER' | 'PAID';
 export type ZaloTemplateStatus = {
   configured: boolean;
   idPreview?: string | null;
+  source?: 'database' | 'env' | 'default' | 'missing';
 };
 
 export type ZaloNotificationStatus = {
   configuredForSend: boolean;
   dryRun: boolean;
   apiBaseUrl: string;
+  oauthBaseUrl?: string;
   hasAppId: boolean;
   hasAppSecret: boolean;
   hasAccessToken: boolean;
+  hasRefreshToken?: boolean;
   oaIdPreview?: string | null;
   templateIds: {
     INVOICE: ZaloTemplateStatus;
@@ -484,6 +487,36 @@ export type ZaloNotificationStatus = {
   };
   missingRequired: string[];
   missingRecommended: string[];
+  accessTokenSource?: 'database' | 'env' | 'default' | 'missing';
+  refreshTokenSource?: 'database' | 'env' | 'default' | 'missing';
+  appSecretSource?: 'database' | 'env' | 'default' | 'missing';
+  tokenSourcePolicy?: 'DATABASE_THEN_ENV_FALLBACK';
+  envFallbackInUse?: string[];
+  envShadowed?: string[];
+  accessTokenState?: 'MISSING' | 'AVAILABLE' | 'EXPIRED' | 'REJECTED';
+  accessTokenExpiresAt?: string | null;
+  autoRefreshEnabled?: boolean;
+  autoRefreshPersistMode?: 'database' | 'env-only' | 'disabled';
+  autoRefreshWorking?: boolean | null;
+  lastRefreshAt?: string | null;
+  lastRefreshStatus?: string | null;
+  lastRefreshMessage?: string | null;
+  lastTokenCheckedAt?: string | null;
+  fieldSources?: Partial<
+    Record<
+      | 'appId'
+      | 'appSecret'
+      | 'oaId'
+      | 'accessToken'
+      | 'refreshToken'
+      | 'apiBaseUrl'
+      | 'oauthBaseUrl'
+      | 'templateInvoiceId'
+      | 'templateReminderId'
+      | 'templatePaidId',
+      'database' | 'env' | 'default' | 'missing'
+    >
+  >;
 };
 
 export type ZaloSettingsRecord = ZaloNotificationStatus & {
@@ -495,8 +528,11 @@ export type ZaloSettingsRecord = ZaloNotificationStatus & {
   templatePaidId?: string | null;
   appSecretPreview?: string | null;
   accessTokenPreview?: string | null;
+  refreshTokenPreview?: string | null;
   hasStoredAppSecret?: boolean;
   hasStoredAccessToken?: boolean;
+  hasStoredRefreshToken?: boolean;
+  recordExists?: boolean;
   lastTestedAt?: string | null;
   lastTestStatus?: string | null;
   lastTestMessage?: string | null;
@@ -594,11 +630,16 @@ export type ServicePackageRecord = {
 
 export type MonitorSnapshot = {
   provider: MonitoringProvider | string;
+  sourceMode?: 'LOGIN' | 'DEMO' | string;
   plantId?: string | null;
   plantName?: string | null;
   baseApi?: string | null;
   currentPvKw?: number | null;
   batterySocPct?: number | null;
+  batteryPowerKw?: number | null;
+  loadPowerKw?: number | null;
+  gridImportKw?: number | null;
+  gridExportKw?: number | null;
   todayGeneratedKwh?: number | null;
   totalGeneratedKwh?: number | null;
   todayLoadConsumedKwh?: number | null;
@@ -624,7 +665,14 @@ export type MonitorSnapshot = {
     consumptionKwh?: number | null;
     income?: number | null;
   }>;
+  daySeries?: Array<{
+    recordedAt: string;
+    pvPowerKw?: number | null;
+    loadPowerKw?: number | null;
+    batteryDischargingKw?: number | null;
+  }>;
   fetchedAt?: string | null;
+  runtimeRecordedAt?: string | null;
   raw?: Record<string, unknown> | null;
 };
 
@@ -1211,6 +1259,129 @@ export type SolarmanSyncResponse = {
   syncedMonths: number;
   syncedBillings: number;
   stations: SolarmanSyncStationResult[];
+};
+
+export type LuxPowerSyncLogRecord = {
+  id: string;
+  connectionId: string;
+  action: string;
+  status: string;
+  message: string;
+  providerCode?: string | null;
+  context?: Record<string, unknown> | null;
+  responsePayload?: Record<string, unknown> | null;
+  startedAt: string;
+  finishedAt?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LuxPowerPlantRecord = {
+  plantId: string;
+  plantName?: string | null;
+  createdAt?: string | null;
+  raw?: Record<string, unknown> | null;
+};
+
+export type LuxPowerInverterRecord = {
+  serialNumber: string;
+  plantId?: string | null;
+  plantName?: string | null;
+  model?: string | null;
+  deviceType?: string | null;
+  statusText?: string | null;
+  powerRatingText?: string | null;
+  lastUpdateTime?: string | null;
+  raw?: Record<string, unknown> | null;
+};
+
+export type LuxPowerMonitorSnapshot = {
+  provider: 'LUXPOWER';
+  sourceMode: 'LOGIN' | 'DEMO';
+  plantId?: string | null;
+  plantName?: string | null;
+  serialNumber?: string | null;
+  currentPvKw?: number | null;
+  batterySocPct?: number | null;
+  batteryPowerKw?: number | null;
+  loadPowerKw?: number | null;
+  gridImportKw?: number | null;
+  gridExportKw?: number | null;
+  todayGenerationKwh?: number | null;
+  totalGenerationKwh?: number | null;
+  todayChargingKwh?: number | null;
+  totalChargingKwh?: number | null;
+  todayDischargingKwh?: number | null;
+  totalDischargingKwh?: number | null;
+  todayExportKwh?: number | null;
+  totalExportKwh?: number | null;
+  inverterStatus?: string | null;
+  fetchedAt: string;
+  runtimeRecordedAt?: string | null;
+  daySeries?: Array<{
+    recordedAt: string;
+    pvPowerKw?: number | null;
+    loadPowerKw?: number | null;
+    batteryDischargingKw?: number | null;
+  }>;
+  raw?: {
+    runtime?: Record<string, unknown> | null;
+    energy?: Record<string, unknown> | null;
+    inverter?: Record<string, unknown> | null;
+  } | null;
+};
+
+export type LuxPowerConnectionRecord = {
+  id: string;
+  accountName: string;
+  username?: string | null;
+  plantId?: string | null;
+  inverterSerial?: string | null;
+  solarSystemId?: string | null;
+  pollingIntervalMinutes: number;
+  useDemoMode: boolean;
+  status: string;
+  lastLoginAt?: string | null;
+  lastSyncTime?: string | null;
+  lastError?: string | null;
+  lastProviderResponse?: Record<string, unknown> | null;
+  notes?: string | null;
+  hasStoredPassword?: boolean;
+  createdAt: string;
+  updatedAt: string;
+  deletedAt?: string | null;
+  solarSystem?: AdminSystemRecord | null;
+  syncLogs?: LuxPowerSyncLogRecord[];
+  statusSummary?: {
+    configured: boolean;
+    linkedSystem: boolean;
+    mode: 'LOGIN' | 'DEMO';
+    lastTestStatus?: string | null;
+    lastTestMessage?: string | null;
+    lastTestAt?: string | null;
+    lastSyncStatus?: string | null;
+    lastSyncMessage?: string | null;
+    lastSyncAt?: string | null;
+    lastFailureMessage?: string | null;
+  };
+};
+
+export type LuxPowerTestResponse = {
+  connection: LuxPowerConnectionRecord;
+  sessionMode: 'LOGIN' | 'DEMO';
+  warnings: string[];
+  plants: LuxPowerPlantRecord[];
+  inverters: LuxPowerInverterRecord[];
+  snapshot: LuxPowerMonitorSnapshot;
+};
+
+export type LuxPowerSyncResponse = {
+  connection: LuxPowerConnectionRecord;
+  sessionMode: 'LOGIN' | 'DEMO';
+  systemUpdated: boolean;
+  warnings: string[];
+  snapshot: LuxPowerMonitorSnapshot;
+  system?: AdminSystemRecord | null;
 };
 
 export type CustomerRecord = {

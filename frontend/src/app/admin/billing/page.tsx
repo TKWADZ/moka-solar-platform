@@ -103,17 +103,11 @@ function isZaloTemplateConfigured(
 
   switch (templateType) {
     case 'INVOICE':
-      return Boolean(
-        (status as ZaloNotificationStatus & { templateInvoiceId?: string | null }).templateInvoiceId,
-      );
+      return Boolean((status as ZaloNotificationStatus & { templateInvoiceId?: string | null }).templateInvoiceId);
     case 'REMINDER':
-      return Boolean(
-        (status as ZaloNotificationStatus & { templateReminderId?: string | null }).templateReminderId,
-      );
+      return Boolean((status as ZaloNotificationStatus & { templateReminderId?: string | null }).templateReminderId);
     case 'PAID':
-      return Boolean(
-        (status as ZaloNotificationStatus & { templatePaidId?: string | null }).templatePaidId,
-      );
+      return Boolean((status as ZaloNotificationStatus & { templatePaidId?: string | null }).templatePaidId);
     default:
       return false;
   }
@@ -593,13 +587,13 @@ export default function AdminBillingPage() {
 
             {zaloStatus?.missingRequired?.length ? (
               <p className="mt-4 rounded-[18px] border border-amber-300/15 bg-amber-400/10 px-4 py-3 text-sm leading-6 text-amber-100">
-                Missing required env: {zaloStatus.missingRequired.join(', ')}
+                Missing required config: {zaloStatus.missingRequired.join(', ')}
               </p>
             ) : null}
 
             {zaloStatus?.missingRecommended?.length ? (
               <p className="mt-3 text-sm leading-6 text-slate-400">
-                Recommended env chua co: {zaloStatus.missingRecommended.join(', ')}
+                Recommended config chua co: {zaloStatus.missingRecommended.join(', ')}
               </p>
             ) : null}
           </div>

@@ -143,6 +143,8 @@ model ZaloProviderConfig {
   appSecretEncrypted   String?
   oaId                 String?
   accessTokenEncrypted String?
+  refreshTokenEncrypted String?
+  accessTokenExpiresAt DateTime?
   apiBaseUrl           String?
   templateInvoiceId    String?
   templateReminderId   String?
@@ -152,6 +154,12 @@ model ZaloProviderConfig {
   lastTestedAt         DateTime?
   lastTestStatus       String?
   lastTestMessage      String?
+  lastRefreshAt        DateTime?
+  lastRefreshStatus    String?
+  lastRefreshMessage   String?
+  lastTokenCheckedAt   DateTime?
+  lastTokenStatus      String?
+  lastTokenMessage     String?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
   deletedAt            DateTime?
@@ -235,6 +243,7 @@ model SolarSystem {
   deyeConnection      DeyeConnection? @relation(fields: [deyeConnectionId], references: [id], onDelete: SetNull)
   solarmanConnectionId String?
   solarmanConnection  SolarmanConnection? @relation(fields: [solarmanConnectionId], references: [id], onDelete: SetNull)
+  luxPowerConnection  LuxPowerConnection?
   monitoringProvider  String?
   monitoringPlantId   String?
   latestMonitorSnapshot Json?
@@ -420,6 +429,52 @@ model SolarmanConnection {
   @@index([customerId])
   @@index([status])
   @@index([deletedAt])
+}
+
+model LuxPowerConnection {
+  id                    String           @id @default(cuid())
+  accountName           String
+  username              String?
+  passwordEncrypted     String?
+  plantId               String?
+  inverterSerial        String?
+  solarSystemId         String?          @unique
+  solarSystem           SolarSystem?     @relation(fields: [solarSystemId], references: [id], onDelete: SetNull)
+  pollingIntervalMinutes Int             @default(60)
+  useDemoMode           Boolean          @default(false)
+  status                String           @default("PENDING")
+  lastLoginAt           DateTime?
+  lastSyncTime          DateTime?
+  lastError             String?
+  lastProviderResponse  Json?
+  notes                 String?
+  syncLogs              LuxPowerSyncLog[]
+  createdAt             DateTime         @default(now())
+  updatedAt             DateTime         @updatedAt
+  deletedAt             DateTime?
+
+  @@index([solarSystemId])
+  @@index([status])
+  @@index([deletedAt])
+}
+
+model LuxPowerSyncLog {
+  id              String             @id @default(cuid())
+  connectionId    String
+  connection      LuxPowerConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  action          String
+  status          String
+  message         String
+  providerCode    String?
+  context         Json?
+  responsePayload Json?
+  startedAt       DateTime           @default(now())
+  finishedAt      DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  @@index([connectionId, createdAt])
+  @@index([status, createdAt])
 }
 
 model MonthlyEnergyRecord {

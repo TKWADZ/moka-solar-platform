@@ -23,6 +23,11 @@ export class UpdateZaloSettingsDto {
 
   @IsOptional()
   @IsString()
+  @MaxLength(1024)
+  refreshToken?: string;
+
+  @IsOptional()
+  @IsString()
   @MaxLength(255)
   apiBaseUrl?: string;
 

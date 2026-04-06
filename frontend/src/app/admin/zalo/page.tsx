@@ -33,6 +33,50 @@ function statusTone(status?: string | null) {
   return 'default' as const;
 }
 
+function sourceLabel(source?: string | null) {
+  switch (source) {
+    case 'database':
+      return 'Admin / database';
+    case 'env':
+      return 'Env fallback';
+    case 'default':
+      return 'Mặc định hệ thống';
+    case 'missing':
+      return 'Chưa có';
+    default:
+      return '-';
+  }
+}
+
+function tokenStateLabel(state?: string | null) {
+  switch (state) {
+    case 'AVAILABLE':
+      return 'Sẵn sàng';
+    case 'EXPIRED':
+      return 'Đã hết hạn';
+    case 'REJECTED':
+      return 'Bị Zalo từ chối';
+    case 'MISSING':
+      return 'Chưa có token';
+    default:
+      return '-';
+  }
+}
+
+function tokenStateTone(state?: string | null) {
+  switch (state) {
+    case 'AVAILABLE':
+      return 'success' as const;
+    case 'EXPIRED':
+    case 'REJECTED':
+      return 'danger' as const;
+    case 'MISSING':
+      return 'warning' as const;
+    default:
+      return 'default' as const;
+  }
+}
+
 export default function AdminZaloPage() {
   const [settings, setSettings] = useState<ZaloSettingsRecord | null>(null);
   const [logs, setLogs] = useState<ZaloMessageLogRecord[]>([]);
@@ -40,6 +84,7 @@ export default function AdminZaloPage() {
   const [appSecret, setAppSecret] = useState('');
   const [oaId, setOaId] = useState('');
   const [accessToken, setAccessToken] = useState('');
+  const [refreshToken, setRefreshToken] = useState('');
   const [apiBaseUrl, setApiBaseUrl] = useState('');
   const [templateInvoiceId, setTemplateInvoiceId] = useState('');
   const [templateReminderId, setTemplateReminderId] = useState('');
@@ -91,6 +136,7 @@ export default function AdminZaloPage() {
         appSecret: appSecret.trim() || undefined,
         oaId,
         accessToken: accessToken.trim() || undefined,
+        refreshToken: refreshToken.trim() || undefined,
         apiBaseUrl,
         templateInvoiceId,
         templateReminderId,
@@ -100,6 +146,7 @@ export default function AdminZaloPage() {
       setSettings(nextSettings);
       setAppSecret('');
       setAccessToken('');
+      setRefreshToken('');
       setMessage('Da luu cau hinh Zalo tren may chu.');
       await loadPage();
     } catch (requestError) {
@@ -219,6 +266,24 @@ export default function AdminZaloPage() {
                 </span>
               </label>
 
+              <label className="grid gap-2">
+                <span className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
+                  Refresh Token
+                </span>
+                <input
+                  type="password"
+                  value={refreshToken}
+                  onChange={(event) => setRefreshToken(event.target.value)}
+                  className="portal-field"
+                  placeholder="De trong neu muon giu gia tri dang luu"
+                />
+                <span className="text-xs leading-5 text-slate-500">
+                  {settings?.hasRefreshToken
+                    ? `Dang luu: ${settings.refreshTokenPreview || 'Da cau hinh'}`
+                    : 'Chua luu Refresh Token'}
+                </span>
+              </label>
+
               <label className="grid gap-2 md:col-span-2">
                 <span className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
                   API Base URL
@@ -323,6 +388,10 @@ export default function AdminZaloPage() {
                   label={settings?.configuredForSend ? 'READY' : 'MISSING_CONFIG'}
                   tone={settings?.configuredForSend ? 'success' : 'danger'}
                 />
+                <StatusPill
+                  label={tokenStateLabel(settings?.accessTokenState)}
+                  tone={tokenStateTone(settings?.accessTokenState)}
+                />
               </div>
 
               {settings?.missingRequired?.length ? (
@@ -336,6 +405,101 @@ export default function AdminZaloPage() {
                   Recommended config chua co: {settings.missingRecommended.join(', ')}
                 </div>
               ) : null}
+
+              <div className="rounded-[18px] border border-white/8 bg-white/[0.04] px-4 py-4">
+                <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
+                  Chan doan token
+                </p>
+                <div className="mt-3 grid gap-2 text-sm leading-6 text-slate-300 md:grid-cols-2">
+                  <p>
+                    Access token source:{' '}
+                    <span className="font-medium text-white">
+                      {sourceLabel(settings?.accessTokenSource)}
+                    </span>
+                  </p>
+                  <p>
+                    Refresh token source:{' '}
+                    <span className="font-medium text-white">
+                      {sourceLabel(settings?.refreshTokenSource)}
+                    </span>
+                  </p>
+                  <p>
+                    Trạng thái access token:{' '}
+                    <span className="font-medium text-white">
+                      {tokenStateLabel(settings?.accessTokenState)}
+                    </span>
+                  </p>
+                  <p>
+                    Auto-refresh:{' '}
+                    <span className="font-medium text-white">
+                      {settings?.autoRefreshEnabled ? 'Đang bật' : 'Chưa sẵn sàng'}
+                    </span>
+                  </p>
+                  <p>
+                    Refresh token:{' '}
+                    <span className="font-medium text-white">
+                      {settings?.hasRefreshToken ? 'Đã cấu hình' : 'Chưa có'}
+                    </span>
+                  </p>
+                  <p>
+                    Lưu token sau refresh:{' '}
+                    <span className="font-medium text-white">
+                      {settings?.autoRefreshPersistMode === 'database'
+                        ? 'Ghi lại vào database'
+                        : settings?.autoRefreshPersistMode === 'env-only'
+                          ? 'Chỉ dùng tạm, env không tự cập nhật'
+                          : 'Đang tắt'}
+                    </span>
+                  </p>
+                  <p>
+                    App Secret source:{' '}
+                    <span className="font-medium text-white">
+                      {sourceLabel(settings?.appSecretSource)}
+                    </span>
+                  </p>
+                  <p>
+                    Access token hết hạn:{' '}
+                    <span className="font-medium text-white">
+                      {settings?.accessTokenExpiresAt
+                        ? formatDateTime(settings.accessTokenExpiresAt)
+                        : 'Chua co thong tin'}
+                    </span>
+                  </p>
+                </div>
+
+                {settings?.lastRefreshAt ? (
+                  <div className="mt-3 rounded-[16px] border border-white/8 bg-black/10 px-3 py-3 text-sm leading-6 text-slate-300">
+                    <p>
+                      Lần refresh gần nhất:{' '}
+                      <span className="font-medium text-white">
+                        {formatDateTime(settings.lastRefreshAt)}
+                      </span>
+                    </p>
+                    <p>
+                      Kết quả refresh:{' '}
+                      <span className="font-medium text-white">
+                        {settings.lastRefreshStatus || '-'}
+                      </span>
+                    </p>
+                    {settings.lastRefreshMessage ? (
+                      <p className="mt-1 text-slate-400">{settings.lastRefreshMessage}</p>
+                    ) : null}
+                  </div>
+                ) : null}
+
+                {settings?.envFallbackInUse?.length ? (
+                  <p className="mt-3 text-xs leading-6 text-slate-400">
+                    Dang dung env fallback cho: {settings.envFallbackInUse.join(', ')}
+                  </p>
+                ) : null}
+
+                {settings?.envShadowed?.length ? (
+                  <p className="mt-2 text-xs leading-6 text-slate-400">
+                    Env co gia tri nhung khong duoc dung vi admin/database dang uu tien cho:{' '}
+                    {settings.envShadowed.join(', ')}
+                  </p>
+                ) : null}
+              </div>
 
               <div className="rounded-[18px] border border-white/8 bg-white/[0.04] px-4 py-4">
                 <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
