@@ -32,6 +32,7 @@ type SendExecutionParams = {
   providerMessage: string;
   missingRequired?: string[];
   missingRecommended?: string[];
+  debug?: Record<string, unknown>;
 };
 
 type ProviderAttemptResult = {
@@ -40,6 +41,9 @@ type ProviderAttemptResult = {
   providerCode: string | null;
   providerMessage: string;
   httpStatus: number;
+  tokenFingerprint: string | null;
+  tokenSource: string;
+  configRecordId: string | null;
 };
 
 type RefreshTokenResult = {
@@ -52,6 +56,28 @@ type RefreshTokenResult = {
   responsePayload?: unknown;
   persisted: boolean;
   persistMode: 'database' | 'env-only' | 'disabled';
+  accessTokenFingerprint?: string | null;
+  refreshTokenFingerprint?: string | null;
+  refreshedAt?: string | null;
+  configRecordId?: string | null;
+  tokenSource?: string;
+};
+
+type TokenResolutionResult = {
+  success: boolean;
+  config: ResolvedZaloConfig;
+  accessToken?: string | null;
+  tokenSource: string;
+  sendTokenFingerprint: string | null;
+  refreshedTokenFingerprint: string | null;
+  refreshTokenFingerprint: string | null;
+  configRecordId: string | null;
+  refreshedAt: string | null;
+  refreshAttempted: boolean;
+  staleTokenDetected: boolean;
+  providerCode?: string | null;
+  providerMessage?: string;
+  responsePayload?: unknown;
 };
 
 @Injectable()
@@ -65,11 +91,11 @@ export class ZaloNotificationsService {
   ) {}
 
   async getStatus() {
-    return this.zaloSettingsService.getSettings();
+    return this.buildStatusResponse();
   }
 
   async getSettings() {
-    return this.zaloSettingsService.getSettings();
+    return this.buildStatusResponse();
   }
 
   async updateSettings(dto: UpdateZaloSettingsDto, actorId: string) {
@@ -98,6 +124,9 @@ export class ZaloNotificationsService {
     });
 
     return logs.map((log) => ({
+      ...(this.extractLatestLogDiagnostics(log.responsePayload)
+        ? { debug: this.extractLatestLogDiagnostics(log.responsePayload) }
+        : {}),
       id: log.id,
       invoiceId: log.invoiceId,
       invoiceNumber: log.invoice?.invoiceNumber || null,
@@ -294,6 +323,271 @@ export class ZaloNotificationsService {
     });
   }
 
+  private async buildStatusResponse() {
+    const [settings, tokenState, latestLog] = await Promise.all([
+      this.zaloSettingsService.getSettings(),
+      this.getValidZaloAccessToken({
+        purpose: 'DIAGNOSTICS',
+        allowRefresh: false,
+      }),
+      this.prisma.zaloMessageLog.findFirst({
+        where: {
+          deletedAt: null,
+        },
+        orderBy: [{ createdAt: 'desc' }],
+      }),
+    ]);
+
+    return {
+      ...settings,
+      configRecordId: tokenState.configRecordId || settings.configRecordId || null,
+      tokenSourceUsed: tokenState.tokenSource || settings.accessTokenSource || 'missing',
+      accessTokenFingerprint:
+        tokenState.sendTokenFingerprint || settings.accessTokenFingerprint || null,
+      refreshTokenFingerprint:
+        tokenState.refreshTokenFingerprint || settings.refreshTokenFingerprint || null,
+      tokenDiagnostics: {
+        status: tokenState.success ? 'READY' : 'BLOCKED',
+        tokenSource: tokenState.tokenSource || settings.accessTokenSource || 'missing',
+        configRecordId: tokenState.configRecordId || settings.configRecordId || null,
+        sendTokenFingerprint: tokenState.sendTokenFingerprint,
+        refreshedTokenFingerprint: tokenState.refreshedTokenFingerprint,
+        refreshTokenFingerprint: tokenState.refreshTokenFingerprint,
+        refreshedAt: tokenState.refreshedAt,
+        refreshAttempted: tokenState.refreshAttempted,
+        staleTokenDetected: tokenState.staleTokenDetected,
+        providerCode: tokenState.providerCode || null,
+        providerMessage: tokenState.providerMessage || null,
+      },
+      latestSendDiagnostics: this.extractLatestLogDiagnostics(latestLog?.responsePayload),
+    };
+  }
+
+  private async getValidZaloAccessToken(params: {
+    actorId?: string;
+    purpose: 'TEST' | 'INVOICE' | 'DIAGNOSTICS';
+    allowRefresh: boolean;
+    config?: ResolvedZaloConfig;
+    invalidTokenFingerprint?: string | null;
+  }): Promise<TokenResolutionResult> {
+    const config = params.config || (await this.zaloSettingsService.resolveConfig());
+    const accessToken = config.accessToken?.trim() || null;
+    const tokenFingerprint = this.fingerprintToken(accessToken);
+    const shouldForceRefresh =
+      params.allowRefresh &&
+      config.autoRefreshEnabled &&
+      (!accessToken ||
+        config.accessTokenState === 'EXPIRED' ||
+        config.accessTokenState === 'REJECTED' ||
+        (params.invalidTokenFingerprint &&
+          tokenFingerprint === params.invalidTokenFingerprint));
+
+    if (!shouldForceRefresh) {
+      if (accessToken) {
+        return {
+          success: true,
+          config,
+          accessToken,
+          tokenSource: config.accessTokenSource,
+          sendTokenFingerprint: tokenFingerprint,
+          refreshedTokenFingerprint: null,
+          refreshTokenFingerprint: config.refreshTokenFingerprint,
+          configRecordId: config.configRecordId,
+          refreshedAt: null,
+          refreshAttempted: false,
+          staleTokenDetected: false,
+        };
+      }
+
+      return {
+        success: false,
+        config,
+        accessToken: null,
+        tokenSource: config.accessTokenSource,
+        sendTokenFingerprint: tokenFingerprint,
+        refreshedTokenFingerprint: null,
+        refreshTokenFingerprint: config.refreshTokenFingerprint,
+        configRecordId: config.configRecordId,
+        refreshedAt: null,
+        refreshAttempted: false,
+        staleTokenDetected: false,
+        providerCode: 'MISSING_ACCESS_TOKEN',
+        providerMessage: 'Khong co access token hop le de gui thong bao Zalo.',
+      };
+    }
+
+    const refreshOutcome = await this.tryRefreshAccessToken({
+      config,
+      actorId: params.actorId,
+    });
+
+    if (!refreshOutcome.success || !refreshOutcome.accessToken) {
+      return {
+        success: false,
+        config,
+        accessToken: null,
+        tokenSource: config.accessTokenSource,
+        sendTokenFingerprint: tokenFingerprint,
+        refreshedTokenFingerprint: refreshOutcome.accessTokenFingerprint || null,
+        refreshTokenFingerprint:
+          refreshOutcome.refreshTokenFingerprint || config.refreshTokenFingerprint,
+        configRecordId: refreshOutcome.configRecordId || config.configRecordId,
+        refreshedAt: refreshOutcome.refreshedAt || null,
+        refreshAttempted: true,
+        staleTokenDetected: false,
+        providerCode: refreshOutcome.providerCode || 'REFRESH_FAILED',
+        providerMessage: refreshOutcome.providerMessage,
+        responsePayload: refreshOutcome.responsePayload,
+      };
+    }
+
+    const refreshedTokenFingerprint = refreshOutcome.accessTokenFingerprint || null;
+    const refreshedAt = refreshOutcome.refreshedAt || new Date().toISOString();
+
+    if (refreshOutcome.persistMode === 'database') {
+      const latestConfig = await this.zaloSettingsService.resolveConfig();
+      const latestAccessToken = latestConfig.accessToken?.trim() || null;
+      const latestFingerprint = this.fingerprintToken(latestAccessToken);
+
+      if (!latestAccessToken) {
+        return {
+          success: false,
+          config: latestConfig,
+          accessToken: null,
+          tokenSource: latestConfig.accessTokenSource,
+          sendTokenFingerprint: latestFingerprint,
+          refreshedTokenFingerprint,
+          refreshTokenFingerprint:
+            refreshOutcome.refreshTokenFingerprint || latestConfig.refreshTokenFingerprint,
+          configRecordId: latestConfig.configRecordId,
+          refreshedAt,
+          refreshAttempted: true,
+          staleTokenDetected: true,
+          providerCode: 'REFRESHED_TOKEN_MISSING',
+          providerMessage: 'send flow is using stale token.',
+          responsePayload: refreshOutcome.responsePayload,
+        };
+      }
+
+      if (
+        refreshedTokenFingerprint &&
+        latestFingerprint &&
+        refreshedTokenFingerprint !== latestFingerprint
+      ) {
+        return {
+          success: false,
+          config: latestConfig,
+          accessToken: latestAccessToken,
+          tokenSource: latestConfig.accessTokenSource,
+          sendTokenFingerprint: latestFingerprint,
+          refreshedTokenFingerprint,
+          refreshTokenFingerprint:
+            refreshOutcome.refreshTokenFingerprint || latestConfig.refreshTokenFingerprint,
+          configRecordId: latestConfig.configRecordId,
+          refreshedAt,
+          refreshAttempted: true,
+          staleTokenDetected: true,
+          providerCode: 'STALE_TOKEN',
+          providerMessage: 'send flow is using stale token.',
+          responsePayload: refreshOutcome.responsePayload,
+        };
+      }
+
+      return {
+        success: true,
+        config: latestConfig,
+        accessToken: latestAccessToken,
+        tokenSource: latestConfig.accessTokenSource,
+        sendTokenFingerprint: latestFingerprint,
+        refreshedTokenFingerprint,
+        refreshTokenFingerprint:
+          refreshOutcome.refreshTokenFingerprint || latestConfig.refreshTokenFingerprint,
+        configRecordId: latestConfig.configRecordId,
+        refreshedAt,
+        refreshAttempted: true,
+        staleTokenDetected: false,
+        responsePayload: refreshOutcome.responsePayload,
+      };
+    }
+
+    return {
+      success: true,
+      config: {
+        ...config,
+        accessToken: refreshOutcome.accessToken,
+        refreshToken: refreshOutcome.refreshToken || config.refreshToken,
+        accessTokenExpiresAt: refreshOutcome.accessTokenExpiresAt
+          ? refreshOutcome.accessTokenExpiresAt.toISOString()
+          : config.accessTokenExpiresAt,
+      },
+      accessToken: refreshOutcome.accessToken,
+      tokenSource: refreshOutcome.tokenSource || `runtime-refresh:${refreshOutcome.persistMode}`,
+      sendTokenFingerprint: refreshedTokenFingerprint,
+      refreshedTokenFingerprint,
+      refreshTokenFingerprint:
+        refreshOutcome.refreshTokenFingerprint || config.refreshTokenFingerprint,
+      configRecordId: refreshOutcome.configRecordId || config.configRecordId,
+      refreshedAt,
+      refreshAttempted: true,
+      staleTokenDetected: false,
+      responsePayload: refreshOutcome.responsePayload,
+    };
+  }
+
+  private buildTokenDebug(params: {
+    resolution: TokenResolutionResult;
+    templateType: ZaloTemplateType | 'TEST';
+  }) {
+    return {
+      token_source: params.resolution.tokenSource,
+      config_record_id: params.resolution.configRecordId,
+      refreshed_token_fingerprint: params.resolution.refreshedTokenFingerprint,
+      send_token_fingerprint: params.resolution.sendTokenFingerprint,
+      refresh_token_fingerprint: params.resolution.refreshTokenFingerprint,
+      refreshed_at: params.resolution.refreshedAt,
+      refresh_attempted: params.resolution.refreshAttempted,
+      stale_token_detected: params.resolution.staleTokenDetected,
+      template_type: params.templateType,
+    } satisfies Record<string, unknown>;
+  }
+
+  private extractLatestLogDiagnostics(payload: unknown) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return null;
+    }
+
+    const source = payload as Record<string, unknown>;
+    const debug = source.debug;
+
+    if (!debug || typeof debug !== 'object' || Array.isArray(debug)) {
+      return null;
+    }
+
+    const diagnostics = debug as Record<string, unknown>;
+    return {
+      tokenSource: typeof diagnostics.token_source === 'string' ? diagnostics.token_source : null,
+      configRecordId:
+        typeof diagnostics.config_record_id === 'string'
+          ? diagnostics.config_record_id
+          : null,
+      refreshedTokenFingerprint:
+        typeof diagnostics.refreshed_token_fingerprint === 'string'
+          ? diagnostics.refreshed_token_fingerprint
+          : null,
+      sendTokenFingerprint:
+        typeof diagnostics.send_token_fingerprint === 'string'
+          ? diagnostics.send_token_fingerprint
+          : null,
+      refreshTokenFingerprint:
+        typeof diagnostics.refresh_token_fingerprint === 'string'
+          ? diagnostics.refresh_token_fingerprint
+          : null,
+      refreshedAt:
+        typeof diagnostics.refreshed_at === 'string' ? diagnostics.refreshed_at : null,
+      staleTokenDetected: diagnostics.stale_token_detected === true,
+    };
+  }
+
   private async sendTemplatePayload(params: {
     actorId?: string;
     invoice?: any | null;
@@ -313,6 +607,13 @@ export class ZaloNotificationsService {
       params.config.missingRequired.length > 0;
 
     if (effectiveDryRun) {
+      const tokenResolution = await this.getValidZaloAccessToken({
+        actorId: params.actorId,
+        purpose: params.templateType === 'TEST' ? 'TEST' : 'INVOICE',
+        allowRefresh: false,
+        config: params.config,
+      });
+
       return this.logAndReturnResult({
         invoice: params.invoice || null,
         actorId: params.actorId,
@@ -336,50 +637,32 @@ export class ZaloNotificationsService {
           accessTokenSource: params.config.accessTokenSource,
           refreshTokenSource: params.config.refreshTokenSource,
           autoRefreshEnabled: params.config.autoRefreshEnabled,
+          debug: this.buildTokenDebug({
+            resolution: tokenResolution,
+            templateType: params.templateType,
+          }),
         },
         missingRequired: params.config.missingRequired,
         missingRecommended: params.config.missingRecommended,
-      });
-    }
-
-    let activeAccessToken = params.config.accessToken;
-
-    if (!activeAccessToken && params.config.autoRefreshEnabled) {
-      const refreshOutcome = await this.tryRefreshAccessToken({
-        config: params.config,
-        actorId: params.actorId,
-      });
-
-      if (!refreshOutcome.success || !refreshOutcome.accessToken) {
-        return this.logAndReturnResult({
-          invoice: params.invoice || null,
-          actorId: params.actorId,
-          customerId: params.customerId || null,
-          customerName: params.customerName,
+        debug: this.buildTokenDebug({
+          resolution: tokenResolution,
           templateType: params.templateType,
-          templateId: params.templateId,
-          recipientPhone: params.recipientPhone,
-          dryRun: false,
-          requestPayload: params.requestPayload,
-          responsePayload: {
-            refresh: refreshOutcome.responsePayload || {
-              status: refreshOutcome.success ? 'SUCCESS' : 'FAILED',
-              persistMode: refreshOutcome.persistMode,
-              providerMessage: refreshOutcome.providerMessage,
-            },
-          },
-          sendStatus: 'FAILED',
-          providerCode: refreshOutcome.providerCode || 'REFRESH_FAILED',
-          providerMessage: refreshOutcome.providerMessage,
-          missingRequired: params.config.missingRequired,
-          missingRecommended: params.config.missingRecommended,
-        });
-      }
-
-      activeAccessToken = refreshOutcome.accessToken;
+        }),
+      });
     }
 
-    if (!activeAccessToken) {
+    const tokenResolution = await this.getValidZaloAccessToken({
+      actorId: params.actorId,
+      purpose: params.templateType === 'TEST' ? 'TEST' : 'INVOICE',
+      allowRefresh: true,
+      config: params.config,
+    });
+
+    if (
+      !tokenResolution.success ||
+      !tokenResolution.accessToken ||
+      tokenResolution.staleTokenDetected
+    ) {
       return this.logAndReturnResult({
         invoice: params.invoice || null,
         actorId: params.actorId,
@@ -391,17 +674,26 @@ export class ZaloNotificationsService {
         dryRun: false,
         requestPayload: params.requestPayload,
         sendStatus: 'FAILED',
-        providerCode: 'MISSING_ACCESS_TOKEN',
-        providerMessage: 'Khong co access token hop le de gui thong bao Zalo.',
-        missingRequired: params.config.missingRequired,
-        missingRecommended: params.config.missingRecommended,
+        providerCode: tokenResolution.providerCode || 'MISSING_ACCESS_TOKEN',
+        providerMessage:
+          tokenResolution.providerMessage ||
+          'Khong co access token hop le de gui thong bao Zalo.',
+        missingRequired: tokenResolution.config.missingRequired,
+        missingRecommended: tokenResolution.config.missingRecommended,
+        responsePayload: tokenResolution.responsePayload,
+        debug: this.buildTokenDebug({
+          resolution: tokenResolution,
+          templateType: params.templateType,
+        }),
       });
     }
 
     const primaryAttempt = await this.performProviderSend({
-      accessToken: activeAccessToken,
-      config: params.config,
+      accessToken: tokenResolution.accessToken,
+      config: tokenResolution.config,
       requestPayload: params.requestPayload,
+      tokenSource: tokenResolution.tokenSource,
+      configRecordId: tokenResolution.configRecordId,
     });
 
     if (primaryAttempt.sendStatus === 'SENT') {
@@ -409,8 +701,8 @@ export class ZaloNotificationsService {
         actorId: params.actorId,
         status: 'AVAILABLE',
         message: 'Access token duoc Zalo chap nhan.',
-        accessTokenExpiresAt: params.config.accessTokenExpiresAt
-          ? new Date(params.config.accessTokenExpiresAt)
+        accessTokenExpiresAt: tokenResolution.config.accessTokenExpiresAt
+          ? new Date(tokenResolution.config.accessTokenExpiresAt)
           : null,
       });
 
@@ -428,14 +720,23 @@ export class ZaloNotificationsService {
         sendStatus: primaryAttempt.sendStatus,
         providerCode: primaryAttempt.providerCode,
         providerMessage: primaryAttempt.providerMessage,
-        missingRequired: params.config.missingRequired,
-        missingRecommended: params.config.missingRecommended,
+        missingRequired: tokenResolution.config.missingRequired,
+        missingRecommended: tokenResolution.config.missingRecommended,
+        debug: this.buildTokenDebug({
+          resolution: {
+            ...tokenResolution,
+            sendTokenFingerprint: primaryAttempt.tokenFingerprint,
+            tokenSource: primaryAttempt.tokenSource,
+            configRecordId: primaryAttempt.configRecordId,
+          },
+          templateType: params.templateType,
+        }),
       });
     }
 
     return this.handleProviderFailure({
       actorId: params.actorId,
-      config: params.config,
+      config: tokenResolution.config,
       invoice: params.invoice || null,
       customerId: params.customerId || null,
       customerName: params.customerName,
@@ -466,12 +767,19 @@ export class ZaloNotificationsService {
         message: params.primaryAttempt.providerMessage,
       });
 
-      const refreshOutcome = await this.tryRefreshAccessToken({
-        config: params.config,
+      const tokenResolution = await this.getValidZaloAccessToken({
         actorId: params.actorId,
+        purpose: params.templateType === 'TEST' ? 'TEST' : 'INVOICE',
+        allowRefresh: true,
+        config: params.config,
+        invalidTokenFingerprint: params.primaryAttempt.tokenFingerprint,
       });
 
-      if (!refreshOutcome.success || !refreshOutcome.accessToken) {
+      if (
+        !tokenResolution.success ||
+        !tokenResolution.accessToken ||
+        tokenResolution.staleTokenDetected
+      ) {
         return this.logAndReturnResult({
           invoice: params.invoice || null,
           actorId: params.actorId,
@@ -484,24 +792,28 @@ export class ZaloNotificationsService {
           requestPayload: params.requestPayload,
           responsePayload: {
             primaryAttempt: params.primaryAttempt.responsePayload,
-            refresh: refreshOutcome.responsePayload || {
-              status: refreshOutcome.success ? 'SUCCESS' : 'FAILED',
-              persistMode: refreshOutcome.persistMode,
-              providerMessage: refreshOutcome.providerMessage,
-            },
+            refresh: tokenResolution.responsePayload || null,
           },
           sendStatus: 'FAILED',
-          providerCode: refreshOutcome.providerCode || params.primaryAttempt.providerCode,
-          providerMessage: `${params.primaryAttempt.providerMessage}. Auto-refresh that bai: ${refreshOutcome.providerMessage}`,
+          providerCode: tokenResolution.providerCode || params.primaryAttempt.providerCode,
+          providerMessage: tokenResolution.staleTokenDetected
+            ? 'send flow is using stale token.'
+            : `${params.primaryAttempt.providerMessage}. Auto-refresh that bai: ${tokenResolution.providerMessage}`,
           missingRequired: params.config.missingRequired,
           missingRecommended: params.config.missingRecommended,
+          debug: this.buildTokenDebug({
+            resolution: tokenResolution,
+            templateType: params.templateType,
+          }),
         });
       }
 
       const retryAttempt = await this.performProviderSend({
-        accessToken: refreshOutcome.accessToken,
-        config: params.config,
+        accessToken: tokenResolution.accessToken,
+        config: tokenResolution.config,
         requestPayload: params.requestPayload,
+        tokenSource: tokenResolution.tokenSource,
+        configRecordId: tokenResolution.configRecordId,
       });
 
       if (retryAttempt.sendStatus === 'SENT') {
@@ -509,14 +821,18 @@ export class ZaloNotificationsService {
           actorId: params.actorId,
           status: 'AVAILABLE',
           message: 'Access token duoc refresh va gui lai thanh cong.',
-          accessTokenExpiresAt: refreshOutcome.accessTokenExpiresAt || null,
+          accessTokenExpiresAt: tokenResolution.config.accessTokenExpiresAt
+            ? new Date(tokenResolution.config.accessTokenExpiresAt)
+            : null,
         });
       } else if (this.isTokenRejected(retryAttempt)) {
         await this.zaloSettingsService.recordTokenStatus({
           actorId: params.actorId,
           status: 'REJECTED',
           message: retryAttempt.providerMessage,
-          accessTokenExpiresAt: refreshOutcome.accessTokenExpiresAt || null,
+          accessTokenExpiresAt: tokenResolution.config.accessTokenExpiresAt
+            ? new Date(tokenResolution.config.accessTokenExpiresAt)
+            : null,
         });
       }
 
@@ -532,11 +848,7 @@ export class ZaloNotificationsService {
         requestPayload: params.requestPayload,
         responsePayload: {
           primaryAttempt: params.primaryAttempt.responsePayload,
-          refresh: refreshOutcome.responsePayload || {
-            status: refreshOutcome.success ? 'SUCCESS' : 'FAILED',
-            persistMode: refreshOutcome.persistMode,
-            providerMessage: refreshOutcome.providerMessage,
-          },
+          refresh: tokenResolution.responsePayload || null,
           retryAttempt: retryAttempt.responsePayload,
         },
         sendStatus: retryAttempt.sendStatus,
@@ -547,6 +859,15 @@ export class ZaloNotificationsService {
             : retryAttempt.providerMessage,
         missingRequired: params.config.missingRequired,
         missingRecommended: params.config.missingRecommended,
+        debug: this.buildTokenDebug({
+          resolution: {
+            ...tokenResolution,
+            sendTokenFingerprint: retryAttempt.tokenFingerprint,
+            tokenSource: retryAttempt.tokenSource,
+            configRecordId: retryAttempt.configRecordId,
+          },
+          templateType: params.templateType,
+        }),
       });
     }
 
@@ -574,6 +895,12 @@ export class ZaloNotificationsService {
       providerMessage: params.primaryAttempt.providerMessage,
       missingRequired: params.config.missingRequired,
       missingRecommended: params.config.missingRecommended,
+      debug: {
+        token_source: params.primaryAttempt.tokenSource,
+        config_record_id: params.primaryAttempt.configRecordId,
+        send_token_fingerprint: params.primaryAttempt.tokenFingerprint,
+        stale_token_detected: false,
+      },
     });
   }
 
@@ -581,6 +908,8 @@ export class ZaloNotificationsService {
     accessToken: string;
     config: ResolvedZaloConfig;
     requestPayload: Record<string, unknown>;
+    tokenSource: string;
+    configRecordId: string | null;
   }): Promise<ProviderAttemptResult> {
     const sendUrl = this.buildSendUrl(params.config.apiBaseUrl);
     let response: Response;
@@ -622,6 +951,9 @@ export class ZaloNotificationsService {
       providerCode: normalizedProviderCode,
       providerMessage: normalizedProviderMessage,
       httpStatus: response.status,
+      tokenFingerprint: this.fingerprintToken(params.accessToken),
+      tokenSource: params.tokenSource,
+      configRecordId: params.configRecordId,
     };
   }
 
@@ -752,10 +1084,28 @@ export class ZaloNotificationsService {
       responsePayload: normalizedResponse,
       persisted: persisted.persisted,
       persistMode: persisted.persistMode,
+      accessTokenFingerprint: this.fingerprintToken(accessToken),
+      refreshTokenFingerprint: this.fingerprintToken(refreshToken),
+      refreshedAt: new Date().toISOString(),
+      configRecordId: params.config.configRecordId,
+      tokenSource:
+        persisted.persistMode === 'database'
+          ? 'database'
+          : `runtime-refresh:${persisted.persistMode}`,
     };
   }
 
   private async logAndReturnResult(params: SendExecutionParams) {
+    const responsePayloadWithDebug =
+      params.debug && params.responsePayload && typeof params.responsePayload === 'object'
+        ? {
+            ...(params.responsePayload as Record<string, unknown>),
+            debug: params.debug,
+          }
+        : params.debug
+          ? { debug: params.debug }
+          : params.responsePayload;
+
     const log = await this.prisma.zaloMessageLog.create({
       data: {
         invoiceId: params.invoice?.id || params.invoice?.invoiceId || null,
@@ -774,8 +1124,8 @@ export class ZaloNotificationsService {
         requestPayload:
           (params.requestPayload as Prisma.InputJsonValue) ?? Prisma.JsonNull,
         responsePayload:
-          params.responsePayload !== undefined
-            ? ((params.responsePayload as Prisma.InputJsonValue) ?? Prisma.JsonNull)
+          responsePayloadWithDebug !== undefined
+            ? ((responsePayloadWithDebug as Prisma.InputJsonValue) ?? Prisma.JsonNull)
             : Prisma.JsonNull,
       },
     });
@@ -814,6 +1164,7 @@ export class ZaloNotificationsService {
       missingRecommended: params.missingRecommended || [],
       logId: log.id,
       sentAt: log.createdAt.toISOString(),
+      debug: params.debug || null,
     };
   }
 
@@ -1017,5 +1368,15 @@ export class ZaloNotificationsService {
     }
 
     return null;
+  }
+
+  private fingerprintToken(token: string | null | undefined) {
+    const normalized = token?.trim();
+    if (!normalized) {
+      return null;
+    }
+
+    const crypto = require('crypto') as typeof import('crypto');
+    return crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 12);
   }
 }

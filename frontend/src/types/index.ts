@@ -485,11 +485,15 @@ export type ZaloNotificationStatus = {
   dryRun: boolean;
   apiBaseUrl: string;
   oauthBaseUrl?: string;
+  configRecordId?: string | null;
   hasAppId: boolean;
   hasAppSecret: boolean;
   hasAccessToken: boolean;
   hasRefreshToken?: boolean;
   oaIdPreview?: string | null;
+  accessTokenFingerprint?: string | null;
+  refreshTokenFingerprint?: string | null;
+  tokenSourceUsed?: string | null;
   templateIds: {
     INVOICE: ZaloTemplateStatus;
     REMINDER: ZaloTemplateStatus;
@@ -511,6 +515,28 @@ export type ZaloNotificationStatus = {
   lastRefreshAt?: string | null;
   lastRefreshStatus?: string | null;
   lastRefreshMessage?: string | null;
+  tokenDiagnostics?: {
+    status?: string | null;
+    tokenSource?: string | null;
+    configRecordId?: string | null;
+    sendTokenFingerprint?: string | null;
+    refreshedTokenFingerprint?: string | null;
+    refreshTokenFingerprint?: string | null;
+    refreshedAt?: string | null;
+    refreshAttempted?: boolean;
+    staleTokenDetected?: boolean;
+    providerCode?: string | null;
+    providerMessage?: string | null;
+  } | null;
+  latestSendDiagnostics?: {
+    tokenSource?: string | null;
+    configRecordId?: string | null;
+    refreshedTokenFingerprint?: string | null;
+    sendTokenFingerprint?: string | null;
+    refreshTokenFingerprint?: string | null;
+    refreshedAt?: string | null;
+    staleTokenDetected?: boolean;
+  } | null;
   lastTokenCheckedAt?: string | null;
   fieldSources?: Partial<
     Record<
@@ -561,6 +587,15 @@ export type ZaloMessageLogRecord = {
   providerMessage?: string | null;
   dryRun: boolean;
   createdAt: string;
+  debug?: {
+    tokenSource?: string | null;
+    configRecordId?: string | null;
+    refreshedTokenFingerprint?: string | null;
+    sendTokenFingerprint?: string | null;
+    refreshTokenFingerprint?: string | null;
+    refreshedAt?: string | null;
+    staleTokenDetected?: boolean;
+  } | null;
 };
 
 export type ZaloSendResult = {
@@ -579,6 +614,7 @@ export type ZaloSendResult = {
   missingRecommended?: string[];
   logId: string;
   sentAt: string;
+  debug?: Record<string, unknown> | null;
 };
 
 export type ZaloTestResult = {
@@ -595,6 +631,7 @@ export type ZaloTestResult = {
   missingRecommended: string[];
   logId: string;
   sentAt: string;
+  debug?: Record<string, unknown> | null;
 };
 
 export type FeaturePlugin = {

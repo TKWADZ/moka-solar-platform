@@ -467,6 +467,33 @@ export default function AdminZaloPage() {
                   </p>
                 </div>
 
+                <div className="mt-3 grid gap-2 text-sm leading-6 text-slate-300 md:grid-cols-2">
+                  <p>
+                    Config record ID:{' '}
+                    <span className="font-medium text-white">
+                      {settings?.configRecordId || '-'}
+                    </span>
+                  </p>
+                  <p>
+                    Current token fingerprint:{' '}
+                    <span className="font-medium text-white">
+                      {settings?.accessTokenFingerprint || '-'}
+                    </span>
+                  </p>
+                  <p>
+                    Refresh token fingerprint:{' '}
+                    <span className="font-medium text-white">
+                      {settings?.refreshTokenFingerprint || '-'}
+                    </span>
+                  </p>
+                  <p>
+                    Token source used:{' '}
+                    <span className="font-medium text-white">
+                      {settings?.tokenSourceUsed || settings?.accessTokenSource || '-'}
+                    </span>
+                  </p>
+                </div>
+
                 {settings?.lastRefreshAt ? (
                   <div className="mt-3 rounded-[16px] border border-white/8 bg-black/10 px-3 py-3 text-sm leading-6 text-slate-300">
                     <p>
@@ -498,6 +525,42 @@ export default function AdminZaloPage() {
                     Env co gia tri nhung khong duoc dung vi admin/database dang uu tien cho:{' '}
                     {settings.envShadowed.join(', ')}
                   </p>
+                ) : null}
+
+                {settings?.tokenDiagnostics?.refreshedTokenFingerprint ||
+                settings?.latestSendDiagnostics?.sendTokenFingerprint ? (
+                  <div className="mt-3 rounded-[16px] border border-white/8 bg-black/10 px-3 py-3 text-sm leading-6 text-slate-300">
+                    <p>
+                      Refreshed token fingerprint:{' '}
+                      <span className="font-medium text-white">
+                        {settings?.tokenDiagnostics?.refreshedTokenFingerprint ||
+                          settings?.latestSendDiagnostics?.refreshedTokenFingerprint ||
+                          '-'}
+                      </span>
+                    </p>
+                    <p>
+                      Send token fingerprint:{' '}
+                      <span className="font-medium text-white">
+                        {settings?.tokenDiagnostics?.sendTokenFingerprint ||
+                          settings?.latestSendDiagnostics?.sendTokenFingerprint ||
+                          '-'}
+                      </span>
+                    </p>
+                    <p>
+                      Refreshed at:{' '}
+                      <span className="font-medium text-white">
+                        {settings?.tokenDiagnostics?.refreshedAt
+                          ? formatDateTime(settings.tokenDiagnostics.refreshedAt)
+                          : settings?.latestSendDiagnostics?.refreshedAt
+                            ? formatDateTime(settings.latestSendDiagnostics.refreshedAt)
+                            : '-'}
+                      </span>
+                    </p>
+                    {(settings?.tokenDiagnostics?.staleTokenDetected ||
+                      settings?.latestSendDiagnostics?.staleTokenDetected) && (
+                      <p className="mt-1 text-rose-300">send flow is using stale token.</p>
+                    )}
+                  </div>
                 ) : null}
               </div>
 
@@ -593,7 +656,20 @@ export default function AdminZaloPage() {
                   <span>Template: {log.templateType}</span>
                   <span>Template ID: {log.templateId || '-'}</span>
                   <span>{log.dryRun ? 'Dry run' : 'Live send'}</span>
+                  <span>Token source: {log.debug?.tokenSource || '-'}</span>
+                  <span>Send fp: {log.debug?.sendTokenFingerprint || '-'}</span>
                 </div>
+                {log.debug?.refreshedTokenFingerprint || log.debug?.staleTokenDetected ? (
+                  <div className="mt-2 text-xs leading-5 text-slate-400">
+                    <p>Refreshed fp: {log.debug?.refreshedTokenFingerprint || '-'}</p>
+                    {log.debug?.refreshedAt ? (
+                      <p>Refreshed at: {formatDateTime(log.debug.refreshedAt)}</p>
+                    ) : null}
+                    {log.debug?.staleTokenDetected ? (
+                      <p className="text-rose-300">send flow is using stale token.</p>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
             ))
           ) : (

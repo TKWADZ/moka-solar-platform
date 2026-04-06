@@ -31,6 +31,7 @@ type ZaloResolvedField = {
 };
 
 export type ResolvedZaloConfig = {
+  configRecordId: string | null;
   appId: string | null;
   appSecret: string | null;
   oaId: string | null;
@@ -48,6 +49,8 @@ export type ResolvedZaloConfig = {
   accessTokenPreview: string | null;
   refreshTokenPreview: string | null;
   appSecretPreview: string | null;
+  accessTokenFingerprint: string | null;
+  refreshTokenFingerprint: string | null;
   lastTestedAt: string | null;
   lastTestStatus: string | null;
   lastTestMessage: string | null;
@@ -91,6 +94,7 @@ export class ZaloSettingsService {
 
     return {
       provider: ZALO_PROVIDER,
+      configRecordId: resolved.configRecordId,
       configuredForSend: resolved.missingRequired.length === 0,
       dryRun: resolved.dryRun,
       appId: resolved.appId,
@@ -104,8 +108,10 @@ export class ZaloSettingsService {
       appSecretPreview: resolved.appSecretPreview,
       hasAccessToken: Boolean(resolved.accessToken),
       accessTokenPreview: resolved.accessTokenPreview,
+      accessTokenFingerprint: resolved.accessTokenFingerprint,
       hasRefreshToken: Boolean(resolved.refreshToken),
       refreshTokenPreview: resolved.refreshTokenPreview,
+      refreshTokenFingerprint: resolved.refreshTokenFingerprint,
       hasStoredAppSecret: resolved.hasStoredAppSecret,
       hasStoredAccessToken: resolved.hasStoredAccessToken,
       hasStoredRefreshToken: resolved.hasStoredRefreshToken,
@@ -388,6 +394,7 @@ export class ZaloSettingsService {
       : 'disabled';
 
     return {
+      configRecordId: record?.id || null,
       appId: appIdField.value,
       appSecret: appSecretField.value,
       oaId: oaIdField.value,
@@ -409,6 +416,8 @@ export class ZaloSettingsService {
       accessTokenPreview: maskSecret(accessTokenField.value, 4, 3),
       refreshTokenPreview: maskSecret(refreshTokenField.value, 4, 3),
       appSecretPreview: maskSecret(appSecretField.value, 3, 3),
+      accessTokenFingerprint: this.buildTokenFingerprint(accessTokenField.value),
+      refreshTokenFingerprint: this.buildTokenFingerprint(refreshTokenField.value),
       lastTestedAt: record?.lastTestedAt?.toISOString() || null,
       lastTestStatus: record?.lastTestStatus || null,
       lastTestMessage: record?.lastTestMessage || null,
@@ -691,5 +700,15 @@ export class ZaloSettingsService {
           record.templatePaidId
         ),
     );
+  }
+
+  private buildTokenFingerprint(token: string | null) {
+    const normalized = token?.trim();
+    if (!normalized) {
+      return null;
+    }
+
+    const crypto = require('crypto') as typeof import('crypto');
+    return crypto.createHash('sha256').update(normalized).digest('hex').slice(0, 12);
   }
 }
