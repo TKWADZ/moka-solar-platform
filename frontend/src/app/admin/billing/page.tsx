@@ -39,6 +39,10 @@ function parseOptionalInteger(value: string) {
   return trimmed ? Number(trimmed) : undefined;
 }
 
+function ensureArray<T>(value: T[] | null | undefined) {
+  return Array.isArray(value) ? value : [];
+}
+
 function paymentStatusLabel(status: PaymentRecord['status']) {
   if (status === 'SUCCESS') {
     return 'Đã xác nhận';
@@ -77,6 +81,42 @@ function outstandingInvoiceAmount(record: MonthlyPvBillingRecord) {
     Number(record.invoice.totalAmount || 0) - Number(record.invoice.paidAmount || 0),
     0,
   );
+}
+
+function isZaloTemplateConfigured(
+  status: ZaloNotificationStatus | null,
+  templateType: 'INVOICE' | 'REMINDER' | 'PAID',
+) {
+  if (!status) {
+    return false;
+  }
+
+  const nestedStatus = (status as ZaloNotificationStatus & {
+    templateIds?: Partial<
+      Record<'INVOICE' | 'REMINDER' | 'PAID', { configured?: boolean } | null | undefined>
+    >;
+  }).templateIds?.[templateType];
+
+  if (typeof nestedStatus?.configured === 'boolean') {
+    return nestedStatus.configured;
+  }
+
+  switch (templateType) {
+    case 'INVOICE':
+      return Boolean(
+        (status as ZaloNotificationStatus & { templateInvoiceId?: string | null }).templateInvoiceId,
+      );
+    case 'REMINDER':
+      return Boolean(
+        (status as ZaloNotificationStatus & { templateReminderId?: string | null }).templateReminderId,
+      );
+    case 'PAID':
+      return Boolean(
+        (status as ZaloNotificationStatus & { templatePaidId?: string | null }).templatePaidId,
+      );
+    default:
+      return false;
+  }
 }
 
 function zaloSendStatusLabel(status: string) {
@@ -123,18 +163,18 @@ export default function AdminBillingPage() {
       listCustomersRequest(),
     ]);
 
-    setSystems(nextSystems);
-    setCustomers(nextCustomers);
+    setSystems(ensureArray(nextSystems));
+    setCustomers(ensureArray(nextCustomers));
   }
 
   async function loadPayments() {
     const nextPayments = await listPaymentsRequest();
-    setPayments(nextPayments);
+    setPayments(ensureArray(nextPayments));
   }
 
   async function loadInvoices() {
     const nextInvoices = await listInvoicesRequest();
-    setInvoices(nextInvoices);
+    setInvoices(ensureArray(nextInvoices));
   }
 
   async function loadZaloData(invoiceId?: string) {
@@ -143,8 +183,8 @@ export default function AdminBillingPage() {
       listZaloMessageLogsRequest(invoiceId, 8),
     ]);
 
-    setZaloStatus(nextStatus);
-    setZaloLogs(nextLogs);
+    setZaloStatus(nextStatus || null);
+    setZaloLogs(ensureArray(nextLogs));
   }
 
   async function loadRecords(nextFilters?: {
@@ -167,7 +207,7 @@ export default function AdminBillingPage() {
       ...(parseOptionalInteger(filters.year || '') ? { year: Number(filters.year) } : {}),
     });
 
-    setRecords(result);
+    setRecords(ensureArray(result));
   }
 
   async function reloadAll(nextFilters?: {
@@ -542,7 +582,7 @@ export default function AdminBillingPage() {
               <p>
                 Template invoice:{' '}
                 <span className="font-medium text-white">
-                  {zaloStatus?.templateIds.INVOICE.configured ? 'Da gan' : 'Chua gan'}
+                  {isZaloTemplateConfigured(zaloStatus, 'INVOICE') ? 'Da gan' : 'Chua gan'}
                 </span>
               </p>
               <p>
