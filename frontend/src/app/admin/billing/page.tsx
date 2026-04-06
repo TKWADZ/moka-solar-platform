@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { CheckCircle2, FileCheck2, FileDown, ReceiptText, RefreshCw, Send, XCircle } from 'lucide-react';
 import { MonthlyPvBillingTable } from '@/components/monthly-pv-billing-table';
 import { SectionCard } from '@/components/section-card';
@@ -520,6 +521,12 @@ export default function AdminBillingPage() {
                 label={zaloStatus?.dryRun ? 'Dry run' : 'Live send'}
                 tone={zaloStatus?.dryRun ? 'warning' : 'success'}
               />
+            </div>
+
+            <div className="mt-3">
+              <Link href="/admin/zalo" className="text-sm font-medium text-emerald-200 transition hover:text-emerald-100">
+                Mo trang cau hinh Zalo
+              </Link>
             </div>
 
             <div className="mt-4 grid gap-2 text-sm text-slate-300 md:grid-cols-2">

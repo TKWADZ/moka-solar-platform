@@ -34,6 +34,7 @@ export const adminNav: NavItem[] = [
   { href: '/admin/deye', label: 'Deye OpenAPI', description: 'Token, account info, station, device và sản lượng PV tháng', featureKey: 'deye_connections' },
   { href: '/admin/contracts', label: 'Hợp đồng', description: 'Mô hình thương mại và điều khoản', featureKey: 'contracts' },
   { href: '/admin/billing', label: 'Hóa đơn', description: 'Phát hành hóa đơn và công nợ', featureKey: 'billing' },
+  { href: '/admin/zalo', label: 'Zalo OA', description: 'Cấu hình OA, test kết nối và gửi mẫu hóa đơn', featureKey: 'billing' },
   { href: '/admin/ai', label: 'ChatGPT', description: 'Trợ lý AI cho nội dung, hỗ trợ và vận hành', featureKey: 'ai_assistant' },
   { href: '/admin/website-settings', label: 'Thiết lập website', description: 'Logo, hotline, menu, pricing, FAQ, CTA và footer', featureKey: 'website_settings' },
   { href: '/admin/media', label: 'Quản lý ảnh', description: 'Thư viện ảnh, upload và tái sử dụng media', featureKey: 'media_library' },

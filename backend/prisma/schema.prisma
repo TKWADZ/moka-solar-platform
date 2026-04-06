@@ -112,6 +112,7 @@ model User {
   contentPosts ContentPost[]
   handledContactInquiries ContactInquiry[]
   updatedAiProviderConfigs AiProviderConfig[]
+  updatedZaloProviderConfigs ZaloProviderConfig[] @relation("ZaloProviderConfigUpdatedBy")
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
   deletedAt    DateTime?
@@ -130,6 +131,30 @@ model AiProviderConfig {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   deletedAt      DateTime?
+
+  @@index([updatedByUserId])
+  @@index([deletedAt])
+}
+
+model ZaloProviderConfig {
+  id                   String   @id @default(cuid())
+  provider             String   @unique
+  appId                String?
+  appSecretEncrypted   String?
+  oaId                 String?
+  accessTokenEncrypted String?
+  apiBaseUrl           String?
+  templateInvoiceId    String?
+  templateReminderId   String?
+  templatePaidId       String?
+  updatedByUserId      String?
+  updatedByUser        User?    @relation("ZaloProviderConfigUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
+  lastTestedAt         DateTime?
+  lastTestStatus       String?
+  lastTestMessage      String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+  deletedAt            DateTime?
 
   @@index([updatedByUserId])
   @@index([deletedAt])

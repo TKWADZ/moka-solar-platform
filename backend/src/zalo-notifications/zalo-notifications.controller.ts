@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Post, Query, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
 import { ZaloNotificationsService } from './zalo-notifications.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -8,6 +8,8 @@ import { FeaturePluginGuard } from '../feature-plugins/feature-plugin.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { SendZaloInvoiceDto } from './dto/send-zalo-invoice.dto';
+import { TestZaloConnectionDto } from './dto/test-zalo-connection.dto';
+import { UpdateZaloSettingsDto } from './dto/update-zalo-settings.dto';
 
 @Controller('zalo-notifications')
 @FeaturePlugin('billing')
@@ -21,6 +23,21 @@ export class ZaloNotificationsController {
     return this.zaloNotificationsService.getStatus();
   }
 
+  @Get('settings')
+  @Roles('SUPER_ADMIN', 'ADMIN')
+  getSettings() {
+    return this.zaloNotificationsService.getSettings();
+  }
+
+  @Patch('settings')
+  @Roles('SUPER_ADMIN', 'ADMIN')
+  updateSettings(
+    @Body() dto: UpdateZaloSettingsDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.zaloNotificationsService.updateSettings(dto, user.sub);
+  }
+
   @Get('logs')
   @Roles('SUPER_ADMIN', 'ADMIN', 'STAFF')
   listLogs(
@@ -31,6 +48,15 @@ export class ZaloNotificationsController {
       invoiceId: invoiceId?.trim() || undefined,
       limit: limit ? Number(limit) : undefined,
     });
+  }
+
+  @Post('test')
+  @Roles('SUPER_ADMIN', 'ADMIN')
+  testConnection(
+    @Body() dto: TestZaloConnectionDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.zaloNotificationsService.testConnection(dto, user.sub);
   }
 
   @Post('invoices/:invoiceId/send')

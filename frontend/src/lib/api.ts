@@ -43,6 +43,8 @@ import {
   ZaloMessageLogRecord,
   ZaloNotificationStatus,
   ZaloSendResult,
+  ZaloSettingsRecord,
+  ZaloTestResult,
   ZaloTemplateType,
 } from '@/types';
 import {
@@ -601,7 +603,7 @@ const demoFeaturePlugins: FeaturePlugin[] = [
     routePath: '/admin/billing',
     areas: ['admin', 'customer'],
     sortOrder: 70,
-    config: { routes: ['/admin/billing', '/customer/billing'], apiPrefixes: ['/invoices'] },
+    config: { routes: ['/admin/billing', '/admin/zalo', '/customer/billing'], apiPrefixes: ['/invoices', '/zalo-notifications'] },
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     deletedAt: null,
@@ -3117,6 +3119,36 @@ export async function downloadPaymentProofRequest(paymentId: string) {
 
 export async function zaloNotificationsStatusRequest() {
   return apiFetch<ZaloNotificationStatus>('/zalo-notifications/status');
+}
+
+export async function zaloNotificationsSettingsRequest() {
+  return apiFetch<ZaloSettingsRecord>('/zalo-notifications/settings');
+}
+
+export async function updateZaloNotificationsSettingsRequest(payload: {
+  appId?: string;
+  appSecret?: string;
+  oaId?: string;
+  accessToken?: string;
+  apiBaseUrl?: string;
+  templateInvoiceId?: string;
+  templateReminderId?: string;
+  templatePaidId?: string;
+}) {
+  return apiFetch<ZaloSettingsRecord>('/zalo-notifications/settings', {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function testZaloConnectionRequest(payload: {
+  phone?: string;
+  dryRun?: boolean;
+}) {
+  return apiFetch<ZaloTestResult>('/zalo-notifications/test', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
 }
 
 export async function listZaloMessageLogsRequest(invoiceId?: string, limit = 20) {

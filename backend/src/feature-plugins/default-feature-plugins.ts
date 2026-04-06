@@ -275,8 +275,8 @@ export const DEFAULT_FEATURE_PLUGINS: DefaultFeaturePlugin[] = [
     areas: ['admin', 'customer'],
     sortOrder: 70,
     config: {
-      routes: ['/admin/billing', '/customer/billing'],
-      apiPrefixes: ['/invoices'],
+      routes: ['/admin/billing', '/admin/zalo', '/customer/billing'],
+      apiPrefixes: ['/invoices', '/zalo-notifications'],
     },
   },
   {

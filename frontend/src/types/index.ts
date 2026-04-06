@@ -486,6 +486,22 @@ export type ZaloNotificationStatus = {
   missingRecommended: string[];
 };
 
+export type ZaloSettingsRecord = ZaloNotificationStatus & {
+  provider: string;
+  appId?: string | null;
+  oaId?: string | null;
+  templateInvoiceId?: string | null;
+  templateReminderId?: string | null;
+  templatePaidId?: string | null;
+  appSecretPreview?: string | null;
+  accessTokenPreview?: string | null;
+  hasStoredAppSecret?: boolean;
+  hasStoredAccessToken?: boolean;
+  lastTestedAt?: string | null;
+  lastTestStatus?: string | null;
+  lastTestMessage?: string | null;
+};
+
 export type ZaloMessageLogRecord = {
   id: string;
   invoiceId?: string | null;
@@ -505,14 +521,32 @@ export type ZaloSendResult = {
   success: boolean;
   dryRun: boolean;
   status: string;
-  invoiceId: string;
-  invoiceNumber: string;
+  invoiceId?: string | null;
+  invoiceNumber?: string | null;
   customerName: string;
   recipientPhone?: string | null;
   templateType: ZaloTemplateType | string;
   templateId?: string | null;
   providerCode?: string | null;
   providerMessage?: string | null;
+  missingRequired?: string[];
+  missingRecommended?: string[];
+  logId: string;
+  sentAt: string;
+};
+
+export type ZaloTestResult = {
+  success: boolean;
+  dryRun: boolean;
+  status: string;
+  customerName: string;
+  recipientPhone?: string | null;
+  templateType: string;
+  templateId?: string | null;
+  providerCode?: string | null;
+  providerMessage?: string | null;
+  missingRequired: string[];
+  missingRecommended: string[];
   logId: string;
   sentAt: string;
 };

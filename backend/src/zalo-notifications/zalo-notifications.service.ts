@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Injectable,
   NotFoundException,
   ServiceUnavailableException,
@@ -9,19 +8,30 @@ import { Prisma } from '@prisma/client';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { WebsiteSettingsService } from '../website-settings/website-settings.service';
+import { TestZaloConnectionDto } from './dto/test-zalo-connection.dto';
+import { UpdateZaloSettingsDto } from './dto/update-zalo-settings.dto';
+import {
+  ResolvedZaloConfig,
+  ZaloSettingsService,
+  ZaloTemplateType,
+} from './zalo-settings.service';
 
-type ZaloTemplateType = 'INVOICE' | 'REMINDER' | 'PAID';
-
-type ResolvedZaloConfig = {
-  appId: string | null;
-  appSecret: string | null;
-  oaId: string | null;
-  accessToken: string | null;
-  apiBaseUrl: string;
+type SendExecutionParams = {
+  actorId?: string;
+  invoice?: any | null;
+  customerId?: string | null;
+  customerName: string;
+  templateType: ZaloTemplateType | 'TEST';
+  templateId: string | null;
+  recipientPhone: string;
+  requestPayload: Record<string, unknown>;
+  responsePayload?: unknown;
   dryRun: boolean;
-  templateIds: Record<ZaloTemplateType, string | null>;
-  missingRequired: string[];
-  missingRecommended: string[];
+  sendStatus: string;
+  providerCode?: string | null;
+  providerMessage: string;
+  missingRequired?: string[];
+  missingRecommended?: string[];
 };
 
 @Injectable()
@@ -31,27 +41,19 @@ export class ZaloNotificationsService {
     private readonly prisma: PrismaService,
     private readonly auditLogsService: AuditLogsService,
     private readonly websiteSettingsService: WebsiteSettingsService,
+    private readonly zaloSettingsService: ZaloSettingsService,
   ) {}
 
   async getStatus() {
-    const config = this.resolveConfig();
+    return this.zaloSettingsService.getSettings();
+  }
 
-    return {
-      configuredForSend: config.missingRequired.length === 0,
-      dryRun: config.dryRun,
-      apiBaseUrl: config.apiBaseUrl,
-      hasAppId: Boolean(config.appId),
-      hasAppSecret: Boolean(config.appSecret),
-      hasAccessToken: Boolean(config.accessToken),
-      oaIdPreview: this.maskValue(config.oaId),
-      templateIds: {
-        INVOICE: this.serializeTemplateStatus(config.templateIds.INVOICE),
-        REMINDER: this.serializeTemplateStatus(config.templateIds.REMINDER),
-        PAID: this.serializeTemplateStatus(config.templateIds.PAID),
-      },
-      missingRequired: config.missingRequired,
-      missingRecommended: config.missingRecommended,
-    };
+  async getSettings() {
+    return this.zaloSettingsService.getSettings();
+  }
+
+  async updateSettings(dto: UpdateZaloSettingsDto, actorId: string) {
+    return this.zaloSettingsService.updateSettings(dto, actorId);
   }
 
   async listLogs(filters?: { invoiceId?: string; limit?: number }) {
@@ -91,6 +93,80 @@ export class ZaloNotificationsService {
     }));
   }
 
+  async testConnection(dto: TestZaloConnectionDto, actorId?: string) {
+    const config = await this.zaloSettingsService.resolveConfig();
+    const hotline = await this.resolveHotline();
+    const recipientPhone = this.normalizePhoneNumber(dto.phone || '');
+    const templateId = config.templateIds.INVOICE;
+    const requestPayload = {
+      oa_id: config.oaId,
+      phone: recipientPhone,
+      template_id: templateId,
+      template_data: {
+        customer_name: 'Khach hang test',
+        billing_month: new Date().toISOString().slice(0, 7).replace('-', '/'),
+        consumption_kwh: '0',
+        amount_due: '0',
+        due_date: '',
+        payment_link: this.buildPaymentLink('test-zalo'),
+        hotline,
+      },
+      tracking_id: `TEST-${Date.now()}`,
+      mode: 'test_connection',
+    };
+
+    if (!recipientPhone) {
+      const result = await this.logAndReturnResult({
+        actorId,
+        customerName: 'Admin test Zalo',
+        customerId: null,
+        templateType: 'TEST',
+        templateId,
+        recipientPhone: '',
+        dryRun: true,
+        requestPayload,
+        sendStatus: 'BLOCKED',
+        providerCode: 'MISSING_PHONE',
+        providerMessage:
+          'Can nhap so dien thoai test de kiem tra ket noi Zalo.',
+        missingRequired: config.missingRequired,
+        missingRecommended: config.missingRecommended,
+      });
+
+      await this.zaloSettingsService.recordTestResult({
+        actorId,
+        status: result.status,
+        message: result.providerMessage || 'Test Zalo bi chan vi thieu so dien thoai.',
+      });
+
+      return result;
+    }
+
+    const result = await this.sendTemplatePayload({
+      actorId,
+      customerId: null,
+      customerName: 'Admin test Zalo',
+      templateType: 'TEST',
+      templateId,
+      recipientPhone,
+      requestPayload,
+      config,
+      forceDryRun: dto.dryRun,
+      dryRunMissingMessage:
+        'Dry-run: test ket noi dang duoc chay an toan tren moi truong hien tai.',
+    });
+
+    await this.zaloSettingsService.recordTestResult({
+      actorId,
+      status: result.status,
+      message:
+        result.providerMessage ||
+        (result.success ? 'Test ket noi Zalo thanh cong.' : 'Test ket noi Zalo that bai.'),
+    });
+
+    return result;
+  }
+
   async sendInvoiceNotification(options: {
     invoiceId: string;
     actorId?: string;
@@ -123,22 +199,23 @@ export class ZaloNotificationsService {
     }
 
     const templateType: ZaloTemplateType = options.templateType || 'INVOICE';
-    const config = this.resolveConfig();
+    const config = await this.zaloSettingsService.resolveConfig();
     const recipientPhone = this.normalizePhoneNumber(
       options.recipientPhone || invoice.customer?.user?.phone || '',
     );
     const hotline = await this.resolveHotline();
     const paymentLink = this.buildPaymentLink(invoice.id);
     const templateId = config.templateIds[templateType];
+    const billableConsumption =
+      Number(invoice.monthlyPvBilling?.billableKwh || 0) ||
+      Number(invoice.monthlyPvBilling?.pvGenerationKwh || 0);
     const payloadVariables = {
       customer_name:
         invoice.customer?.companyName?.trim() ||
         invoice.customer?.user?.fullName?.trim() ||
         'Quy khach',
       billing_month: `${String(invoice.billingMonth).padStart(2, '0')}/${invoice.billingYear}`,
-      consumption_kwh: this.formatDecimalForPayload(
-        invoice.monthlyPvBilling?.billableKwh || invoice.monthlyPvBilling?.pvGenerationKwh || 0,
-      ),
+      consumption_kwh: this.formatDecimalForPayload(billableConsumption),
       amount_due: this.formatCurrencyForPayload(
         Math.max(Number(invoice.totalAmount || 0) - Number(invoice.paidAmount || 0), 0),
       ),
@@ -160,6 +237,11 @@ export class ZaloNotificationsService {
       return this.logAndReturnResult({
         invoice,
         actorId: options.actorId,
+        customerId: invoice.customerId,
+        customerName:
+          invoice.customer?.companyName ||
+          invoice.customer?.user?.fullName ||
+          'Quy khach',
         templateType,
         templateId,
         recipientPhone: '',
@@ -168,37 +250,76 @@ export class ZaloNotificationsService {
         sendStatus: 'BLOCKED',
         providerCode: 'MISSING_PHONE',
         providerMessage: 'Khach hang chua co so dien thoai de gui thong bao Zalo.',
+        missingRequired: config.missingRequired,
+        missingRecommended: config.missingRecommended,
       });
     }
 
+    return this.sendTemplatePayload({
+      actorId: options.actorId,
+      invoice,
+      customerId: invoice.customerId,
+      customerName:
+        invoice.customer?.companyName ||
+        invoice.customer?.user?.fullName ||
+        'Quy khach',
+      templateType,
+      templateId,
+      recipientPhone,
+      requestPayload,
+      config,
+      forceDryRun: options.dryRun,
+      dryRunMissingMessage:
+        'Dry-run: gui that dang bi tat trong moi truong hien tai.',
+    });
+  }
+
+  private async sendTemplatePayload(params: {
+    actorId?: string;
+    invoice?: any | null;
+    customerId?: string | null;
+    customerName: string;
+    templateType: ZaloTemplateType | 'TEST';
+    templateId: string | null;
+    recipientPhone: string;
+    requestPayload: Record<string, unknown>;
+    config: ResolvedZaloConfig;
+    forceDryRun?: boolean;
+    dryRunMissingMessage: string;
+  }) {
     const effectiveDryRun =
-      options.dryRun === true || config.dryRun || config.missingRequired.length > 0;
+      params.forceDryRun === true ||
+      params.config.dryRun ||
+      params.config.missingRequired.length > 0;
 
     if (effectiveDryRun) {
-      const providerMessage =
-        config.missingRequired.length > 0
-          ? `Dry-run: thieu cau hinh Zalo (${config.missingRequired.join(', ')}).`
-          : 'Dry-run: gui that dang bi tat trong moi truong hien tai.';
-
       return this.logAndReturnResult({
-        invoice,
-        actorId: options.actorId,
-        templateType,
-        templateId,
-        recipientPhone,
+        invoice: params.invoice || null,
+        actorId: params.actorId,
+        customerId: params.customerId || null,
+        customerName: params.customerName,
+        templateType: params.templateType,
+        templateId: params.templateId,
+        recipientPhone: params.recipientPhone,
         dryRun: true,
-        requestPayload,
+        requestPayload: params.requestPayload,
         sendStatus: 'DRY_RUN',
-        providerCode: 'DRY_RUN',
-        providerMessage,
+        providerCode: params.config.missingRequired.length > 0 ? 'MISSING_CONFIG' : 'DRY_RUN',
+        providerMessage:
+          params.config.missingRequired.length > 0
+            ? `Dry-run: thieu cau hinh Zalo (${params.config.missingRequired.join(', ')}).`
+            : params.dryRunMissingMessage,
         responsePayload: {
           simulated: true,
-          missingRequired: config.missingRequired,
+          missingRequired: params.config.missingRequired,
+          missingRecommended: params.config.missingRecommended,
         },
+        missingRequired: params.config.missingRequired,
+        missingRecommended: params.config.missingRecommended,
       });
     }
 
-    const sendUrl = this.buildSendUrl(config.apiBaseUrl);
+    const sendUrl = this.buildSendUrl(params.config.apiBaseUrl);
     let response: Response;
     let responseBody: unknown = null;
 
@@ -207,10 +328,10 @@ export class ZaloNotificationsService {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${config.accessToken}`,
-          'X-Zalo-OA-ID': config.oaId || '',
+          Authorization: `Bearer ${params.config.accessToken}`,
+          'X-Zalo-OA-ID': params.config.oaId || '',
         },
-        body: JSON.stringify(requestPayload),
+        body: JSON.stringify(params.requestPayload),
       });
     } catch (error) {
       throw new ServiceUnavailableException(
@@ -233,39 +354,33 @@ export class ZaloNotificationsService {
     const sendStatus = response.ok && this.isProviderSuccess(responseBody) ? 'SENT' : 'FAILED';
 
     return this.logAndReturnResult({
-      invoice,
-      actorId: options.actorId,
-      templateType,
-      templateId,
-      recipientPhone,
+      invoice: params.invoice || null,
+      actorId: params.actorId,
+      customerId: params.customerId || null,
+      customerName: params.customerName,
+      templateType: params.templateType,
+      templateId: params.templateId,
+      recipientPhone: params.recipientPhone,
       dryRun: false,
-      requestPayload,
+      requestPayload: params.requestPayload,
       responsePayload: responseBody,
       sendStatus,
       providerCode: normalizedProviderCode,
       providerMessage: normalizedProviderMessage,
+      missingRequired: params.config.missingRequired,
+      missingRecommended: params.config.missingRecommended,
     });
   }
 
-  private async logAndReturnResult(params: {
-    invoice: any;
-    actorId?: string;
-    templateType: ZaloTemplateType;
-    templateId: string | null;
-    recipientPhone: string;
-    dryRun: boolean;
-    requestPayload: Record<string, unknown>;
-    responsePayload?: unknown;
-    sendStatus: string;
-    providerCode?: string | null;
-    providerMessage: string;
-  }) {
+  private async logAndReturnResult(params: SendExecutionParams) {
     const log = await this.prisma.zaloMessageLog.create({
       data: {
-        invoiceId: params.invoice.id,
-        customerId: params.invoice.customerId,
-        customerName:
-          params.invoice.customer?.companyName || params.invoice.customer?.user?.fullName || 'Quy khach',
+        invoiceId: params.invoice?.id || params.invoice?.invoiceId || null,
+        customerId:
+          params.customerId ||
+          params.invoice?.customerId ||
+          null,
+        customerName: params.customerName,
         recipientPhone: params.recipientPhone || '',
         templateType: params.templateType,
         templateId: params.templateId,
@@ -284,12 +399,15 @@ export class ZaloNotificationsService {
 
     await this.auditLogsService.log({
       userId: params.actorId,
-      action: 'ZALO_INVOICE_NOTIFICATION_SENT',
+      action:
+        params.templateType === 'TEST'
+          ? 'ZALO_TEST_CONNECTION_SENT'
+          : 'ZALO_INVOICE_NOTIFICATION_SENT',
       entityType: 'ZaloMessageLog',
       entityId: log.id,
       payload: {
-        invoiceId: params.invoice.id,
-        invoiceNumber: params.invoice.invoiceNumber,
+        invoiceId: params.invoice?.id || null,
+        invoiceNumber: params.invoice?.invoiceNumber || null,
         templateType: params.templateType,
         sendStatus: params.sendStatus,
         dryRun: params.dryRun,
@@ -301,64 +419,19 @@ export class ZaloNotificationsService {
       success: params.sendStatus === 'SENT' || params.sendStatus === 'DRY_RUN',
       dryRun: params.dryRun,
       status: params.sendStatus,
-      invoiceId: params.invoice.id,
-      invoiceNumber: params.invoice.invoiceNumber,
-      customerName:
-        params.invoice.customer?.companyName || params.invoice.customer?.user?.fullName || 'Quy khach',
+      invoiceId: params.invoice?.id || null,
+      invoiceNumber: params.invoice?.invoiceNumber || null,
+      customerName: params.customerName,
       recipientPhone: params.recipientPhone || null,
       templateType: params.templateType,
       templateId: params.templateId,
       providerCode: params.providerCode || null,
       providerMessage: params.providerMessage,
+      missingRequired: params.missingRequired || [],
+      missingRecommended: params.missingRecommended || [],
       logId: log.id,
       sentAt: log.createdAt.toISOString(),
     };
-  }
-
-  private resolveConfig(): ResolvedZaloConfig {
-    const appId = this.readEnv('ZALO_APP_ID');
-    const appSecret = this.readEnv('ZALO_APP_SECRET');
-    const oaId = this.readEnv('ZALO_OA_ID');
-    const accessToken = this.readEnv('ZALO_ACCESS_TOKEN');
-    const apiBaseUrl =
-      this.readEnv('ZALO_API_BASE_URL') || 'https://openapi.zalo.me/v3.0/oa';
-    const templateIds = {
-      INVOICE: this.readEnv('ZALO_TEMPLATE_INVOICE_ID'),
-      REMINDER: this.readEnv('ZALO_TEMPLATE_REMINDER_ID'),
-      PAID: this.readEnv('ZALO_TEMPLATE_PAID_ID'),
-    } satisfies Record<ZaloTemplateType, string | null>;
-    const dryRun = this.configService.get<string>('ZALO_DRY_RUN') !== 'false';
-
-    const missingRequired = [
-      !oaId ? 'ZALO_OA_ID' : null,
-      !accessToken ? 'ZALO_ACCESS_TOKEN' : null,
-      !templateIds.INVOICE ? 'ZALO_TEMPLATE_INVOICE_ID' : null,
-      !apiBaseUrl ? 'ZALO_API_BASE_URL' : null,
-    ].filter((value): value is string => Boolean(value));
-
-    const missingRecommended = [
-      !appId ? 'ZALO_APP_ID' : null,
-      !appSecret ? 'ZALO_APP_SECRET' : null,
-      !templateIds.REMINDER ? 'ZALO_TEMPLATE_REMINDER_ID' : null,
-      !templateIds.PAID ? 'ZALO_TEMPLATE_PAID_ID' : null,
-    ].filter((value): value is string => Boolean(value));
-
-    return {
-      appId,
-      appSecret,
-      oaId,
-      accessToken,
-      apiBaseUrl,
-      dryRun,
-      templateIds,
-      missingRequired,
-      missingRecommended,
-    };
-  }
-
-  private readEnv(name: string) {
-    const value = this.configService.get<string>(name)?.trim();
-    return value || null;
   }
 
   private buildSendUrl(apiBaseUrl: string) {
@@ -435,25 +508,6 @@ export class ZaloNotificationsService {
 
   private formatCurrencyForPayload(value: number) {
     return Math.round(Number(value || 0)).toString();
-  }
-
-  private serializeTemplateStatus(value: string | null) {
-    return {
-      configured: Boolean(value),
-      idPreview: this.maskValue(value),
-    };
-  }
-
-  private maskValue(value: string | null) {
-    if (!value) {
-      return null;
-    }
-
-    if (value.length <= 6) {
-      return `${value.slice(0, 2)}***`;
-    }
-
-    return `${value.slice(0, 3)}***${value.slice(-3)}`;
   }
 
   private extractProviderCode(payload: unknown) {

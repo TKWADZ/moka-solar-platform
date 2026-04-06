@@ -1,10 +1,26 @@
 # Zalo Invoice Notification Integration
 
-This project includes a safe backend-only foundation for sending invoice notifications through Zalo OA template messaging.
+## Admin location
 
-## Required environment variables
+- Zalo settings page: `/admin/zalo`
+- Billing send action: `/admin/billing`
 
-Add these on the backend environment only:
+`/admin/zalo` is the place to:
+
+- save App ID, App Secret, OA ID, Access Token
+- save API Base URL
+- save template IDs for invoice, reminder, paid
+- test connection with a phone number
+- review recent send logs
+
+`/admin/billing` is the place to:
+
+- click `Gui Zalo` for a specific invoice
+- see send status without leaving the billing workflow
+
+## Required config
+
+Add these variables on the backend only:
 
 - `ZALO_APP_ID`
 - `ZALO_APP_SECRET`
@@ -15,38 +31,23 @@ Add these on the backend environment only:
 - `ZALO_TEMPLATE_PAID_ID`
 - `ZALO_API_BASE_URL`
 - `ZALO_DRY_RUN`
+- `ZALO_SETTINGS_SECRET`
 
-Recommended default:
+Recommended defaults:
 
 - `ZALO_API_BASE_URL=https://openapi.zalo.me/v3.0/oa`
 - `ZALO_DRY_RUN=true`
 
-## Template configuration
+Notes:
 
-Template IDs are configured with these variables:
+- Secrets are never exposed to the browser.
+- App Secret and Access Token are encrypted before being stored in the database.
+- If a value is saved in admin, backend will use it first.
+- If admin storage is empty, backend can still fall back to env values.
 
-- `ZALO_TEMPLATE_INVOICE_ID`
-- `ZALO_TEMPLATE_REMINDER_ID`
-- `ZALO_TEMPLATE_PAID_ID`
+## What the backend sends
 
-Current admin send action uses the invoice template first. Reminder and paid templates are prepared for later workflow expansion.
-
-## Admin send flow
-
-1. Admin opens `/admin/billing`.
-2. The page loads Zalo status and recent message logs.
-3. For any billing record that already has an invoice, admin can click `Gui Zalo`.
-4. Frontend calls:
-   - `POST /api/zalo-notifications/invoices/:invoiceId/send`
-5. Backend:
-   - loads invoice, customer, monthly billing, and contract context
-   - prepares template payload with safe fallbacks
-   - sends a real request only when required env is configured and dry-run is disabled
-   - writes a `ZaloMessageLog` row for every attempt
-
-## Template payload variables
-
-Current payload supports:
+Current invoice template payload supports:
 
 - `customer_name`
 - `billing_month`
@@ -56,51 +57,56 @@ Current payload supports:
 - `payment_link`
 - `hotline`
 
-If a field is missing, the service falls back to an empty string or a safe default instead of crashing.
+Safe fallbacks are used when any field is missing so the action does not crash.
 
 ## Local testing
 
-### Dry-run mode
+### Safe test mode
 
-Dry-run is enabled by default unless `ZALO_DRY_RUN=false`.
+Local testing is meant to stay safe by default.
 
-This means you can test the UI and backend flow locally without sending real Zalo messages.
-
-The service will also stay in dry-run/block mode if required env vars are missing.
+- If required config is missing, backend returns a blocked or dry-run result with exact missing fields.
+- If `ZALO_DRY_RUN=true`, backend will log the attempt without sending a real message.
 
 ### Steps
 
 1. Run local stack:
    - `docker compose -f docker-compose.yml -f docker-compose.local.yml up --build`
 2. Log in to local admin.
-3. Open `/admin/billing`.
-4. Click `Gui Zalo` on a billing row with an invoice.
-5. Verify success feedback and inspect recent Zalo logs in the same page.
+3. Open `/admin/zalo`.
+4. Save settings if needed.
+5. Enter a test phone number and click `Test ket noi Zalo`.
+6. Open `/admin/billing`.
+7. Click `Gui Zalo` on an invoice.
+8. Review recent logs on `/admin/zalo` or in the billing page Zalo panel.
 
 ## Switching from test to real send
 
-1. Set real OA/token/template env vars on the backend.
+1. Add real OA/token/template values.
 2. Set `ZALO_DRY_RUN=false`.
 3. Restart backend.
-4. Test with an internal invoice first.
+4. Test with one internal invoice first.
 
 ## Common failure points
 
-- Missing `ZALO_OA_ID`, `ZALO_ACCESS_TOKEN`, `ZALO_TEMPLATE_INVOICE_ID`, or `ZALO_API_BASE_URL`
-- Customer phone number missing on invoice/customer profile
+- Missing `ZALO_OA_ID`
+- Missing `ZALO_ACCESS_TOKEN`
+- Missing `ZALO_TEMPLATE_INVOICE_ID`
+- Wrong `ZALO_API_BASE_URL`
+- Customer phone number missing on the invoice/customer profile
 - Template variable names not matching the approved Zalo template
-- OA token expired or incorrect
-- Using dry-run mode while expecting a real provider send
+- OA token expired or revoked
+- `ZALO_DRY_RUN=true` while expecting a real send
 
 ## Logging
 
 Each send attempt writes a `ZaloMessageLog` record with:
 
-- invoice reference
+- message type
+- invoice id when available
 - customer name
 - recipient phone
-- template type
-- send status
-- provider code/message
-- request/response payload
-- timestamps
+- template id
+- status
+- provider response code/message
+- timestamp
