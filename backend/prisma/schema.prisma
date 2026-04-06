@@ -116,6 +116,31 @@ enum ContactInquiryStatus {
   CLOSED
 }
 
+enum LuxPowerMetricGranularity {
+  REALTIME
+  DAILY
+  MONTHLY
+  YEARLY
+  TOTAL
+}
+
+enum LuxPowerSnapshotType {
+  AUTH
+  PLANT_LIST
+  PLANT_DETAIL
+  REALTIME_RUNTIME
+  REALTIME_ENERGY
+  DAY_CHART
+  MONTH_CHART
+  YEAR_CHART
+  TOTAL_CHART
+  NORMALIZED_REALTIME
+  NORMALIZED_DAILY
+  NORMALIZED_MONTHLY
+  NORMALIZED_YEARLY
+  NORMALIZED_TOTAL
+}
+
 model Role {
     id        String   @id @default(cuid())
     code      String   @unique
@@ -235,6 +260,7 @@ model Customer {
   zaloMessageLogs     ZaloMessageLog[]
   deyeConnections     DeyeConnection[]
   solarmanConnections SolarmanConnection[]
+  luxPowerConnections LuxPowerConnection[]
   monthlyEnergyRecords MonthlyEnergyRecord[]
   monthlyPvBillings   MonthlyPvBilling[]
   supportTickets      SupportTicket[]
@@ -288,6 +314,8 @@ model SolarSystem {
   solarmanConnectionId String?
   solarmanConnection  SolarmanConnection? @relation(fields: [solarmanConnectionId], references: [id], onDelete: SetNull)
   luxPowerConnection  LuxPowerConnection?
+  luxPowerDebugSnapshots LuxPowerDebugSnapshot[]
+  luxPowerNormalizedMetrics LuxPowerNormalizedMetric[]
   monitoringProvider  String?
   monitoringPlantId   String?
   latestMonitorSnapshot Json?
@@ -483,21 +511,34 @@ model LuxPowerConnection {
   passwordEncrypted     String?
   plantId               String?
   inverterSerial        String?
+  customerId            String?
+  customer              Customer?        @relation(fields: [customerId], references: [id], onDelete: SetNull)
   solarSystemId         String?          @unique
   solarSystem           SolarSystem?     @relation(fields: [solarSystemId], references: [id], onDelete: SetNull)
+  contractId            String?
+  contract              Contract?        @relation(fields: [contractId], references: [id], onDelete: SetNull)
+  billingRuleLabel      String?
   pollingIntervalMinutes Int             @default(60)
   useDemoMode           Boolean          @default(false)
   status                String           @default("PENDING")
   lastLoginAt           DateTime?
   lastSyncTime          DateTime?
+  authReadyAt           DateTime?
+  plantLinkedAt         DateTime?
+  metricsAvailableAt    DateTime?
+  billingReadyAt        DateTime?
   lastError             String?
   lastProviderResponse  Json?
   notes                 String?
   syncLogs              LuxPowerSyncLog[]
+  debugSnapshots        LuxPowerDebugSnapshot[]
+  normalizedMetrics     LuxPowerNormalizedMetric[]
   createdAt             DateTime         @default(now())
   updatedAt             DateTime         @updatedAt
   deletedAt             DateTime?
 
+  @@index([customerId])
+  @@index([contractId])
   @@index([solarSystemId])
   @@index([status])
   @@index([deletedAt])
@@ -520,6 +561,71 @@ model LuxPowerSyncLog {
 
   @@index([connectionId, createdAt])
   @@index([status, createdAt])
+}
+
+model LuxPowerDebugSnapshot {
+  id            String               @id @default(cuid())
+  connectionId  String
+  connection    LuxPowerConnection   @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  solarSystemId String?
+  solarSystem   SolarSystem?         @relation(fields: [solarSystemId], references: [id], onDelete: SetNull)
+  snapshotType  LuxPowerSnapshotType
+  status        String               @default("CAPTURED")
+  providerPlantId String?
+  providerDeviceSn String?
+  capturedAt    DateTime
+  payload       Json?
+  note          String?
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+
+  @@index([connectionId, snapshotType, capturedAt])
+  @@index([solarSystemId, capturedAt])
+  @@index([providerPlantId, providerDeviceSn])
+}
+
+model LuxPowerNormalizedMetric {
+  id                  String                    @id @default(cuid())
+  connectionId        String
+  connection          LuxPowerConnection        @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  solarSystemId       String?
+  solarSystem         SolarSystem?              @relation(fields: [solarSystemId], references: [id], onDelete: SetNull)
+  provider            String
+  providerPlantId     String?
+  providerDeviceSn    String?
+  granularity         LuxPowerMetricGranularity
+  periodKey           String
+  metricDate          DateTime?
+  year                Int?
+  month               Int?
+  pvPowerW            Decimal?                  @db.Decimal(12,2)
+  loadPowerW          Decimal?                  @db.Decimal(12,2)
+  gridPowerW          Decimal?                  @db.Decimal(12,2)
+  batteryPowerW       Decimal?                  @db.Decimal(12,2)
+  batterySocPercent   Decimal?                  @db.Decimal(8,2)
+  acCouplePowerW      Decimal?                  @db.Decimal(12,2)
+  currentPvPowerKw    Decimal?                  @db.Decimal(12,2)
+  currentLoadPowerKw  Decimal?                  @db.Decimal(12,2)
+  currentBatterySoc   Decimal?                  @db.Decimal(8,2)
+  dailyInverterOutputKwh Decimal?               @db.Decimal(12,2)
+  dailyToUserKwh      Decimal?                  @db.Decimal(12,2)
+  dailyConsumptionKwh Decimal?                  @db.Decimal(12,2)
+  monthlyInverterOutputKwh Decimal?             @db.Decimal(12,2)
+  monthlyToUserKwh    Decimal?                  @db.Decimal(12,2)
+  monthlyConsumptionKwh Decimal?                @db.Decimal(12,2)
+  dailyPvKwh          Decimal?                  @db.Decimal(12,2)
+  monthlyPvKwh        Decimal?                  @db.Decimal(12,2)
+  totalPvKwh          Decimal?                  @db.Decimal(14,2)
+  gridImportKwh       Decimal?                  @db.Decimal(12,2)
+  gridExportKwh       Decimal?                  @db.Decimal(12,2)
+  capturedAt          DateTime
+  rawPayload          Json?
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
+
+  @@unique([connectionId, granularity, periodKey])
+  @@index([solarSystemId, granularity, capturedAt])
+  @@index([providerPlantId, providerDeviceSn, granularity])
 }
 
 model MonthlyEnergyRecord {
@@ -705,6 +811,7 @@ model Contract {
   contractFileUrl  String?
   invoices         Invoice[]
   monthlyPvBillings MonthlyPvBilling[]
+  luxPowerConnections LuxPowerConnection[]
   createdAt        DateTime       @default(now())
   updatedAt        DateTime       @updatedAt
   deletedAt        DateTime?

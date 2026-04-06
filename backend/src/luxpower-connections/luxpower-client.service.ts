@@ -1,17 +1,23 @@
 import { BadGatewayException, BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
+  LuxPowerAggregatePoint,
   LuxPowerDayPoint,
   LuxPowerInverterRecord,
+  LuxPowerPlantDetail,
   LuxPowerPlantRecord,
   LuxPowerSnapshot,
   asRecord,
+  buildLuxPowerPlantDetail,
   buildLuxPowerSnapshot,
   parseLuxPowerDayChart,
   parseLuxPowerEnergy,
   parseLuxPowerInverters,
+  parseLuxPowerMonthChart,
   parseLuxPowerPlants,
   parseLuxPowerRuntime,
+  parseLuxPowerTotalChart,
+  parseLuxPowerYearChart,
 } from './luxpower.parser';
 
 export type LuxPowerConnectionConfig = {
@@ -41,6 +47,36 @@ type ResolvedTarget = {
   inverter: LuxPowerInverterRecord | null;
   plants: LuxPowerPlantRecord[];
   inverters: LuxPowerInverterRecord[];
+  treeNodes: unknown[] | null;
+  rawPayloads: {
+    plantList: unknown;
+    inverterList: unknown | null;
+    tree: unknown[] | null;
+  };
+  warnings: string[];
+};
+
+export type LuxPowerMonitoringBundle = {
+  sessionMode: LuxPowerSessionMode;
+  resolvedTarget: ResolvedTarget;
+  plantDetail: LuxPowerPlantDetail;
+  snapshot: LuxPowerSnapshot;
+  realtimeSeries: LuxPowerDayPoint[];
+  dailyAggregatePoints: LuxPowerAggregatePoint[];
+  monthlyAggregatePoints: LuxPowerAggregatePoint[];
+  lifetimeAggregatePoints: LuxPowerAggregatePoint[];
+  rawPayloads: {
+    plantList: unknown;
+    inverterList: unknown | null;
+    tree: unknown[] | null;
+    plantDetail: Record<string, unknown>;
+    runtime: unknown;
+    energy: unknown;
+    realtimeSeries: unknown | null;
+    dailyAggregate: unknown | null;
+    monthlyAggregate: unknown | null;
+    lifetimeAggregate: unknown | null;
+  };
   warnings: string[];
 };
 
@@ -66,14 +102,7 @@ export class LuxPowerClientService {
 
   async testConnection(connection: LuxPowerConnectionConfig) {
     return this.withSessionRetry(connection, async (session) => {
-      const resolvedTarget = await this.resolveTarget(session, connection);
-      const snapshot = await this.fetchSnapshotForTarget(session, resolvedTarget);
-
-      return {
-        sessionMode: session.mode,
-        resolvedTarget,
-        snapshot,
-      };
+      return this.fetchMonitoringBundle(session, connection);
     });
   }
 
@@ -86,14 +115,7 @@ export class LuxPowerClientService {
     }
 
     return this.withSessionRetry(connection, async (session) => {
-      const resolvedTarget = await this.resolveTarget(session, connection);
-      const snapshot = await this.fetchSnapshotForTarget(session, resolvedTarget);
-
-      return {
-        sessionMode: session.mode,
-        resolvedTarget,
-        snapshot,
-      };
+      return this.fetchMonitoringBundle(session, connection);
     });
   }
 
@@ -240,7 +262,18 @@ export class LuxPowerClientService {
     connection: LuxPowerConnectionConfig,
   ): Promise<ResolvedTarget> {
     const warnings: string[] = [];
-    const plants = await this.listPlants(session);
+    const plantListPayload = await this.requestJson('/web/config/plant/list/viewer', {
+      session,
+      payload: {
+        page: 1,
+        rows: 50,
+        sort: 'createDate',
+        order: 'desc',
+        forSelect: true,
+      },
+      referer: session.referer,
+    });
+    const plants = parseLuxPowerPlants(plantListPayload);
     let plant =
       plants.find((item) => item.plantId === String(connection.plantId || '').trim()) || null;
 
@@ -263,7 +296,24 @@ export class LuxPowerClientService {
       warnings.push('Dang dung plant demo cong khai cua LuxPower.');
     }
 
-    let inverters = plant ? await this.listInverters(session, plant.plantId) : [];
+    let inverterListPayload: unknown | null = null;
+    let inverters: LuxPowerInverterRecord[] = [];
+
+    if (plant) {
+      inverterListPayload = await this.requestJson('/web/config/inverter/list', {
+        session,
+        payload: {
+          plantId: plant.plantId,
+          page: 1,
+          rows: 50,
+          sort: 'createDate',
+          order: 'desc',
+        },
+        referer: session.referer,
+      });
+      inverters = parseLuxPowerInverters(inverterListPayload);
+    }
+
     let inverter =
       inverters.find(
         (item) =>
@@ -288,8 +338,10 @@ export class LuxPowerClientService {
       );
     }
 
+    let treeNodes: unknown[] | null = null;
     if (!inverter && plant) {
-      const treeInverters = await this.listInvertersFromTree(session, plant.plantId);
+      treeNodes = await this.getTreePayload(session, plant.plantId);
+      const treeInverters = this.parseInvertersFromTree(treeNodes, plant.plantId);
       if (treeInverters.length && !inverters.length) {
         inverters = treeInverters;
       }
@@ -322,87 +374,243 @@ export class LuxPowerClientService {
       inverter,
       plants,
       inverters,
+      treeNodes,
+      rawPayloads: {
+        plantList: plantListPayload,
+        inverterList: inverterListPayload,
+        tree: treeNodes,
+      },
       warnings,
     };
   }
 
-  private async fetchSnapshotForTarget(session: LuxPowerSession, target: ResolvedTarget) {
+  private async fetchMonitoringBundle(
+    session: LuxPowerSession,
+    connection: LuxPowerConnectionConfig,
+  ): Promise<LuxPowerMonitoringBundle> {
+    const resolvedTarget = await this.resolveTarget(session, connection);
+    const serialNumber = resolvedTarget.inverter?.serialNumber;
+
+    if (!serialNumber) {
+      throw new BadRequestException('Khong xac dinh duoc inverter serial tu LuxPower.');
+    }
+
+    const referer = this.resolveUrl(`/web/monitor/lsp/inverter?serialNum=${serialNumber}`);
     const runtimePayload = await this.requestJson('/api/lsp/inverter/getInverterRuntime', {
       session,
-      payload: { serialNum: target.inverter!.serialNumber },
-      referer: this.resolveUrl(`/web/monitor/lsp/inverter?serialNum=${target.inverter!.serialNumber}`),
+      payload: { serialNum: serialNumber },
+      referer,
     });
     const energyPayload = await this.requestJson('/api/lsp/inverter/getInverterEnergyInfo', {
       session,
-      payload: { serialNum: target.inverter!.serialNumber },
-      referer: this.resolveUrl(`/web/monitor/lsp/inverter?serialNum=${target.inverter!.serialNumber}`),
+      payload: { serialNum: serialNumber },
+      referer,
     });
 
-    let daySeries: LuxPowerDayPoint[] = [];
-    try {
-      const dayPayload = await this.requestJson('/api/lsp/inverterChart/dayMultiLine', {
-        session,
-        payload: {
-          serialNum: target.inverter!.serialNumber,
-          dateText: new Date().toISOString().slice(0, 10),
-        },
-        referer: this.resolveUrl(`/web/monitor/lsp/inverter?serialNum=${target.inverter!.serialNumber}`),
-      });
-      daySeries = parseLuxPowerDayChart(dayPayload);
-    } catch {
-      daySeries = [];
+    const now = new Date();
+    const currentYear = now.getFullYear();
+    const currentMonth = now.getMonth() + 1;
+    const currentDateText = now.toISOString().slice(0, 10);
+    const warnings = [...resolvedTarget.warnings];
+
+    const realtimeSeriesResult = await this.fetchRealtimeSeriesPayload({
+      session,
+      referer,
+      serialNumber,
+      currentDateText,
+    });
+    const dailyAggregateResult = await this.fetchDailyAggregatePayload({
+      session,
+      referer,
+      serialNumber,
+      currentYear,
+      currentMonth,
+    });
+    const monthlyAggregateResult = await this.fetchMonthlyAggregatePayload({
+      session,
+      referer,
+      serialNumber,
+      currentYear,
+    });
+    const lifetimeAggregateResult = await this.fetchLifetimeAggregatePayload({
+      session,
+      referer,
+      serialNumber,
+    });
+
+    if (realtimeSeriesResult.warning) {
+      warnings.push(realtimeSeriesResult.warning);
+    }
+    if (dailyAggregateResult.warning) {
+      warnings.push(dailyAggregateResult.warning);
+    }
+    if (monthlyAggregateResult.warning) {
+      warnings.push(monthlyAggregateResult.warning);
+    }
+    if (lifetimeAggregateResult.warning) {
+      warnings.push(lifetimeAggregateResult.warning);
     }
 
-    return buildLuxPowerSnapshot({
+    const realtimeSeries = realtimeSeriesResult.payload
+      ? parseLuxPowerDayChart(realtimeSeriesResult.payload)
+      : [];
+    const dailyAggregatePoints = dailyAggregateResult.payload
+      ? parseLuxPowerMonthChart(dailyAggregateResult.payload)
+      : [];
+    const monthlyAggregatePoints = monthlyAggregateResult.payload
+      ? parseLuxPowerYearChart(monthlyAggregateResult.payload)
+      : [];
+    const lifetimeAggregatePoints = lifetimeAggregateResult.payload
+      ? parseLuxPowerTotalChart(lifetimeAggregateResult.payload)
+      : [];
+
+    const snapshot = buildLuxPowerSnapshot({
       sourceMode: session.mode,
-      plant: target.plant,
-      inverter: target.inverter,
+      plant: resolvedTarget.plant,
+      inverter: resolvedTarget.inverter,
       runtime: parseLuxPowerRuntime(runtimePayload),
       energy: parseLuxPowerEnergy(energyPayload),
-      daySeries,
+      daySeries: realtimeSeries,
     });
-  }
 
-  private async listPlants(session: LuxPowerSession) {
-    const payload = await this.requestJson('/web/config/plant/list/viewer', {
-      session,
-      payload: {
-        page: 1,
-        rows: 50,
-        sort: 'createDate',
-        order: 'desc',
-        forSelect: true,
+    const plantDetail = buildLuxPowerPlantDetail({
+      plant: resolvedTarget.plant,
+      inverters: resolvedTarget.inverters,
+      treeNodes: resolvedTarget.treeNodes,
+    });
+
+    return {
+      sessionMode: session.mode,
+      resolvedTarget,
+      plantDetail,
+      snapshot,
+      realtimeSeries,
+      dailyAggregatePoints,
+      monthlyAggregatePoints,
+      lifetimeAggregatePoints,
+      rawPayloads: {
+        plantList: resolvedTarget.rawPayloads.plantList,
+        inverterList: resolvedTarget.rawPayloads.inverterList,
+        tree: resolvedTarget.rawPayloads.tree,
+        plantDetail: plantDetail.raw,
+        runtime: runtimePayload,
+        energy: energyPayload,
+        realtimeSeries: realtimeSeriesResult.payload,
+        dailyAggregate: dailyAggregateResult.payload,
+        monthlyAggregate: monthlyAggregateResult.payload,
+        lifetimeAggregate: lifetimeAggregateResult.payload,
       },
-      referer: session.referer,
-    });
-
-    return parseLuxPowerPlants(payload);
+      warnings,
+    };
   }
 
-  private async listInverters(session: LuxPowerSession, plantId: string) {
-    const payload = await this.requestJson('/web/config/inverter/list', {
-      session,
-      payload: {
-        plantId,
-        page: 1,
-        rows: 50,
-        sort: 'createDate',
-        order: 'desc',
+  private fetchRealtimeSeriesPayload(params: {
+    session: LuxPowerSession;
+    referer: string;
+    serialNumber: string;
+    currentDateText: string;
+  }) {
+    return this.requestOptionalChart(
+      '/api/analyze/chart/dayMultiLine',
+      [
+        {
+          serialNum: params.serialNumber,
+          dateText: params.currentDateText,
+        },
+      ],
+      {
+        session: params.session,
+        referer: params.referer,
+        warningLabel: 'realtime series',
       },
-      referer: session.referer,
-    });
-
-    return parseLuxPowerInverters(payload);
+    );
   }
 
-  private async listInvertersFromTree(session: LuxPowerSession, plantId: string) {
+  private fetchDailyAggregatePayload(params: {
+    session: LuxPowerSession;
+    referer: string;
+    serialNumber: string;
+    currentYear: number;
+    currentMonth: number;
+  }) {
+    return this.requestOptionalChart(
+      '/api/inverterChart/monthColumn',
+      [
+        {
+          serialNum: params.serialNumber,
+          year: params.currentYear,
+          month: params.currentMonth,
+        },
+        {
+          serialNum: params.serialNumber,
+          dateText: `${params.currentYear}-${String(params.currentMonth).padStart(2, '0')}`,
+        },
+      ],
+      {
+        session: params.session,
+        referer: params.referer,
+        warningLabel: 'daily aggregate',
+      },
+    );
+  }
+
+  private fetchMonthlyAggregatePayload(params: {
+    session: LuxPowerSession;
+    referer: string;
+    serialNumber: string;
+    currentYear: number;
+  }) {
+    return this.requestOptionalChart(
+      '/api/inverterChart/yearColumn',
+      [
+        {
+          serialNum: params.serialNumber,
+          year: params.currentYear,
+        },
+        {
+          serialNum: params.serialNumber,
+          dateText: String(params.currentYear),
+        },
+      ],
+      {
+        session: params.session,
+        referer: params.referer,
+        warningLabel: 'monthly aggregate',
+      },
+    );
+  }
+
+  private fetchLifetimeAggregatePayload(params: {
+    session: LuxPowerSession;
+    referer: string;
+    serialNumber: string;
+  }) {
+    return this.requestOptionalChart(
+      '/api/inverterChart/totalColumn',
+      [
+        {
+          serialNum: params.serialNumber,
+        },
+      ],
+      {
+        session: params.session,
+        referer: params.referer,
+        warningLabel: 'lifetime aggregate',
+      },
+    );
+  }
+
+  private async getTreePayload(session: LuxPowerSession, plantId: string) {
     const payload = await this.requestJson('/web/monitor/lsp/overview/treeJson', {
       session,
       payload: { plantId },
       referer: session.referer,
     });
 
-    const nodes = Array.isArray(payload) ? payload : [];
+    return Array.isArray(payload) ? payload : [];
+  }
+
+  private parseInvertersFromTree(treeNodes: unknown[], plantId: string) {
     const inverters: LuxPowerInverterRecord[] = [];
 
     const visit = (value: unknown) => {
@@ -434,11 +642,54 @@ export class LuxPowerClientService {
       }
     };
 
-    for (const node of nodes) {
+    for (const node of treeNodes) {
       visit(node);
     }
 
     return inverters;
+  }
+
+  private async requestOptionalChart(
+    endpoint: string,
+    payloadCandidates: Array<Record<string, unknown>>,
+    options: {
+      session: LuxPowerSession;
+      referer: string;
+      warningLabel: string;
+    },
+  ) {
+    let lastErrorMessage: string | null = null;
+
+    for (const payload of payloadCandidates) {
+      try {
+        const response = await this.requestJson(endpoint, {
+          session: options.session,
+          payload,
+          referer: options.referer,
+        });
+
+        return {
+          payload: response,
+          warning: null,
+        };
+      } catch (error) {
+        if (error instanceof LuxPowerSessionExpiredError) {
+          throw error;
+        }
+
+        lastErrorMessage =
+          error instanceof Error && error.message
+            ? error.message
+            : `Khong the lay ${options.warningLabel} tu LuxPower.`;
+      }
+    }
+
+    return {
+      payload: null,
+      warning: lastErrorMessage
+        ? `LuxPower ${options.warningLabel} chua san sang: ${lastErrorMessage}`
+        : null,
+    };
   }
 
   private async requestJson(
@@ -448,7 +699,7 @@ export class LuxPowerClientService {
       payload?: Record<string, unknown>;
       referer?: string | null;
     },
-  ) {
+  ): Promise<unknown> {
     const response = await this.requestText(this.resolveUrl(endpoint), {
       method: 'POST',
       cookieJar: options.session.cookieJar,
@@ -477,15 +728,16 @@ export class LuxPowerClientService {
     }
 
     try {
-      const body = JSON.parse(response.text) as Record<string, unknown>;
-      if (body.success === false) {
+      const body = JSON.parse(response.text) as unknown;
+      const record = asRecord(body);
+      if (!Array.isArray(body) && record.success === false) {
         throw new BadGatewayException({
           message:
-            toNullableString(body.message) ||
-            toNullableString(body.msg) ||
+            toNullableString(record.message) ||
+            toNullableString(record.msg) ||
             'LuxPower provider tra ve success=false.',
           provider: 'LUXPOWER',
-          response: body,
+          response: record,
         });
       }
 

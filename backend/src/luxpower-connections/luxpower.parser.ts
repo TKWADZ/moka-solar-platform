@@ -22,12 +22,12 @@ export type LuxPowerInverterRecord = {
 export type LuxPowerRuntimeRecord = {
   serialNumber: string;
   recordedAt: string | null;
-  pvPowerKw: number | null;
-  loadPowerKw: number | null;
-  gridImportKw: number | null;
-  gridExportKw: number | null;
-  batteryPowerKw: number | null;
+  pvPowerW: number | null;
+  loadPowerW: number | null;
+  gridPowerW: number | null;
+  batteryPowerW: number | null;
   batterySocPct: number | null;
+  acCouplePowerW: number | null;
   inverterStatus: string | null;
   hasRuntimeData: boolean;
   raw: UnknownRecord;
@@ -48,9 +48,39 @@ export type LuxPowerEnergyRecord = {
 
 export type LuxPowerDayPoint = {
   recordedAt: string;
-  pvPowerKw: number | null;
-  loadPowerKw: number | null;
-  batteryDischargingKw: number | null;
+  pvPowerW: number | null;
+  loadPowerW: number | null;
+  gridPowerW: number | null;
+  batteryPowerW: number | null;
+  batterySocPct: number | null;
+  acCouplePowerW: number | null;
+  raw: UnknownRecord;
+};
+
+export type LuxPowerPlantDetail = {
+  plantId: string | null;
+  plantName: string | null;
+  inverterCount: number;
+  inverters: LuxPowerInverterRecord[];
+  raw: {
+    plant: UnknownRecord | null;
+    inverters: UnknownRecord[];
+    tree: UnknownRecord[] | null;
+  };
+};
+
+export type LuxPowerAggregatePoint = {
+  periodKey: string;
+  year: number | null;
+  month: number | null;
+  day: number | null;
+  inverterOutputKwh: number | null;
+  toUserKwh: number | null;
+  consumptionKwh: number | null;
+  pvGenerationKwh: number | null;
+  gridExportKwh: number | null;
+  batteryChargeKwh: number | null;
+  batteryDischargeKwh: number | null;
   raw: UnknownRecord;
 };
 
@@ -60,6 +90,11 @@ export type LuxPowerSnapshot = {
   plantId: string | null;
   plantName: string | null;
   serialNumber: string | null;
+  pvPowerW: number | null;
+  loadPowerW: number | null;
+  gridPowerW: number | null;
+  batteryPowerW: number | null;
+  acCouplePowerW: number | null;
   currentPvKw: number | null;
   batterySocPct: number | null;
   batteryPowerKw: number | null;
@@ -131,6 +166,87 @@ function parseDateTime(value: unknown) {
   return text;
 }
 
+function parseSeriesTime(value: unknown) {
+  const normalized = parseDateTime(value);
+  if (!normalized) {
+    return null;
+  }
+
+  if (/^\d{2}:\d{2}$/.test(normalized)) {
+    const today = new Date().toISOString().slice(0, 10);
+    return `${today}T${normalized}:00`;
+  }
+
+  if (/^\d{2}:\d{2}:\d{2}$/.test(normalized)) {
+    const today = new Date().toISOString().slice(0, 10);
+    return `${today}T${normalized}`;
+  }
+
+  return normalized;
+}
+
+function firstDefinedNumber(...values: unknown[]) {
+  for (const value of values) {
+    const numeric = toNumberValue(value);
+    if (numeric !== null) {
+      return numeric;
+    }
+  }
+
+  return null;
+}
+
+function parseEnergyTenths(...values: unknown[]) {
+  for (const value of values) {
+    const scaled = scaleTenths(value);
+    if (scaled !== null) {
+      return scaled;
+    }
+  }
+
+  return null;
+}
+
+function sumTenths(...values: unknown[]) {
+  let found = false;
+  let total = 0;
+
+  for (const value of values) {
+    const numeric = toNumberValue(value);
+    if (numeric === null) {
+      continue;
+    }
+
+    total += numeric;
+    found = true;
+  }
+
+  return found ? Number((total / 10).toFixed(2)) : null;
+}
+
+function toPowerKw(value: number | null) {
+  return value === null ? null : Number((value / 1000).toFixed(3));
+}
+
+function deriveSignedGridPowerW(item: UnknownRecord) {
+  const direct = firstDefinedNumber(item.gridPower, item.gridPowerW);
+  if (direct !== null) {
+    return direct;
+  }
+
+  const importPower = firstDefinedNumber(item.pToUser, item.gridImportPower);
+  if (importPower !== null && importPower !== 0) {
+    return importPower;
+  }
+
+  const exportPower = firstDefinedNumber(item.pToGrid, item.gridExportPower);
+  if (exportPower !== null && exportPower !== 0) {
+    return exportPower * -1;
+  }
+
+  return null;
+}
+
 export function parseLuxPowerPlants(payload: unknown): LuxPowerPlantRecord[] {
   const body = asRecord(payload);
   const rows = asArray(body.rows);
@@ -197,12 +313,17 @@ export function parseLuxPowerRuntime(payload: unknown): LuxPowerRuntimeRecord {
   return {
     serialNumber: toStringValue(body.serialNum) || '',
     recordedAt: parseDateTime(body.deviceTime) || parseDateTime(body.serverTime),
-    pvPowerKw: scaleTenths(body.ppv),
-    loadPowerKw: scaleTenths(body.pout),
-    gridImportKw: scaleTenths(body.pToUser),
-    gridExportKw: scaleTenths(body.pToGrid),
-    batteryPowerKw: scaleTenths(body.pBat),
-    batterySocPct: toNumberValue(body.bmsSoc),
+    pvPowerW: firstDefinedNumber(body.solarPv, body.ppv, body.pvPower, body.ppvAll),
+    loadPowerW: firstDefinedNumber(body.consumption, body.pout, body.dcOutput, body.loadPower),
+    gridPowerW: deriveSignedGridPowerW(body),
+    batteryPowerW: firstDefinedNumber(
+      body.batteryDischarging,
+      body.pBat,
+      body.batteryPower,
+      body.batteryOutput,
+    ),
+    batterySocPct: firstDefinedNumber(body.soc, body.bmsSoc),
+    acCouplePowerW: firstDefinedNumber(body.acCouplePower),
     inverterStatus: toStringValue(body.statusText),
     hasRuntimeData: body.hasRuntimeData === true,
     raw: body,
@@ -243,7 +364,7 @@ export function parseLuxPowerDayChart(payload: unknown): LuxPowerDayPoint[] {
     .map((row) => {
       const item = asRecord(row);
       const recordedAt =
-        parseDateTime(item.time) ||
+        parseSeriesTime(item.time) ||
         parseDateTime(item.deviceTime) ||
         parseDateTime(item.serverTime);
 
@@ -253,13 +374,97 @@ export function parseLuxPowerDayChart(payload: unknown): LuxPowerDayPoint[] {
 
       return {
         recordedAt,
-        pvPowerKw: scaleTenths(item.solarPv),
-        loadPowerKw: scaleTenths(item.dcOutput),
-        batteryDischargingKw: scaleTenths(item.batteryDischarging),
+        pvPowerW: firstDefinedNumber(item.solarPv),
+        loadPowerW: firstDefinedNumber(item.consumption, item.dcOutput),
+        gridPowerW: deriveSignedGridPowerW(item),
+        batteryPowerW: firstDefinedNumber(item.batteryDischarging),
+        batterySocPct: firstDefinedNumber(item.soc),
+        acCouplePowerW: firstDefinedNumber(item.acCouplePower),
         raw: item,
       } satisfies LuxPowerDayPoint;
     })
     .filter((item): item is LuxPowerDayPoint => Boolean(item));
+}
+
+function parseAggregateChart(
+  payload: unknown,
+  key: 'day' | 'month' | 'year',
+): LuxPowerAggregatePoint[] {
+  const body = asRecord(payload);
+  const rows = asArray(body.data);
+
+  return rows
+    .map((row) => {
+      const item = asRecord(row);
+      const periodValue = firstDefinedNumber(item[key]);
+
+      if (periodValue === null) {
+        return null;
+      }
+
+      const pvGenerationKwh =
+        sumTenths(item.ePv1Day, item.ePv2Day, item.ePv3Day) ??
+        parseEnergyTenths(item.eGenDay, item.eInvDay);
+      const inverterOutputKwh = parseEnergyTenths(item.eInvDay);
+      const toUserKwh = parseEnergyTenths(item.eToUserDay);
+      const consumptionKwh = parseEnergyTenths(item.eConsumptionDay);
+      const gridExportKwh = parseEnergyTenths(item.eToGridDay);
+      const batteryChargeKwh = parseEnergyTenths(item.eChgDay);
+      const batteryDischargeKwh = parseEnergyTenths(item.eDisChgDay);
+
+      return {
+        periodKey:
+          key === 'day'
+            ? `day:${periodValue}`
+            : key === 'month'
+              ? `month:${periodValue}`
+              : `year:${periodValue}`,
+        year: key === 'year' ? periodValue : null,
+        month: key === 'month' ? periodValue : null,
+        day: key === 'day' ? periodValue : null,
+        inverterOutputKwh,
+        toUserKwh,
+        consumptionKwh,
+        pvGenerationKwh,
+        gridExportKwh,
+        batteryChargeKwh,
+        batteryDischargeKwh,
+        raw: item,
+      } satisfies LuxPowerAggregatePoint;
+    })
+    .filter((item): item is LuxPowerAggregatePoint => Boolean(item));
+}
+
+export function parseLuxPowerMonthChart(payload: unknown) {
+  return parseAggregateChart(payload, 'day');
+}
+
+export function parseLuxPowerYearChart(payload: unknown) {
+  return parseAggregateChart(payload, 'month');
+}
+
+export function parseLuxPowerTotalChart(payload: unknown) {
+  return parseAggregateChart(payload, 'year');
+}
+
+export function buildLuxPowerPlantDetail(params: {
+  plant: LuxPowerPlantRecord | null;
+  inverters: LuxPowerInverterRecord[];
+  treeNodes?: unknown;
+}) {
+  return {
+    plantId: params.plant?.plantId || null,
+    plantName: params.plant?.plantName || null,
+    inverterCount: params.inverters.length,
+    inverters: params.inverters,
+    raw: {
+      plant: params.plant?.raw || null,
+      inverters: params.inverters.map((item) => item.raw),
+      tree: Array.isArray(params.treeNodes)
+        ? params.treeNodes.map((item) => asRecord(item))
+        : null,
+    },
+  } satisfies LuxPowerPlantDetail;
 }
 
 export function buildLuxPowerSnapshot(params: {
@@ -272,6 +477,14 @@ export function buildLuxPowerSnapshot(params: {
 }) {
   const { sourceMode, plant, inverter, runtime, energy, daySeries = [] } = params;
   const fetchedAt = new Date().toISOString();
+  const latestSeriesPoint = daySeries.at(-1) || null;
+  const pvPowerW = latestSeriesPoint?.pvPowerW ?? runtime.pvPowerW;
+  const loadPowerW = latestSeriesPoint?.loadPowerW ?? runtime.loadPowerW;
+  const gridPowerW = latestSeriesPoint?.gridPowerW ?? runtime.gridPowerW;
+  const batteryPowerW = latestSeriesPoint?.batteryPowerW ?? runtime.batteryPowerW;
+  const batterySocPct = latestSeriesPoint?.batterySocPct ?? runtime.batterySocPct;
+  const acCouplePowerW =
+    latestSeriesPoint?.acCouplePowerW ?? runtime.acCouplePowerW;
 
   return {
     provider: 'LUXPOWER',
@@ -279,12 +492,17 @@ export function buildLuxPowerSnapshot(params: {
     plantId: plant?.plantId || inverter?.plantId || null,
     plantName: plant?.plantName || inverter?.plantName || null,
     serialNumber: inverter?.serialNumber || runtime.serialNumber || null,
-    currentPvKw: runtime.pvPowerKw,
-    batterySocPct: runtime.batterySocPct,
-    batteryPowerKw: runtime.batteryPowerKw,
-    loadPowerKw: runtime.loadPowerKw,
-    gridImportKw: runtime.gridImportKw,
-    gridExportKw: runtime.gridExportKw,
+    pvPowerW,
+    loadPowerW,
+    gridPowerW,
+    batteryPowerW,
+    acCouplePowerW,
+    currentPvKw: toPowerKw(pvPowerW),
+    batterySocPct,
+    batteryPowerKw: toPowerKw(batteryPowerW),
+    loadPowerKw: toPowerKw(loadPowerW),
+    gridImportKw: gridPowerW !== null && gridPowerW > 0 ? toPowerKw(gridPowerW) : null,
+    gridExportKw: gridPowerW !== null && gridPowerW < 0 ? toPowerKw(Math.abs(gridPowerW)) : null,
     todayGenerationKwh: energy.todayGenerationKwh,
     totalGenerationKwh: energy.totalGenerationKwh,
     todayChargingKwh: energy.todayChargingKwh,

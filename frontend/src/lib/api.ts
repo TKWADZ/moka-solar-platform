@@ -1843,7 +1843,10 @@ export async function createLuxPowerConnectionRequest(payload: {
   password?: string;
   plantId?: string;
   inverterSerial?: string;
+  customerId?: string;
   solarSystemId?: string;
+  contractId?: string;
+  billingRuleLabel?: string;
   pollingIntervalMinutes?: number;
   useDemoMode?: boolean;
   status?: string;
@@ -1863,7 +1866,10 @@ export async function updateLuxPowerConnectionRequest(
     password?: string;
     plantId?: string;
     inverterSerial?: string;
+    customerId?: string;
     solarSystemId?: string;
+    contractId?: string;
+    billingRuleLabel?: string;
     pollingIntervalMinutes?: number;
     useDemoMode?: boolean;
     status?: string;

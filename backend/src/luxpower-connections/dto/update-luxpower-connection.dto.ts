@@ -31,7 +31,19 @@ export class UpdateLuxPowerConnectionDto {
 
   @IsOptional()
   @IsString()
+  customerId?: string;
+
+  @IsOptional()
+  @IsString()
   solarSystemId?: string;
+
+  @IsOptional()
+  @IsString()
+  contractId?: string;
+
+  @IsOptional()
+  @IsString()
+  billingRuleLabel?: string;
 
   @IsOptional()
   @Type(() => Number)

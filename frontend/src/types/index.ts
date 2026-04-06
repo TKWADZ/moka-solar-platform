@@ -1449,12 +1449,44 @@ export type LuxPowerInverterRecord = {
   raw?: Record<string, unknown> | null;
 };
 
+export type LuxPowerPlantDetail = {
+  plantId?: string | null;
+  plantName?: string | null;
+  inverterCount: number;
+  inverters: LuxPowerInverterRecord[];
+  raw?: {
+    plant?: Record<string, unknown> | null;
+    inverters?: Record<string, unknown>[];
+    tree?: Record<string, unknown>[] | null;
+  } | null;
+};
+
+export type LuxPowerAggregatePoint = {
+  periodKey: string;
+  year?: number | null;
+  month?: number | null;
+  day?: number | null;
+  inverterOutputKwh?: number | null;
+  toUserKwh?: number | null;
+  consumptionKwh?: number | null;
+  pvGenerationKwh?: number | null;
+  gridExportKwh?: number | null;
+  batteryChargeKwh?: number | null;
+  batteryDischargeKwh?: number | null;
+  raw?: Record<string, unknown> | null;
+};
+
 export type LuxPowerMonitorSnapshot = {
   provider: 'LUXPOWER';
   sourceMode: 'LOGIN' | 'DEMO';
   plantId?: string | null;
   plantName?: string | null;
   serialNumber?: string | null;
+  pvPowerW?: number | null;
+  loadPowerW?: number | null;
+  gridPowerW?: number | null;
+  batteryPowerW?: number | null;
+  acCouplePowerW?: number | null;
   currentPvKw?: number | null;
   batterySocPct?: number | null;
   batteryPowerKw?: number | null;
@@ -1474,9 +1506,12 @@ export type LuxPowerMonitorSnapshot = {
   runtimeRecordedAt?: string | null;
   daySeries?: Array<{
     recordedAt: string;
-    pvPowerKw?: number | null;
-    loadPowerKw?: number | null;
-    batteryDischargingKw?: number | null;
+    pvPowerW?: number | null;
+    loadPowerW?: number | null;
+    gridPowerW?: number | null;
+    batteryPowerW?: number | null;
+    batterySocPct?: number | null;
+    acCouplePowerW?: number | null;
   }>;
   raw?: {
     runtime?: Record<string, unknown> | null;
@@ -1485,18 +1520,71 @@ export type LuxPowerMonitorSnapshot = {
   } | null;
 };
 
+export type LuxPowerDebugSnapshotRecord = {
+  id: string;
+  snapshotType: string;
+  status: string;
+  providerPlantId?: string | null;
+  providerDeviceSn?: string | null;
+  capturedAt: string;
+  payload?: Record<string, unknown> | null;
+  note?: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type LuxPowerNormalizedMetricRecord = {
+  id: string;
+  granularity: 'REALTIME' | 'DAILY' | 'MONTHLY' | 'YEARLY' | 'TOTAL';
+  periodKey: string;
+  metricDate?: string | null;
+  year?: number | null;
+  month?: number | null;
+  pvPowerW?: number | null;
+  loadPowerW?: number | null;
+  gridPowerW?: number | null;
+  batteryPowerW?: number | null;
+  batterySocPercent?: number | null;
+  acCouplePowerW?: number | null;
+  currentPvPowerKw?: number | null;
+  currentLoadPowerKw?: number | null;
+  currentBatterySoc?: number | null;
+  dailyInverterOutputKwh?: number | null;
+  dailyToUserKwh?: number | null;
+  dailyConsumptionKwh?: number | null;
+  monthlyInverterOutputKwh?: number | null;
+  monthlyToUserKwh?: number | null;
+  monthlyConsumptionKwh?: number | null;
+  dailyPvKwh?: number | null;
+  monthlyPvKwh?: number | null;
+  totalPvKwh?: number | null;
+  gridImportKwh?: number | null;
+  gridExportKwh?: number | null;
+  capturedAt: string;
+  rawPayload?: Record<string, unknown> | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type LuxPowerConnectionRecord = {
   id: string;
   accountName: string;
   username?: string | null;
   plantId?: string | null;
   inverterSerial?: string | null;
+  customerId?: string | null;
   solarSystemId?: string | null;
+  contractId?: string | null;
+  billingRuleLabel?: string | null;
   pollingIntervalMinutes: number;
   useDemoMode: boolean;
   status: string;
   lastLoginAt?: string | null;
   lastSyncTime?: string | null;
+  authReadyAt?: string | null;
+  plantLinkedAt?: string | null;
+  metricsAvailableAt?: string | null;
+  billingReadyAt?: string | null;
   lastError?: string | null;
   lastProviderResponse?: Record<string, unknown> | null;
   notes?: string | null;
@@ -1504,12 +1592,46 @@ export type LuxPowerConnectionRecord = {
   createdAt: string;
   updatedAt: string;
   deletedAt?: string | null;
+  customer?: {
+    id: string;
+    customerCode: string;
+    companyName?: string | null;
+    user?: {
+      id: string;
+      fullName: string;
+      email: string;
+    } | null;
+  } | null;
+  contract?: {
+    id: string;
+    contractNumber: string;
+    status: string;
+    type: string;
+    pricePerKwh?: number | null;
+    vatRate?: number | null;
+    servicePackage?: {
+      id: string;
+      name: string;
+      billingRule?: string | null;
+    } | null;
+  } | null;
   solarSystem?: AdminSystemRecord | null;
+  debugSnapshots?: LuxPowerDebugSnapshotRecord[];
+  normalizedMetrics?: LuxPowerNormalizedMetricRecord[];
   syncLogs?: LuxPowerSyncLogRecord[];
   statusSummary?: {
     configured: boolean;
     linkedSystem: boolean;
+    linkedCustomer?: boolean;
+    linkedContract?: boolean;
     mode: 'LOGIN' | 'DEMO';
+    authReady?: boolean;
+    plantLinked?: boolean;
+    metricsAvailable?: boolean;
+    billingReady?: boolean;
+    billingSource?: string | null;
+    billingSourceLabel?: string | null;
+    billingSourceValue?: number | null;
     lastTestStatus?: string | null;
     lastTestMessage?: string | null;
     lastTestAt?: string | null;
@@ -1517,6 +1639,7 @@ export type LuxPowerConnectionRecord = {
     lastSyncMessage?: string | null;
     lastSyncAt?: string | null;
     lastFailureMessage?: string | null;
+    missingData?: string[];
   };
 };
 
@@ -1526,14 +1649,22 @@ export type LuxPowerTestResponse = {
   warnings: string[];
   plants: LuxPowerPlantRecord[];
   inverters: LuxPowerInverterRecord[];
+  plantDetail?: LuxPowerPlantDetail;
   snapshot: LuxPowerMonitorSnapshot;
+  dailyAggregatePoints?: LuxPowerAggregatePoint[];
+  monthlyAggregatePoints?: LuxPowerAggregatePoint[];
+  lifetimeAggregatePoints?: LuxPowerAggregatePoint[];
 };
 
 export type LuxPowerSyncResponse = {
   connection: LuxPowerConnectionRecord;
   sessionMode: 'LOGIN' | 'DEMO';
   systemUpdated: boolean;
+  dailySynced?: number;
+  monthlySynced?: number;
+  billingSynced?: number;
   warnings: string[];
+  plantDetail?: LuxPowerPlantDetail;
   snapshot: LuxPowerMonitorSnapshot;
   system?: AdminSystemRecord | null;
 };
