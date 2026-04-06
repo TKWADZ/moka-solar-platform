@@ -73,17 +73,24 @@ jobs:
               fi
 
               echo "Rebuilding compose stack in $dir with:$COMPOSE_ARGS"
-              (
-                cd "$dir" && \
-                if [ -d ".git" ]; then \
-                  git fetch origin main && \
-                  git checkout main && \
-                  git pull --ff-only origin main; \
-                fi && \
-                docker compose --project-directory "$dir" $COMPOSE_ARGS build backend frontend && \
-                docker compose --project-directory "$dir" $COMPOSE_ARGS up -d backend frontend && \
-                docker exec moka_solar_backend sh -lc "cd /app && npx prisma migrate deploy"
-              ) && REDEPLOY_DONE=1 && break
+                (
+                  cd "$dir" && \
+                  if [ -d ".git" ]; then \
+                    git fetch origin main && \
+                    git checkout main && \
+                    git pull --ff-only origin main; \
+                  fi && \
+                  if [ -f ".env" ]; then \
+                    if grep -q '^ZALO_DRY_RUN=' .env; then \
+                      sed -i 's/^ZALO_DRY_RUN=.*/ZALO_DRY_RUN=false/' .env; \
+                    else \
+                      printf '\nZALO_DRY_RUN=false\n' >> .env; \
+                    fi; \
+                  fi && \
+                  docker compose --project-directory "$dir" $COMPOSE_ARGS build backend frontend && \
+                  docker compose --project-directory "$dir" $COMPOSE_ARGS up -d backend frontend && \
+                  docker exec moka_solar_backend sh -lc "cd /app && npx prisma migrate deploy"
+                ) && REDEPLOY_DONE=1 && break
             done
 
             if [ "$REDEPLOY_DONE" -ne 1 ] && command -v pm2 >/dev/null 2>&1; then
