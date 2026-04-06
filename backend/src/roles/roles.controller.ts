@@ -1,5 +1,6 @@
 import { Controller, Get, UseGuards } from '@nestjs/common';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { Permissions } from '../common/decorators/permissions.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -12,7 +13,8 @@ export class RolesController {
   constructor(private readonly rolesService: RolesService) {}
 
   @Get()
-  @Roles('SUPER_ADMIN', 'ADMIN')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
+  @Permissions('users.read')
   findAll(@CurrentUser() actor: AuthenticatedUser) {
     const roles = this.rolesService.findAll();
     if (actor.role === 'SUPER_ADMIN') {
@@ -20,7 +22,7 @@ export class RolesController {
     }
 
     return roles.then((items) =>
-      items.filter((role) => ['ADMIN', 'STAFF', 'CUSTOMER'].includes(role.code)),
+      items.filter((role) => ['ADMIN', 'MANAGER', 'STAFF', 'CUSTOMER'].includes(role.code)),
     );
   }
 }
