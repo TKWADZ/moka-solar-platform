@@ -20,27 +20,53 @@ jobs:
             ~/deploy.sh
             REDEPLOY_DONE=0
             PROJECT_DIRS=""
+            INSPECT_DIR=""
+            INSPECT_CONFIG_FILES=""
+
             if command -v docker >/dev/null 2>&1 && docker ps -a --format '{{.Names}}' | grep -q '^moka_solar_backend$'; then
               INSPECT_DIR="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' moka_solar_backend 2>/dev/null || true)"
+              INSPECT_CONFIG_FILES="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project.config_files" }}' moka_solar_backend 2>/dev/null || true)"
               if [ -n "$INSPECT_DIR" ]; then
                 PROJECT_DIRS="$INSPECT_DIR"
               fi
             fi
 
             if [ -z "$PROJECT_DIRS" ]; then
-              PROJECT_DIRS="$(find "$HOME" -maxdepth 7 -type f -name 'docker-compose.prod.yml' 2>/dev/null | sed 's|/docker-compose.prod.yml$||' | sort -u)"
+              PROJECT_DIRS="$(find "$HOME" -maxdepth 7 -type f \( -name 'docker-compose.prod.yml' -o -name 'docker-compose.yml' -o -name 'compose.yml' -o -name 'compose.yaml' \) 2>/dev/null | sed -E 's|/(docker-compose\.prod\.yml|docker-compose\.yml|compose\.yml|compose\.yaml)$||' | sort -u)"
             fi
 
             for dir in $PROJECT_DIRS; do
-              if [ ! -d "$dir" ] || [ ! -f "$dir/docker-compose.prod.yml" ]; then
+              if [ ! -d "$dir" ]; then
                 continue
               fi
 
-              if ! grep -q 'moka_solar_backend' "$dir/docker-compose.prod.yml" 2>/dev/null; then
+              COMPOSE_ARGS=""
+              if [ "$dir" = "$INSPECT_DIR" ] && [ -n "$INSPECT_CONFIG_FILES" ]; then
+                for cfg in $(echo "$INSPECT_CONFIG_FILES" | tr ',' ' '); do
+                  cfg_path="$dir/$cfg"
+                  if [ -f "$cfg_path" ]; then
+                    COMPOSE_ARGS="$COMPOSE_ARGS -f $cfg"
+                  fi
+                done
+              fi
+
+              if [ -z "$COMPOSE_ARGS" ]; then
+                for candidate in docker-compose.prod.yml docker-compose.yml compose.yml compose.yaml; do
+                  if [ -f "$dir/$candidate" ]; then
+                    COMPOSE_ARGS="$COMPOSE_ARGS -f $candidate"
+                  fi
+                done
+              fi
+
+              if [ -z "$COMPOSE_ARGS" ]; then
                 continue
               fi
 
-              echo "Rebuilding compose stack in $dir"
+              if ! (cd "$dir" && docker compose $COMPOSE_ARGS config --services 2>/dev/null | grep -q '^backend$'); then
+                continue
+              fi
+
+              echo "Rebuilding compose stack in $dir with:$COMPOSE_ARGS"
               (
                 cd "$dir" && \
                 if [ -d ".git" ]; then \
@@ -48,13 +74,15 @@ jobs:
                   git checkout main && \
                   git pull --ff-only origin main; \
                 fi && \
-                docker compose -f docker-compose.prod.yml build backend frontend && \
-                docker compose -f docker-compose.prod.yml up -d backend frontend
+                docker compose $COMPOSE_ARGS build backend frontend && \
+                docker compose $COMPOSE_ARGS up -d backend frontend && \
+                docker exec moka_solar_backend sh -lc "cd /app && npx prisma migrate deploy"
               ) && REDEPLOY_DONE=1 && break
             done
 
             if [ "$REDEPLOY_DONE" -ne 1 ]; then
-              echo "Could not locate production docker-compose.prod.yml for moka_solar_backend"
+              echo "Could not locate production compose stack for moka_solar_backend"
+              exit 1
             fi
 
             SUDO=""
