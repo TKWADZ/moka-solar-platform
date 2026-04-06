@@ -86,8 +86,46 @@ jobs:
               ) && REDEPLOY_DONE=1 && break
             done
 
+            if [ "$REDEPLOY_DONE" -ne 1 ] && command -v pm2 >/dev/null 2>&1; then
+              PM2_PROJECT_DIRS="$(find "$HOME" /opt /srv /var/www -maxdepth 7 -type f -name 'ecosystem.config.js' 2>/dev/null | sed 's|/ecosystem.config.js$||' | sort -u)"
+
+              for dir in $PM2_PROJECT_DIRS; do
+                if [ ! -f "$dir/ecosystem.config.js" ]; then
+                  continue
+                fi
+
+                if ! grep -q 'moka-solar-backend' "$dir/ecosystem.config.js" 2>/dev/null; then
+                  continue
+                fi
+
+                if [ ! -d "$dir/backend" ] || [ ! -d "$dir/frontend" ]; then
+                  continue
+                fi
+
+                echo "Rebuilding PM2 app in $dir"
+                (
+                  cd "$dir" && \
+                  if [ -d ".git" ]; then \
+                    git fetch origin main && \
+                    git checkout main && \
+                    git pull --ff-only origin main; \
+                  fi && \
+                  cd backend && \
+                  npm install && \
+                  npx prisma generate && \
+                  npx prisma migrate deploy && \
+                  npm run build && \
+                  cd ../frontend && \
+                  npm install && \
+                  npm run build && \
+                  cd .. && \
+                  (pm2 startOrReload ecosystem.config.js --update-env || pm2 start ecosystem.config.js --update-env || pm2 restart moka-solar-backend moka-solar-frontend)
+                ) && REDEPLOY_DONE=1 && break
+              done
+            fi
+
             if [ "$REDEPLOY_DONE" -ne 1 ]; then
-              echo "Could not locate production compose stack for moka_solar_backend"
+              echo "Could not locate a production docker-compose or PM2 stack for Moka Solar"
               exit 1
             fi
 
