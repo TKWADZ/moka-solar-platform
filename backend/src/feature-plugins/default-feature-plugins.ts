@@ -209,6 +209,24 @@ export const DEFAULT_FEATURE_PLUGINS: DefaultFeaturePlugin[] = [
     },
   },
   {
+    key: 'luxpower_connections',
+    name: 'LuxPower Cloud',
+    description: 'Backend-only LuxPower cloud session integration for monitor snapshots, battery SOC and inverter health sync.',
+    category: 'operations',
+    version: '1.0.0',
+    installed: true,
+    enabled: true,
+    editable: true,
+    isCore: false,
+    routePath: '/admin/luxpower',
+    areas: ['admin'],
+    sortOrder: 46,
+    config: {
+      routes: ['/admin/luxpower'],
+      apiPrefixes: ['/luxpower-connections'],
+    },
+  },
+  {
     key: 'deye_connections',
     name: 'Deye OpenAPI',
     description: 'Official DeyeCloud OpenAPI integration for token auth, station sync, device sync and monthly PV billing ingestion.',
@@ -220,7 +238,7 @@ export const DEFAULT_FEATURE_PLUGINS: DefaultFeaturePlugin[] = [
     isCore: false,
     routePath: '/admin/deye',
     areas: ['admin'],
-    sortOrder: 46,
+    sortOrder: 47,
     config: {
       routes: ['/admin/deye'],
       apiPrefixes: ['/deye-connections'],

@@ -30,6 +30,7 @@ import { DeyeConnectionsModule } from './deye-connections/deye-connections.modul
 import { OperationalDataModule } from './operational-data/operational-data.module';
 import { PortalAutomationModule } from './portal-automation/portal-automation.module';
 import { SolarmanConnectionsModule } from './solarman-connections/solarman-connections.module';
+import { LuxPowerConnectionsModule } from './luxpower-connections/luxpower-connections.module';
 import { ZaloNotificationsModule } from './zalo-notifications/zalo-notifications.module';
 
 @Module({
@@ -55,6 +56,7 @@ import { ZaloNotificationsModule } from './zalo-notifications/zalo-notifications
     OperationalDataModule,
     PortalAutomationModule,
     SolarmanConnectionsModule,
+    LuxPowerConnectionsModule,
     ZaloNotificationsModule,
     WebsiteSettingsModule,
     MarketingPagesModule,

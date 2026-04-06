@@ -455,11 +455,21 @@ export type NotificationRow = {
 
 export type NotificationRecord = {
   id: string;
+  type?: string;
   title: string;
   body: string;
+  entityType?: string | null;
+  entityId?: string | null;
+  linkHref?: string | null;
+  metadata?: Record<string, unknown> | null;
   isRead: boolean;
+  readAt?: string | null;
   createdAt: string;
   updatedAt: string;
+};
+
+export type NotificationUnreadSummary = {
+  unreadCount: number;
 };
 
 export type ZaloTemplateType = 'INVOICE' | 'REMINDER' | 'PAID';
@@ -1582,29 +1592,101 @@ export type DeyeSystemPreviewResponse = {
 
 export type TicketMessageRecord = {
   id: string;
+  senderUserId?: string | null;
   senderName: string;
   senderRole: string;
+  messageType?: 'MESSAGE' | 'INTERNAL_NOTE' | 'STATUS_CHANGE' | 'ASSIGNMENT' | 'SYSTEM';
+  isInternal?: boolean;
   message: string;
   createdAt: string;
+  attachments?: TicketAttachmentRecord[];
+};
+
+export type TicketAttachmentRecord = {
+  id: string;
+  ticketId: string;
+  messageId?: string | null;
+  originalName: string;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: string;
+  fileUrl: string;
+};
+
+export type TicketParticipantRecord = {
+  id: string;
+  participantType: 'CUSTOMER' | 'STAFF' | 'WATCHER';
+  receiveNotifications?: boolean;
+  joinedAt: string;
+  user?: {
+    id: string;
+    fullName?: string | null;
+    email?: string | null;
+    role?: {
+      code: UserRole;
+      name: string;
+    } | null;
+  } | null;
+};
+
+export type SupportTicketUnreadSummary = {
+  unreadTickets: number;
+};
+
+export type PortalRealtimeEvent = {
+  type: string;
+  data?: Record<string, any> | null;
+  timestamp?: string;
 };
 
 export type SupportTicketRecord = {
   id: string;
+  ticketNumber?: string | null;
   title: string;
+  subject?: string;
   description: string;
+  category?: 'GENERAL' | 'BILLING' | 'PAYMENT' | 'SYSTEM' | 'MONITORING' | 'MAINTENANCE' | 'CONTRACT' | 'OTHER';
   status: 'OPEN' | 'IN_PROGRESS' | 'RESOLVED' | 'CLOSED';
   priority: 'LOW' | 'MEDIUM' | 'HIGH' | 'URGENT';
   createdAt: string;
   updatedAt: string;
+  closedAt?: string | null;
+  customerLastReadAt?: string | null;
+  staffLastReadAt?: string | null;
+  unreadForCustomer?: boolean;
+  unreadForStaff?: boolean;
+  unread?: boolean;
   customer?: {
     id: string;
+    customerCode?: string | null;
     companyName?: string | null;
     user?: {
+      id?: string;
       fullName?: string | null;
       email?: string | null;
+      phone?: string | null;
     } | null;
   } | null;
+  solarSystem?: {
+    id: string;
+    systemCode: string;
+    name: string;
+    status?: string;
+  } | null;
+  assigneeUser?: {
+    id: string;
+    fullName?: string | null;
+    email?: string | null;
+    role?: {
+      code: UserRole;
+      name: string;
+    } | null;
+  } | null;
+  participants?: TicketParticipantRecord[];
+  attachments?: TicketAttachmentRecord[];
   messages: TicketMessageRecord[];
+  lastMessagePreview?: string | null;
+  lastMessageAt?: string | null;
 };
 
 export type AdminDashboardData = {

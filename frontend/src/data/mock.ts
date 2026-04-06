@@ -31,6 +31,7 @@ export const adminNav: NavItem[] = [
   { href: '/admin/systems', label: 'Hệ thống', description: 'Danh mục lắp đặt và uptime', featureKey: 'systems' },
   { href: '/admin/operations-data', label: 'Dữ liệu vận hành', description: 'Nhập tay, import CSV/Excel và theo dõi kỳ dữ liệu tháng', featureKey: 'operational_data' },
   { href: '/admin/solarman', label: 'SOLARMAN', description: 'Kết nối tài khoản, đồng bộ station và sản lượng PV tháng', featureKey: 'solarman_connections' },
+  { href: '/admin/luxpower', label: 'LuxPower Cloud', description: 'Session cloud, inverter serial và snapshot monitor theo backend', featureKey: 'luxpower_connections' },
   { href: '/admin/deye', label: 'Deye OpenAPI', description: 'Token, account info, station, device và sản lượng PV tháng', featureKey: 'deye_connections' },
   { href: '/admin/contracts', label: 'Hợp đồng', description: 'Mô hình thương mại và điều khoản', featureKey: 'contracts' },
   { href: '/admin/billing', label: 'Hóa đơn', description: 'Phát hành hóa đơn và công nợ', featureKey: 'billing' },

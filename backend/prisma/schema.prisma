@@ -70,6 +70,39 @@ enum TicketPriority {
   URGENT
 }
 
+enum TicketCategory {
+  GENERAL
+  BILLING
+  PAYMENT
+  SYSTEM
+  MONITORING
+  MAINTENANCE
+  CONTRACT
+  OTHER
+}
+
+enum TicketMessageType {
+  MESSAGE
+  INTERNAL_NOTE
+  STATUS_CHANGE
+  ASSIGNMENT
+  SYSTEM
+}
+
+enum TicketParticipantType {
+  CUSTOMER
+  STAFF
+  WATCHER
+}
+
+enum NotificationType {
+  GENERAL
+  TICKET_CREATED
+  TICKET_MESSAGE
+  TICKET_STATUS
+  TICKET_ASSIGNED
+}
+
 enum ContentPostStatus {
   DRAFT
   PUBLISHED
@@ -107,6 +140,10 @@ model User {
   updatedMonthlyEnergyRecords MonthlyEnergyRecord[] @relation("MonthlyEnergyUpdatedBy")
   aiActionDrafts AiActionDraft[] @relation("AiActionDraftCreatedBy")
   reviewedPayments Payment[] @relation("PaymentReviewedBy")
+  assignedSupportTickets SupportTicket[] @relation("SupportTicketAssignee")
+  supportTicketMessages TicketMessage[] @relation("TicketMessageSender")
+  supportTicketParticipants TicketParticipant[]
+  uploadedTicketAttachments TicketAttachment[] @relation("TicketAttachmentUploadedBy")
   notifications Notification[]
   auditLogs    AuditLog[]
   contentPosts ContentPost[]
@@ -260,6 +297,7 @@ model SolarSystem {
   metadata            Json?
   status              SystemStatus   @default(ACTIVE)
   contracts           Contract[]
+  supportTickets      SupportTicket[]
   devices             Device[]
   deyeTelemetryRecords DeyeTelemetryRecord[]
   deyeDailyRecords    DeyeDailyRecord[]
@@ -828,48 +866,120 @@ model Payment {
 }
 
 model SupportTicket {
-  id          String          @id @default(cuid())
-  customerId  String
-  customer    Customer        @relation(fields: [customerId], references: [id])
-  title       String
-  description String
-  status      TicketStatus    @default(OPEN)
-  priority    TicketPriority  @default(MEDIUM)
-  messages    TicketMessage[]
-  createdAt   DateTime        @default(now())
-  updatedAt   DateTime        @updatedAt
-  deletedAt   DateTime?
+  id                 String               @id @default(cuid())
+  ticketNumber       String?              @unique
+  customerId         String
+  customer           Customer             @relation(fields: [customerId], references: [id])
+  solarSystemId      String?
+  solarSystem        SolarSystem?         @relation(fields: [solarSystemId], references: [id], onDelete: SetNull)
+  assigneeUserId     String?
+  assigneeUser       User?                @relation("SupportTicketAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
+  title              String
+  description        String
+  category           TicketCategory       @default(GENERAL)
+  status             TicketStatus         @default(OPEN)
+  priority           TicketPriority       @default(MEDIUM)
+  messages           TicketMessage[]
+  participants       TicketParticipant[]
+  attachments        TicketAttachment[]
+  customerLastReadAt DateTime?
+  staffLastReadAt    DateTime?
+  lastMessageAt      DateTime?
+  lastCustomerMessageAt DateTime?
+  lastStaffMessageAt DateTime?
+  closedAt           DateTime?
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  deletedAt          DateTime?
 
   @@index([customerId])
+  @@index([solarSystemId])
+  @@index([assigneeUserId])
   @@index([status])
+  @@index([priority])
+  @@index([category])
+  @@index([lastMessageAt])
   @@index([deletedAt])
 }
 
 model TicketMessage {
-  id         String        @id @default(cuid())
-  ticketId   String
-  ticket     SupportTicket @relation(fields: [ticketId], references: [id])
-  senderName String
-  senderRole String
-  message    String
-  createdAt  DateTime      @default(now())
-  updatedAt  DateTime      @updatedAt
+  id           String            @id @default(cuid())
+  ticketId      String
+  ticket        SupportTicket     @relation(fields: [ticketId], references: [id])
+  senderUserId  String?
+  senderUser    User?             @relation("TicketMessageSender", fields: [senderUserId], references: [id], onDelete: SetNull)
+  senderName    String
+  senderRole    String
+  messageType   TicketMessageType @default(MESSAGE)
+  isInternal    Boolean           @default(false)
+  message       String
+  attachments   TicketAttachment[]
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
 
   @@index([ticketId])
+  @@index([senderUserId])
+  @@index([messageType])
+  @@index([isInternal])
 }
 
 model Notification {
-  id        String   @id @default(cuid())
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  title     String
-  body      String
-  isRead    Boolean  @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id         String           @id @default(cuid())
+  userId     String
+  user       User             @relation(fields: [userId], references: [id])
+  type       NotificationType @default(GENERAL)
+  title      String
+  body       String
+  entityType String?
+  entityId   String?
+  linkHref   String?
+  metadata   Json?
+  isRead     Boolean          @default(false)
+  readAt     DateTime?
+  createdAt  DateTime         @default(now())
+  updatedAt  DateTime         @updatedAt
 
   @@index([userId])
+  @@index([type])
+  @@index([entityType, entityId])
   @@index([isRead])
+}
+
+model TicketParticipant {
+  id              String                @id @default(cuid())
+  ticketId         String
+  ticket           SupportTicket         @relation(fields: [ticketId], references: [id])
+  userId           String
+  user             User                  @relation(fields: [userId], references: [id])
+  participantType  TicketParticipantType @default(STAFF)
+  receiveNotifications Boolean           @default(true)
+  joinedAt         DateTime              @default(now())
+  updatedAt        DateTime              @updatedAt
+
+  @@unique([ticketId, userId])
+  @@index([ticketId])
+  @@index([userId])
+  @@index([participantType])
+}
+
+model TicketAttachment {
+  id               String         @id @default(cuid())
+  ticketId          String
+  ticket            SupportTicket  @relation(fields: [ticketId], references: [id])
+  messageId         String?
+  message           TicketMessage? @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  uploadedByUserId  String?
+  uploadedByUser    User?          @relation("TicketAttachmentUploadedBy", fields: [uploadedByUserId], references: [id], onDelete: SetNull)
+  originalName      String
+  mimeType          String
+  sizeBytes         Int
+  storagePath       String
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
+
+  @@index([ticketId])
+  @@index([messageId])
+  @@index([uploadedByUserId])
 }
 
 model AuditLog {

@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { CustomerAppInstallCard } from '@/components/customer-app-install-card';
 import { LanguageSwitcher } from '@/components/language-switcher';
+import { PortalLiveProvider, usePortalLive } from '@/components/portal-live-provider';
 import { getCustomerPrimaryNav } from '@/lib/customer-app';
 import { featureCatalogRequest } from '@/lib/api';
 import { getDefaultRouteForRole, getSession, hasRole, logout } from '@/lib/auth';
@@ -52,6 +53,21 @@ type NavGroup = {
   items: NavItem[];
 };
 
+type PortalShellContentProps = {
+  title: string;
+  kicker: string;
+  session: SessionPayload;
+  pathname: string;
+  navGroups: NavGroup[];
+  catalogWarning: string;
+  mobileNavOpen: boolean;
+  setMobileNavOpen: React.Dispatch<React.SetStateAction<boolean>>;
+  isCustomerPortal: boolean;
+  customerPrimaryNav: NavItem[];
+  currentFeatureDisabled: boolean;
+  children: React.ReactNode;
+};
+
 const navIconMap: Record<string, LucideIcon> = {
   '/admin': LayoutDashboard,
   '/admin/customers': Users2,
@@ -59,6 +75,7 @@ const navIconMap: Record<string, LucideIcon> = {
   '/admin/systems': SunMedium,
   '/admin/operations-data': FileSpreadsheet,
   '/admin/solarman': SatelliteDish,
+  '/admin/luxpower': SatelliteDish,
   '/admin/deye': DatabaseZap,
   '/admin/contracts': FileText,
   '/admin/billing': CircleDollarSign,
@@ -125,6 +142,7 @@ function groupPortalNav(nav: NavItem[]) {
         '/admin/systems',
         '/admin/operations-data',
         '/admin/solarman',
+        '/admin/luxpower',
         '/admin/deye',
         '/admin/support',
       ],
@@ -156,11 +174,13 @@ function SidebarContent({
   pathname,
   navGroups,
   catalogWarning,
+  ticketUnreadCount,
 }: {
   session: SessionPayload;
   pathname: string;
   navGroups: NavGroup[];
   catalogWarning: string;
+  ticketUnreadCount: number;
 }) {
   const { tt } = useI18n();
 
@@ -192,6 +212,11 @@ function SidebarContent({
               {group.items.map((item) => {
                 const active = isActivePath(pathname, item.href);
                 const Icon = navIconMap[item.href] || ChevronRight;
+                const supportBadgeCount =
+                  (item.href === '/admin/support' || item.href === '/customer/support') &&
+                  ticketUnreadCount > 0
+                    ? ticketUnreadCount
+                    : 0;
 
                 return (
                   <Link
@@ -216,7 +241,19 @@ function SidebarContent({
                     </span>
 
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-semibold">{tt(item.label)}</p>
+                      <div className="flex items-center gap-2">
+                        <p className="truncate text-sm font-semibold">{tt(item.label)}</p>
+                        {supportBadgeCount ? (
+                          <span
+                            className={cn(
+                              'inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full px-1.5 text-[10px] font-semibold',
+                              active ? 'bg-slate-950 text-white' : 'bg-emerald-400/18 text-emerald-100',
+                            )}
+                          >
+                            {supportBadgeCount > 99 ? '99+' : supportBadgeCount}
+                          </span>
+                        ) : null}
+                      </div>
                       {item.description ? (
                         <p
                           className={cn(
@@ -241,113 +278,125 @@ function SidebarContent({
   );
 }
 
-export function PortalShell({ title, kicker, nav, allowedRoles, children }: PortalShellProps) {
-  const pathname = usePathname();
-  const { tt } = useI18n();
-  const [session, setSession] = useState<SessionPayload | null>(null);
-  const [authState, setAuthState] = useState<'checking' | 'redirecting' | 'ready'>('checking');
-  const [featureCatalog, setFeatureCatalog] = useState<FeaturePlugin[]>([]);
-  const [catalogWarning, setCatalogWarning] = useState('');
-  const [mobileNavOpen, setMobileNavOpen] = useState(false);
-  const roleKey = allowedRoles.join('|');
-  const isCustomerPortal = allowedRoles.length === 1 && allowedRoles[0] === 'CUSTOMER';
+function NotificationsBell() {
+  const {
+    notifications,
+    notificationUnreadCount,
+    ticketUnreadCount,
+    isConnected,
+    markAllNotificationsRead,
+    markNotificationRead,
+  } = usePortalLive();
+  const [open, setOpen] = useState(false);
 
-  useEffect(() => {
-    setMobileNavOpen(false);
-  }, [pathname]);
+  const totalBadge = notificationUnreadCount + ticketUnreadCount;
 
-  useEffect(() => {
-    const allowedRoleList = roleKey.split('|') as UserRole[];
-    const nextSession = getSession();
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        className="portal-card-soft relative flex h-11 w-11 items-center justify-center"
+        aria-label="Mở thông báo"
+      >
+        <Bell className="h-5 w-5 text-slate-200" />
+        {totalBadge > 0 ? (
+          <span className="absolute -right-1 -top-1 inline-flex min-w-[1.3rem] items-center justify-center rounded-full bg-emerald-400 px-1.5 py-0.5 text-[10px] font-semibold text-slate-950">
+            {totalBadge > 99 ? '99+' : totalBadge}
+          </span>
+        ) : null}
+        <span
+          className={cn(
+            'absolute bottom-1.5 right-1.5 h-2.5 w-2.5 rounded-full ring-2 ring-[#08111f]',
+            isConnected ? 'bg-emerald-300' : 'bg-amber-300',
+          )}
+        />
+      </button>
 
-    if (!nextSession) {
-      setAuthState('redirecting');
-      window.location.replace('/login');
-      return;
-    }
+      {open ? (
+        <div className="absolute right-0 z-30 mt-3 w-[min(92vw,24rem)] overflow-hidden rounded-[24px] border border-white/10 bg-[#08111f]/97 shadow-[0_24px_80px_rgba(2,6,23,0.44)] backdrop-blur-xl">
+          <div className="flex items-center justify-between gap-3 border-b border-white/8 px-4 py-4">
+            <div>
+              <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Thông báo</p>
+              <p className="mt-1 text-sm font-semibold text-white">
+                {notificationUnreadCount
+                  ? `${notificationUnreadCount} thông báo chưa đọc`
+                  : 'Không có thông báo mới'}
+              </p>
+            </div>
+            {notificationUnreadCount ? (
+              <button
+                type="button"
+                onClick={() => void markAllNotificationsRead()}
+                className="text-xs font-semibold text-emerald-200 transition hover:text-white"
+              >
+                Đánh dấu đã đọc
+              </button>
+            ) : null}
+          </div>
 
-    if (!hasRole(nextSession, allowedRoleList)) {
-      setAuthState('redirecting');
-      window.location.replace(getDefaultRouteForRole(nextSession.user.role));
-      return;
-    }
-
-    setSession(nextSession);
-    setAuthState('ready');
-
-    let active = true;
-
-    featureCatalogRequest()
-      .then((plugins) => {
-        if (!active) {
-          return;
-        }
-
-        setFeatureCatalog(plugins);
-        setCatalogWarning('');
-      })
-      .catch(() => {
-        if (!active) {
-          return;
-        }
-
-        setFeatureCatalog([]);
-        setCatalogWarning('Không thể tải danh mục module. Hệ thống đang dùng menu mặc định để bạn tiếp tục làm việc.');
-      });
-
-    return () => {
-      active = false;
-    };
-  }, [roleKey]);
-
-  const enabledKeys = new Set(
-    featureCatalog
-      .filter((plugin) => plugin.installed && plugin.enabled)
-      .map((plugin) => plugin.key),
-  );
-
-  const visibleNav = featureCatalog.length
-    ? nav.filter((item) => !item.featureKey || enabledKeys.has(item.featureKey))
-    : nav;
-
-  const navGroups = useMemo(() => groupPortalNav(visibleNav), [visibleNav]);
-  const customerPrimaryNav = useMemo(
-    () => (isCustomerPortal ? getCustomerPrimaryNav(visibleNav) : []),
-    [isCustomerPortal, visibleNav],
-  );
-
-  const currentNavItem = visibleNav.find((item) => isActivePath(pathname, item.href));
-  const currentFeatureDisabled =
-    featureCatalog.length > 0 &&
-    !!currentNavItem?.featureKey &&
-    !enabledKeys.has(currentNavItem.featureKey);
-
-  if (authState !== 'ready' || !session) {
-    return (
-      <main className="portal-shell flex min-h-screen items-center justify-center px-4 py-6">
-        <div className="portal-card max-w-md px-6 py-6 text-center">
-          <p className="eyebrow text-slate-500">
-            {authState === 'redirecting' ? 'Đang chuyển hướng' : 'Đang xác thực'}
-          </p>
-          <h1 className="mt-3 text-xl font-semibold text-white">
-            {authState === 'redirecting'
-              ? 'Hệ thống đang đưa bạn đến đúng cổng làm việc.'
-              : 'Đang chuẩn bị không gian làm việc của bạn.'}
-          </h1>
-          <p className="mt-3 text-sm leading-6 text-slate-300">
-            {authState === 'redirecting'
-              ? 'Nếu trang không tự chuyển, bạn có thể mở trang đăng nhập thủ công.'
-              : 'Thông tin phiên đăng nhập đang được kiểm tra để tải đúng quyền truy cập.'}
-          </p>
-          {authState === 'redirecting' ? (
-            <Link href="/login" className="btn-ghost mt-5 inline-flex">
-              Mở trang đăng nhập
-            </Link>
-          ) : null}
+          <div className="max-h-[24rem] overflow-y-auto px-3 py-3">
+            {notifications.length ? (
+              <div className="space-y-2">
+                {notifications.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => {
+                      if (!item.isRead) {
+                        void markNotificationRead(item.id);
+                      }
+                      if (item.linkHref) {
+                        window.location.href = item.linkHref;
+                      }
+                    }}
+                    className={cn(
+                      'w-full rounded-[18px] border px-4 py-3 text-left transition',
+                      item.isRead
+                        ? 'border-white/6 bg-white/[0.03] text-slate-300'
+                        : 'border-emerald-300/15 bg-emerald-400/10 text-white',
+                    )}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold">{item.title}</p>
+                        <p className="mt-1 text-sm leading-6 text-slate-300">{item.body}</p>
+                      </div>
+                      {!item.isRead ? (
+                        <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-300" />
+                      ) : null}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-5 text-sm leading-6 text-slate-300">
+                Chưa có thông báo mới. Ticket, phản hồi và cập nhật trạng thái sẽ hiện tại đây.
+              </div>
+            )}
+          </div>
         </div>
-      </main>
-    );
-  }
+      ) : null}
+    </div>
+  );
+}
+
+function PortalShellContent({
+  title,
+  kicker,
+  session,
+  pathname,
+  navGroups,
+  catalogWarning,
+  mobileNavOpen,
+  setMobileNavOpen,
+  isCustomerPortal,
+  customerPrimaryNav,
+  currentFeatureDisabled,
+  children,
+}: PortalShellContentProps) {
+  const { tt } = useI18n();
+  const { ticketUnreadCount } = usePortalLive();
 
   return (
     <main
@@ -363,6 +412,7 @@ export function PortalShell({ title, kicker, nav, allowedRoles, children }: Port
             pathname={pathname}
             navGroups={navGroups}
             catalogWarning={catalogWarning}
+            ticketUnreadCount={ticketUnreadCount}
           />
         </aside>
 
@@ -394,9 +444,7 @@ export function PortalShell({ title, kicker, nav, allowedRoles, children }: Port
 
               <div className="flex flex-wrap items-center gap-2 sm:gap-3">
                 <LanguageSwitcher dark />
-                <button className="portal-card-soft flex h-11 w-11 items-center justify-center">
-                  <Bell className="h-5 w-5 text-slate-200" />
-                </button>
+                <NotificationsBell />
                 <button
                   onClick={logout}
                   className="portal-card-soft inline-flex items-center gap-2 px-4 py-3 text-sm font-semibold text-slate-100"
@@ -507,6 +555,7 @@ export function PortalShell({ title, kicker, nav, allowedRoles, children }: Port
                 pathname={pathname}
                 navGroups={navGroups}
                 catalogWarning={catalogWarning}
+                ticketUnreadCount={ticketUnreadCount}
               />
             </div>
 
@@ -521,5 +570,133 @@ export function PortalShell({ title, kicker, nav, allowedRoles, children }: Port
         </div>
       ) : null}
     </main>
+  );
+}
+
+export function PortalShell({ title, kicker, nav, allowedRoles, children }: PortalShellProps) {
+  const pathname = usePathname();
+  const [session, setSession] = useState<SessionPayload | null>(null);
+  const [authState, setAuthState] = useState<'checking' | 'redirecting' | 'ready'>('checking');
+  const [featureCatalog, setFeatureCatalog] = useState<FeaturePlugin[]>([]);
+  const [catalogWarning, setCatalogWarning] = useState('');
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  const roleKey = allowedRoles.join('|');
+  const isCustomerPortal = allowedRoles.length === 1 && allowedRoles[0] === 'CUSTOMER';
+
+  useEffect(() => {
+    setMobileNavOpen(false);
+  }, [pathname]);
+
+  useEffect(() => {
+    const allowedRoleList = roleKey.split('|') as UserRole[];
+    const nextSession = getSession();
+
+    if (!nextSession) {
+      setAuthState('redirecting');
+      window.location.replace('/login');
+      return;
+    }
+
+    if (!hasRole(nextSession, allowedRoleList)) {
+      setAuthState('redirecting');
+      window.location.replace(getDefaultRouteForRole(nextSession.user.role));
+      return;
+    }
+
+    setSession(nextSession);
+    setAuthState('ready');
+
+    let active = true;
+
+    featureCatalogRequest()
+      .then((plugins) => {
+        if (!active) {
+          return;
+        }
+
+        setFeatureCatalog(plugins);
+        setCatalogWarning('');
+      })
+      .catch(() => {
+        if (!active) {
+          return;
+        }
+
+        setFeatureCatalog([]);
+        setCatalogWarning(
+          'Không thể tải danh mục module. Hệ thống đang dùng menu mặc định để bạn tiếp tục làm việc.',
+        );
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [roleKey]);
+
+  const enabledKeys = new Set(
+    featureCatalog.filter((plugin) => plugin.installed && plugin.enabled).map((plugin) => plugin.key),
+  );
+
+  const visibleNav = featureCatalog.length
+    ? nav.filter((item) => !item.featureKey || enabledKeys.has(item.featureKey))
+    : nav;
+
+  const navGroups = useMemo(() => groupPortalNav(visibleNav), [visibleNav]);
+  const customerPrimaryNav = useMemo(
+    () => (isCustomerPortal ? getCustomerPrimaryNav(visibleNav) : []),
+    [isCustomerPortal, visibleNav],
+  );
+
+  const currentNavItem = visibleNav.find((item) => isActivePath(pathname, item.href));
+  const currentFeatureDisabled =
+    featureCatalog.length > 0 &&
+    Boolean(currentNavItem?.featureKey) &&
+    !enabledKeys.has(currentNavItem!.featureKey!);
+
+  if (authState !== 'ready' || !session) {
+    return (
+      <main className="portal-shell flex min-h-screen items-center justify-center px-4 py-6">
+        <div className="portal-card max-w-md px-6 py-6 text-center">
+          <p className="eyebrow text-slate-500">
+            {authState === 'redirecting' ? 'Đang chuyển hướng' : 'Đang xác thực'}
+          </p>
+          <h1 className="mt-3 text-xl font-semibold text-white">
+            {authState === 'redirecting'
+              ? 'Hệ thống đang đưa bạn đến đúng cổng làm việc.'
+              : 'Đang chuẩn bị không gian làm việc của bạn.'}
+          </h1>
+          <p className="mt-3 text-sm leading-6 text-slate-300">
+            {authState === 'redirecting'
+              ? 'Nếu trang không tự chuyển, bạn có thể mở trang đăng nhập thủ công.'
+              : 'Thông tin phiên đăng nhập đang được kiểm tra để tải đúng quyền truy cập.'}
+          </p>
+          {authState === 'redirecting' ? (
+            <Link href="/login" className="btn-ghost mt-5 inline-flex">
+              Mở trang đăng nhập
+            </Link>
+          ) : null}
+        </div>
+      </main>
+    );
+  }
+
+  return (
+    <PortalLiveProvider>
+      <PortalShellContent
+        title={title}
+        kicker={kicker}
+        session={session}
+        pathname={pathname}
+        navGroups={navGroups}
+        catalogWarning={catalogWarning}
+        mobileNavOpen={mobileNavOpen}
+        setMobileNavOpen={setMobileNavOpen}
+        isCustomerPortal={isCustomerPortal}
+        customerPrimaryNav={customerPrimaryNav}
+        currentFeatureDisabled={currentFeatureDisabled}
+      >
+        {children}
+      </PortalShellContent>
+    </PortalLiveProvider>
   );
 }

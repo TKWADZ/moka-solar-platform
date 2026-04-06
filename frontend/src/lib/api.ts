@@ -24,6 +24,7 @@ import {
   MonthlyPvBillingRecord,
   MonitorSnapshot,
   NotificationRecord,
+  NotificationUnreadSummary,
   OperationalOverviewResponse,
   PaymentRecord,
   RoleRecord,
@@ -39,6 +40,7 @@ import {
   SolarmanTestResponse,
   SystemOperationalRecordsResponse,
   SupportTicketRecord,
+  SupportTicketUnreadSummary,
   TicketMessageRecord,
   UserRecord,
   UserRole,
@@ -1273,21 +1275,45 @@ export async function myCustomerProfileRequest() {
   }
 }
 
-export async function listMyNotificationsRequest() {
+export async function listMyNotificationsRequest(limit?: number) {
   try {
-    return await apiFetch<NotificationRecord[]>('/notifications/me');
+    const query = limit ? `?limit=${encodeURIComponent(String(limit))}` : '';
+    return await apiFetch<NotificationRecord[]>(`/notifications/me${query}`);
   } catch (error) {
     return fallbackOrThrow(error, () =>
       customerNotifications.map((item) => ({
         id: item.id,
         title: item.title,
         body: item.body,
+        type: 'GENERAL',
         isRead: false,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       })),
     );
   }
+}
+
+export async function notificationsUnreadSummaryRequest() {
+  try {
+    return await apiFetch<NotificationUnreadSummary>('/notifications/unread-summary');
+  } catch (error) {
+    return fallbackOrThrow(error, () => ({
+      unreadCount: customerNotifications.length,
+    }));
+  }
+}
+
+export async function markNotificationReadRequest(id: string) {
+  return apiFetch<NotificationRecord>(`/notifications/${id}/read`, {
+    method: 'PATCH',
+  });
+}
+
+export async function markAllNotificationsReadRequest() {
+  return apiFetch<NotificationUnreadSummary>('/notifications/read-all', {
+    method: 'PATCH',
+  });
 }
 
 export async function listAdminSystemsRequest() {
@@ -1666,6 +1692,10 @@ export async function syncSolarmanConnectionRequest(
       };
     });
   }
+}
+
+export function buildApiUrl(path: string) {
+  return `${getApiBaseUrl()}${path}`;
 }
 
 export async function listLuxPowerConnectionsRequest() {
@@ -2860,29 +2890,54 @@ export async function reviewPaymentRequest(
   });
 }
 
-export async function listSupportTicketsRequest() {
-  try {
-    return await apiFetch<SupportTicketRecord[]>('/support-tickets');
-  } catch (error) {
-    return fallbackOrThrow(error, () =>
-      customerTickets.map((ticket) => ({
-      id: ticket.id,
-      title: ticket.title,
-      description: ticket.title,
-      status: ticket.status.toUpperCase().replace(' ', '_') as SupportTicketRecord['status'],
-      priority: ticket.priority.toUpperCase() as SupportTicketRecord['priority'],
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      customer: {
-        id: 'demo-customer-001',
-        companyName: ticket.owner || 'Cafe Nang Xanh',
-        user: {
-          fullName: ticket.owner || 'Nguyen Van A',
-          email: 'customer@example.com',
-        },
+function buildSupportTicketFallback() {
+  return customerTickets.map((ticket) => ({
+    id: ticket.id,
+    ticketNumber: ticket.id,
+    title: ticket.title,
+    subject: ticket.title,
+    description: ticket.title,
+    status: ticket.status.toUpperCase().replace(' ', '_') as SupportTicketRecord['status'],
+    priority: ticket.priority.toUpperCase() as SupportTicketRecord['priority'],
+    category: 'GENERAL' as SupportTicketRecord['category'],
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    unread: false,
+    customer: {
+      id: 'demo-customer-001',
+      companyName: ticket.owner || 'Cafe Nang Xanh',
+      user: {
+        fullName: ticket.owner || 'Nguyen Van A',
+        email: 'customer@example.com',
       },
-      messages: [],
-    })));
+    },
+    messages: [],
+    attachments: [],
+    participants: [],
+  }));
+}
+
+export async function listSupportTicketsRequest(filters?: {
+  status?: string;
+  priority?: string;
+  customerId?: string;
+  assigneeUserId?: string;
+  solarSystemId?: string;
+  search?: string;
+}) {
+  try {
+    const query = new URLSearchParams();
+    Object.entries(filters || {}).forEach(([key, value]) => {
+      if (value?.trim()) {
+        query.set(key, value.trim());
+      }
+    });
+
+    return await apiFetch<SupportTicketRecord[]>(
+      `/support-tickets${query.toString() ? `?${query.toString()}` : ''}`,
+    );
+  } catch (error) {
+    return fallbackOrThrow(error, () => buildSupportTicketFallback());
   }
 }
 
@@ -2890,41 +2945,149 @@ export async function listMySupportTicketsRequest() {
   try {
     return await apiFetch<SupportTicketRecord[]>('/support-tickets/me');
   } catch (error) {
-    return fallbackOrThrow(error, () =>
-      customerTickets.map((ticket) => ({
-        id: ticket.id,
-        title: ticket.title,
-        description: ticket.title,
-        status: ticket.status.toUpperCase().replace(' ', '_') as SupportTicketRecord['status'],
-        priority: ticket.priority.toUpperCase() as SupportTicketRecord['priority'],
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        customer: {
-          id: 'demo-customer-001',
-          companyName: ticket.owner || 'Cafe Nang Xanh',
-          user: {
-            fullName: ticket.owner || 'Nguyen Van A',
-            email: 'customer@example.com',
-          },
-        },
-        messages: [],
-      })),
-    );
+    return fallbackOrThrow(error, () => buildSupportTicketFallback());
   }
 }
 
 export async function createSupportTicketRequest(payload: {
-  title: string;
-  description: string;
+  subject?: string;
+  title?: string;
+  message?: string;
+  description?: string;
   priority?: string;
+  category?: string;
+  solarSystemId?: string;
+  attachments?: File[];
 }) {
+  const formData = new FormData();
+  const subject = payload.subject?.trim() || payload.title?.trim();
+  const message = payload.message?.trim() || payload.description?.trim();
+
+  if (subject) {
+    formData.append('subject', subject);
+  }
+  if (message) {
+    formData.append('message', message);
+  }
+  if (payload.priority?.trim()) {
+    formData.append('priority', payload.priority.trim());
+  }
+  if (payload.category?.trim()) {
+    formData.append('category', payload.category.trim());
+  }
+  if (payload.solarSystemId?.trim()) {
+    formData.append('solarSystemId', payload.solarSystemId.trim());
+  }
+  (payload.attachments || []).forEach((file) => {
+    formData.append('attachments', file);
+  });
+
   return apiFetch<SupportTicketRecord>('/support-tickets', {
     method: 'POST',
-    body: JSON.stringify(payload),
+    body: formData,
   });
 }
 
-export async function replySupportTicketRequest(ticketId: string, message: string) {
+export async function getSupportTicketRequest(ticketId: string) {
+  return apiFetch<SupportTicketRecord>(`/support-tickets/${ticketId}`);
+}
+
+export async function replySupportTicketRequest(
+  ticketId: string,
+  payload: {
+    message: string;
+    isInternal?: boolean;
+    attachments?: File[];
+  },
+) {
+  const formData = new FormData();
+  formData.append('message', payload.message);
+
+  if (payload.isInternal) {
+    formData.append('isInternal', 'true');
+  }
+
+  (payload.attachments || []).forEach((file) => {
+    formData.append('attachments', file);
+  });
+
+  return apiFetch<SupportTicketRecord>(`/support-tickets/${ticketId}/messages`, {
+    method: 'POST',
+    body: formData,
+  });
+}
+
+export async function updateSupportTicketStatusRequest(ticketId: string, status: string) {
+  return apiFetch<SupportTicketRecord>(`/support-tickets/${ticketId}/status`, {
+    method: 'PATCH',
+    body: JSON.stringify({ status }),
+  });
+}
+
+export async function assignSupportTicketRequest(ticketId: string, assigneeUserId?: string | null) {
+  return apiFetch<SupportTicketRecord>(`/support-tickets/${ticketId}/assign`, {
+    method: 'PATCH',
+    body: JSON.stringify({ assigneeUserId }),
+  });
+}
+
+export async function markSupportTicketReadRequest(ticketId: string) {
+  return apiFetch<SupportTicketUnreadSummary>(`/support-tickets/${ticketId}/read`, {
+    method: 'PATCH',
+  });
+}
+
+export async function supportTicketUnreadSummaryRequest() {
+  try {
+    return await apiFetch<SupportTicketUnreadSummary>('/support-tickets/unread-summary');
+  } catch (error) {
+    return fallbackOrThrow(error, () => ({
+      unreadTickets: customerTickets.filter((ticket) => ticket.status !== 'Closed').length,
+    }));
+  }
+}
+
+export async function downloadSupportTicketAttachmentRequest(
+  ticketId: string,
+  attachmentId: string,
+  filename?: string,
+) {
+  const token =
+    typeof window !== 'undefined'
+      ? (() => {
+          try {
+            const raw = window.localStorage.getItem(SESSION_KEY);
+            if (!raw) return '';
+            return (JSON.parse(raw) as SessionPayload).accessToken || '';
+          } catch {
+            return '';
+          }
+        })()
+      : '';
+
+  const response = await fetch(
+    buildApiUrl(`/support-tickets/${ticketId}/attachments/${attachmentId}/file`),
+    {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`API Error: ${response.status}`);
+  }
+
+  const blob = await response.blob();
+  const href = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = href;
+  link.download = filename || `${attachmentId}`;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(href);
+}
+
+export async function createSupportTicketLegacyReplyRequest(ticketId: string, message: string) {
   return apiFetch<TicketMessageRecord>(`/support-tickets/${ticketId}/reply`, {
     method: 'POST',
     body: JSON.stringify({ message }),
