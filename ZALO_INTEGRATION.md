@@ -36,7 +36,8 @@ Add these variables on the backend only:
 Recommended defaults:
 
 - `ZALO_API_BASE_URL=https://openapi.zalo.me/v3.0/oa`
-- `ZALO_DRY_RUN=true`
+- Local / staging: `ZALO_DRY_RUN=true`
+- Production gui that: `ZALO_DRY_RUN=false`
 
 Notes:
 

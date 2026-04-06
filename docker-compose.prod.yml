@@ -64,6 +64,8 @@ services:
       AI_SETTINGS_SECRET: ${AI_SETTINGS_SECRET:-}
       REQUEST_TIMEOUT: ${REQUEST_TIMEOUT:-20000}
       MEDIA_STORAGE_DIR: ${MEDIA_STORAGE_DIR:-storage/media}
+      ZALO_DRY_RUN: ${ZALO_DRY_RUN:-false}
+      ZALO_SETTINGS_SECRET: ${ZALO_SETTINGS_SECRET:-}
     ports:
       - "${BACKEND_PORT}:4000"
     volumes:
