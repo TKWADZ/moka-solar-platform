@@ -73,6 +73,8 @@ function roleLabel(role?: string | null) {
       return 'Super admin';
     case 'ADMIN':
       return 'Admin';
+    case 'MANAGER':
+      return 'Manager';
     case 'STAFF':
       return 'Nhân viên';
     case 'CUSTOMER':
@@ -117,6 +119,7 @@ export default function AdminUsersPage() {
 
   const stats = useMemo<StatCardItem[]>(() => {
     const adminCount = users.filter((user) => ['SUPER_ADMIN', 'ADMIN'].includes(user.role?.code || '')).length;
+    const managerCount = users.filter((user) => user.role?.code === 'MANAGER').length;
     const staffCount = users.filter((user) => user.role?.code === 'STAFF').length;
     const customerCount = users.filter((user) => user.role?.code === 'CUSTOMER').length;
 
@@ -132,7 +135,7 @@ export default function AdminUsersPage() {
         title: 'Quản trị và điều hành',
         value: String(adminCount),
         subtitle: 'Super admin và admin',
-        delta: `${staffCount} nhân viên đang được phân quyền`,
+        delta: `${managerCount} manager · ${staffCount} nhân viên`,
         trend: 'neutral',
       },
       {

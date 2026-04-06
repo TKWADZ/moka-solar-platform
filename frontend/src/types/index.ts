@@ -1,4 +1,39 @@
-export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'STAFF' | 'CUSTOMER';
+export type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'STAFF' | 'CUSTOMER';
+export type PermissionCode =
+  | 'admin.dashboard.read'
+  | 'users.read'
+  | 'users.manage'
+  | 'users.archive'
+  | 'customers.read'
+  | 'customers.manage'
+  | 'systems.read'
+  | 'systems.manage'
+  | 'contracts.read'
+  | 'contracts.manage'
+  | 'billing.read'
+  | 'billing.manage'
+  | 'payments.read'
+  | 'payments.manage'
+  | 'reports.read'
+  | 'support.read'
+  | 'support.reply'
+  | 'support.assign'
+  | 'support.internal_notes'
+  | 'notifications.read'
+  | 'audit.read'
+  | 'internal_notes.read'
+  | 'internal_notes.manage'
+  | 'assignments.read'
+  | 'assignments.manage'
+  | 'activity.read'
+  | 'website.read'
+  | 'website.manage'
+  | 'integrations.read'
+  | 'integrations.execute'
+  | 'integration.secrets.view'
+  | 'integration.secrets.manage'
+  | 'ai.read'
+  | 'ai.manage';
 export type CustomerStatus = 'ACTIVE' | 'ONBOARDING' | 'ON_HOLD' | 'INACTIVE';
 export type MonitoringProvider = 'SEMS_PORTAL' | 'SOLARMAN' | 'DEYE' | 'LUXPOWER';
 export type MarketingPageKey = 'home' | 'about' | 'pricing' | 'solutions' | 'contact';
@@ -257,6 +292,8 @@ export type SessionUser = {
   email: string;
   fullName: string;
   role: UserRole;
+  roleId?: string | null;
+  permissions?: PermissionCode[];
   customerId?: string | null;
 };
 
@@ -277,8 +314,78 @@ export type RoleRecord = {
   id: string;
   code: UserRole;
   name: string;
+  permissions?: PermissionCode[];
   createdAt: string;
   updatedAt: string;
+};
+
+export type AuditActorRecord = {
+  id?: string | null;
+  fullName?: string | null;
+  email?: string | null;
+  role?:
+    | {
+        code?: UserRole | string | null;
+        name?: string | null;
+      }
+    | null;
+};
+
+export type AuditLogRecord = {
+  id: string;
+  action: string;
+  moduleKey?: string | null;
+  entityType: string;
+  entityId?: string | null;
+  payload?: Record<string, unknown> | null;
+  beforeState?: Record<string, unknown> | null;
+  afterState?: Record<string, unknown> | null;
+  ipAddress?: string | null;
+  userAgent?: string | null;
+  createdAt: string;
+  user?: AuditActorRecord | null;
+};
+
+export type InternalNoteRecord = {
+  id: string;
+  entityType: string;
+  entityId: string;
+  body: string;
+  createdAt: string;
+  updatedAt: string;
+  createdByUser?: AuditActorRecord | null;
+};
+
+export type EntityAssignmentRecord = {
+  id: string;
+  entityType: string;
+  entityId: string;
+  assignedAt?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
+  assignedToUser?: AuditActorRecord | null;
+  assignedByUser?: AuditActorRecord | null;
+  lastHandledByUser?: AuditActorRecord | null;
+};
+
+export type ActivityTimelineEntry = {
+  id: string;
+  kind: 'AUDIT' | 'INTERNAL_NOTE' | 'MESSAGE';
+  action?: string | null;
+  moduleKey?: string | null;
+  body?: string | null;
+  createdAt: string;
+  beforeState?: Record<string, unknown> | null;
+  afterState?: Record<string, unknown> | null;
+  payload?: Record<string, unknown> | null;
+  actor?: AuditActorRecord | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type EntityTimelineResponse = {
+  assignment?: EntityAssignmentRecord | null;
+  notes: InternalNoteRecord[];
+  timeline: ActivityTimelineEntry[];
 };
 
 export type SessionPayload = {

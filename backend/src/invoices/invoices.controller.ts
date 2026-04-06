@@ -3,6 +3,7 @@ import { InvoicesService } from './invoices.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { Permissions } from '../common/decorators/permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { FeaturePlugin } from '../feature-plugins/feature-plugin.decorator';
@@ -15,7 +16,8 @@ export class InvoicesController {
   constructor(private readonly invoicesService: InvoicesService) {}
 
   @Get()
-  @Roles('SUPER_ADMIN', 'ADMIN', 'STAFF')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')
+  @Permissions('billing.read')
   findAll() {
     return this.invoicesService.findAll();
   }
@@ -27,13 +29,15 @@ export class InvoicesController {
   }
 
   @Get(':id')
-  @Roles('SUPER_ADMIN', 'ADMIN', 'CUSTOMER')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF', 'CUSTOMER')
+  @Permissions('billing.read')
   findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     return this.invoicesService.findOne(id, user);
   }
 
   @Get(':id/pdf')
-  @Roles('SUPER_ADMIN', 'ADMIN', 'CUSTOMER')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF', 'CUSTOMER')
+  @Permissions('billing.read')
   async downloadPdf(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
     const result = await this.invoicesService.buildPdf(id, user);
     return new StreamableFile(result.buffer, {
@@ -43,7 +47,8 @@ export class InvoicesController {
   }
 
   @Post('generate/:contractId')
-  @Roles('SUPER_ADMIN', 'ADMIN', 'STAFF')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')
+  @Permissions('billing.manage')
   generate(
     @Param('contractId') contractId: string,
     @Query('month') month: string,

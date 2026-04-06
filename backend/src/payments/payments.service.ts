@@ -134,6 +134,7 @@ export class PaymentsService {
     await this.auditLogsService.log({
       userId: user?.sub,
       action: 'PAYMENT_RECORDED',
+      moduleKey: 'billing',
       entityType: 'Payment',
       entityId: payment.id,
       payload: {
@@ -141,6 +142,28 @@ export class PaymentsService {
         method,
       },
     });
+
+    await this.auditLogsService.log({
+      userId: user?.sub,
+      action: 'INVOICE_PAYMENT_RECORDED',
+      moduleKey: 'billing',
+      entityType: 'Invoice',
+      entityId: invoice.id,
+      payload: {
+        paymentId: payment.id,
+        method,
+        amount: Number(payment.amount || 0),
+      },
+    });
+
+    if (user?.sub) {
+      await this.auditLogsService.touchEntity({
+        entityType: 'Invoice',
+        entityId: invoice.id,
+        actorId: user.sub,
+        moduleKey: 'billing',
+      });
+    }
 
     return this.serialize(payment);
   }
@@ -263,6 +286,7 @@ export class PaymentsService {
     await this.auditLogsService.log({
       userId: user.sub,
       action: 'PAYMENT_PROOF_SUBMITTED',
+      moduleKey: 'billing',
       entityType: 'Payment',
       entityId: payment.id,
       payload: {
@@ -270,6 +294,25 @@ export class PaymentsService {
         method: dto.method?.trim() || 'BANK_TRANSFER',
         amount,
       },
+    });
+
+    await this.auditLogsService.log({
+      userId: user.sub,
+      action: 'INVOICE_PAYMENT_PROOF_SUBMITTED',
+      moduleKey: 'billing',
+      entityType: 'Invoice',
+      entityId: invoice.id,
+      payload: {
+        paymentId: payment.id,
+        amount,
+      },
+    });
+
+    await this.auditLogsService.touchEntity({
+      entityType: 'Invoice',
+      entityId: invoice.id,
+      actorId: user.sub,
+      moduleKey: 'billing',
     });
 
     return this.serialize(payment);
@@ -383,12 +426,35 @@ export class PaymentsService {
         reviewStatus === PaymentStatus.SUCCESS
           ? 'PAYMENT_CONFIRMED'
           : 'PAYMENT_REJECTED',
+      moduleKey: 'billing',
       entityType: 'Payment',
       entityId: paymentId,
       payload: {
         invoiceId: payment.invoiceId,
         reviewNote: dto.reviewNote?.trim() || null,
       },
+    });
+
+    await this.auditLogsService.log({
+      userId: user.sub,
+      action:
+        reviewStatus === PaymentStatus.SUCCESS
+          ? 'INVOICE_PAYMENT_CONFIRMED'
+          : 'INVOICE_PAYMENT_REJECTED',
+      moduleKey: 'billing',
+      entityType: 'Invoice',
+      entityId: payment.invoiceId,
+      payload: {
+        paymentId,
+        reviewNote: dto.reviewNote?.trim() || null,
+      },
+    });
+
+    await this.auditLogsService.touchEntity({
+      entityType: 'Invoice',
+      entityId: payment.invoiceId,
+      actorId: user.sub,
+      moduleKey: 'billing',
     });
 
     return this.serialize(updated);

@@ -7,6 +7,8 @@ import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { hasPermission } from '../common/auth/permissions';
+import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { WebsiteSettingsService } from '../website-settings/website-settings.service';
 import { TestZaloConnectionDto } from './dto/test-zalo-connection.dto';
 import { UpdateZaloSettingsDto } from './dto/update-zalo-settings.dto';
@@ -90,12 +92,12 @@ export class ZaloNotificationsService {
     private readonly zaloSettingsService: ZaloSettingsService,
   ) {}
 
-  async getStatus() {
-    return this.buildStatusResponse();
+  async getStatus(actor?: AuthenticatedUser) {
+    return this.redactSettings(await this.buildStatusResponse(), actor);
   }
 
-  async getSettings() {
-    return this.buildStatusResponse();
+  async getSettings(actor?: AuthenticatedUser) {
+    return this.redactSettings(await this.buildStatusResponse(), actor);
   }
 
   async updateSettings(dto: UpdateZaloSettingsDto, actorId: string) {
@@ -360,6 +362,38 @@ export class ZaloNotificationsService {
         providerMessage: tokenState.providerMessage || null,
       },
       latestSendDiagnostics: this.extractLatestLogDiagnostics(latestLog?.responsePayload),
+    };
+  }
+
+  private redactSettings<T extends Record<string, any>>(settings: T, actor?: AuthenticatedUser): T {
+    if (hasPermission(actor?.permissions, 'integration.secrets.view')) {
+      return settings;
+    }
+
+    return {
+      ...settings,
+      appId: null,
+      oaId: null,
+      appSecretPreview: null,
+      accessTokenPreview: null,
+      refreshTokenPreview: null,
+      accessTokenFingerprint: null,
+      refreshTokenFingerprint: null,
+      latestSendDiagnostics: settings.latestSendDiagnostics
+        ? {
+            ...settings.latestSendDiagnostics,
+            refreshedTokenFingerprint: null,
+            sendTokenFingerprint: null,
+          }
+        : settings.latestSendDiagnostics,
+      tokenDiagnostics: settings.tokenDiagnostics
+        ? {
+            ...settings.tokenDiagnostics,
+            refreshedTokenFingerprint: null,
+            sendTokenFingerprint: null,
+            refreshTokenFingerprint: null,
+          }
+        : settings.tokenDiagnostics,
     };
   }
 

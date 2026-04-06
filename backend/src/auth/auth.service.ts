@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
+import { resolvePermissionsForRole } from '../common/auth/permissions';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -126,10 +127,13 @@ export class AuthService {
   }
 
   private async buildAuthResponse(user: any) {
+    const permissions = resolvePermissionsForRole(user.role.code, user.role.permissions);
     const payload = {
       sub: user.id,
       email: user.email,
       role: user.role.code,
+      roleId: user.role.id,
+      permissions,
       customerId: user.customer?.id || null,
     };
 
@@ -164,6 +168,7 @@ export class AuthService {
       fullName: user.fullName,
       phone: user.phone,
       role: user.role.code,
+      permissions: resolvePermissionsForRole(user.role.code, user.role.permissions),
       customerId: user.customer?.id || null,
     };
   }

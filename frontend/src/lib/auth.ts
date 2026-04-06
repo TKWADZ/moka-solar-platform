@@ -1,6 +1,6 @@
 'use client';
 
-import { SessionPayload, UserRole } from '@/types';
+import { PermissionCode, SessionPayload, UserRole } from '@/types';
 
 const SESSION_KEY = 'moka_solar_session';
 
@@ -65,8 +65,38 @@ export function hasRole(session: SessionPayload | null, allowedRoles: UserRole[]
   return session ? allowedRoles.includes(session.user.role) : false;
 }
 
+export function hasPermission(
+  session: SessionPayload | null,
+  permission: PermissionCode | PermissionCode[],
+) {
+  if (!session) {
+    return false;
+  }
+
+  const currentPermissions = new Set(session.user.permissions || []);
+  const requiredPermissions = Array.isArray(permission) ? permission : [permission];
+  return requiredPermissions.every((item) => currentPermissions.has(item));
+}
+
+export function hasAnyPermission(
+  session: SessionPayload | null,
+  permissions: PermissionCode[],
+) {
+  if (!session) {
+    return false;
+  }
+
+  const currentPermissions = new Set(session.user.permissions || []);
+  return permissions.some((permission) => currentPermissions.has(permission));
+}
+
 export function getDefaultRouteForRole(role?: UserRole | null) {
-  if (role === 'SUPER_ADMIN' || role === 'ADMIN' || role === 'STAFF') {
+  if (
+    role === 'SUPER_ADMIN' ||
+    role === 'ADMIN' ||
+    role === 'MANAGER' ||
+    role === 'STAFF'
+  ) {
     return '/admin';
   }
 

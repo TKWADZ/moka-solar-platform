@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
+import { Permissions } from '../common/decorators/permissions.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
@@ -29,25 +30,29 @@ export class SolarmanConnectionsController {
   ) {}
 
   @Get()
-  @Roles('SUPER_ADMIN', 'ADMIN')
-  list() {
-    return this.solarmanConnectionsService.listConnections();
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
+  @Permissions('integrations.read')
+  list(@CurrentUser() actor: AuthenticatedUser) {
+    return this.solarmanConnectionsService.listConnections(actor);
   }
 
   @Get(':id/logs')
-  @Roles('SUPER_ADMIN', 'ADMIN')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
+  @Permissions('integrations.read')
   listLogs(@Param('id') id: string) {
     return this.solarmanConnectionsService.listLogs(id);
   }
 
   @Get(':id')
-  @Roles('SUPER_ADMIN', 'ADMIN')
-  findOne(@Param('id') id: string) {
-    return this.solarmanConnectionsService.findOne(id);
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
+  @Permissions('integrations.read')
+  findOne(@Param('id') id: string, @CurrentUser() actor: AuthenticatedUser) {
+    return this.solarmanConnectionsService.findOne(id, actor);
   }
 
   @Post()
   @Roles('SUPER_ADMIN', 'ADMIN')
+  @Permissions('integration.secrets.manage')
   create(
     @Body() dto: CreateSolarmanConnectionDto,
     @CurrentUser() actor: AuthenticatedUser,
@@ -57,6 +62,7 @@ export class SolarmanConnectionsController {
 
   @Patch(':id')
   @Roles('SUPER_ADMIN', 'ADMIN')
+  @Permissions('integration.secrets.manage')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateSolarmanConnectionDto,
@@ -67,18 +73,21 @@ export class SolarmanConnectionsController {
 
   @Delete(':id')
   @Roles('SUPER_ADMIN', 'ADMIN')
+  @Permissions('integration.secrets.manage')
   remove(@Param('id') id: string, @CurrentUser() actor: AuthenticatedUser) {
     return this.solarmanConnectionsService.remove(id, actor.sub);
   }
 
   @Post(':id/test')
-  @Roles('SUPER_ADMIN', 'ADMIN')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
+  @Permissions('integrations.execute')
   testConnection(@Param('id') id: string, @CurrentUser() actor: AuthenticatedUser) {
     return this.solarmanConnectionsService.testConnection(id, actor.sub);
   }
 
   @Post(':id/sync')
-  @Roles('SUPER_ADMIN', 'ADMIN')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
+  @Permissions('integrations.execute')
   syncNow(
     @Param('id') id: string,
     @Body() dto: SyncSolarmanConnectionDto,

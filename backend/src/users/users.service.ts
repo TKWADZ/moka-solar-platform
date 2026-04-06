@@ -20,14 +20,15 @@ export class UsersService {
   ) {}
 
   findAll(actor?: AuthenticatedUser) {
-    return this.prisma.user.findMany({
+    return this.prisma.user
+      .findMany({
       where: {
         deletedAt: null,
-        ...(actor?.role === 'ADMIN'
+        ...(actor?.role === 'ADMIN' || actor?.role === 'MANAGER'
           ? {
               role: {
                 code: {
-                  in: ['ADMIN', 'STAFF', 'CUSTOMER'],
+                  in: ['ADMIN', 'MANAGER', 'STAFF', 'CUSTOMER'],
                 },
               },
             }
@@ -38,7 +39,8 @@ export class UsersService {
         customer: true,
       },
       orderBy: { createdAt: 'desc' },
-    });
+      })
+      .then((users) => users.map((user) => this.sanitizeUser(user)));
   }
 
   async findMe(id: string) {
@@ -54,7 +56,7 @@ export class UsersService {
       throw new NotFoundException('User not found');
     }
 
-    return user;
+    return this.sanitizeUser(user);
   }
 
   async create(dto: CreateUserDto, actor?: AuthenticatedUser) {
@@ -103,15 +105,17 @@ export class UsersService {
     await this.auditLogsService.log({
       userId: actor?.sub,
       action: 'USER_CREATED',
+      moduleKey: 'users',
       entityType: 'User',
       entityId: user.id,
       payload: {
         email: dto.email,
         roleCode: dto.roleCode,
       },
+      afterState: this.serializeUserAuditState(user),
     });
 
-    return user;
+    return this.sanitizeUser(user);
   }
 
   async update(id: string, dto: UpdateUserDto, actor?: AuthenticatedUser) {
@@ -138,6 +142,7 @@ export class UsersService {
 
     const passwordHash = dto.password ? await bcrypt.hash(dto.password, 10) : undefined;
 
+    const beforeState = this.serializeUserAuditState(currentUser);
     const updated = await this.prisma.user.update({
       where: { id },
       data: {
@@ -165,9 +170,12 @@ export class UsersService {
     await this.auditLogsService.log({
       userId: actor?.sub,
       action: 'USER_UPDATED',
+      moduleKey: 'users',
       entityType: 'User',
       entityId: id,
       payload: dto as unknown as Record<string, unknown>,
+      beforeState,
+      afterState: this.serializeUserAuditState(updated),
     });
 
     return this.findMe(id);
@@ -190,8 +198,13 @@ export class UsersService {
     await this.auditLogsService.log({
       userId: actorId,
       action: 'USER_ARCHIVED',
+      moduleKey: 'users',
       entityType: 'User',
       entityId: id,
+      beforeState: this.serializeUserAuditState(user),
+      afterState: {
+        deletedAt: new Date().toISOString(),
+      },
     });
 
     return { success: true };
@@ -206,7 +219,11 @@ export class UsersService {
       return;
     }
 
-    if (actor.role === 'ADMIN' && ['ADMIN', 'STAFF', 'CUSTOMER'].includes(roleCode)) {
+    if (actor.role === 'ADMIN' && ['ADMIN', 'MANAGER', 'STAFF', 'CUSTOMER'].includes(roleCode)) {
+      return;
+    }
+
+    if (actor.role === 'MANAGER' && ['STAFF', 'CUSTOMER'].includes(roleCode)) {
       return;
     }
 
@@ -226,10 +243,40 @@ export class UsersService {
     }
 
     const targetRole = user.role?.code || '';
-    if (actor.role === 'ADMIN' && ['ADMIN', 'STAFF', 'CUSTOMER'].includes(targetRole)) {
+    if (actor.role === 'ADMIN' && ['ADMIN', 'MANAGER', 'STAFF', 'CUSTOMER'].includes(targetRole)) {
+      return;
+    }
+
+    if (actor.role === 'MANAGER' && ['STAFF', 'CUSTOMER'].includes(targetRole)) {
       return;
     }
 
     throw new ForbiddenException('Ban khong co quyen cap nhat tai khoan nay.');
+  }
+
+  private serializeUserAuditState(user: any) {
+    return {
+      email: user.email || null,
+      fullName: user.fullName || null,
+      phone: user.phone || null,
+      roleCode: user.role?.code || null,
+      customerId: user.customer?.id || null,
+      deletedAt: user.deletedAt?.toISOString?.() || null,
+    };
+  }
+
+  private sanitizeUser(user: any) {
+    if (!user) {
+      return user;
+    }
+
+    const sanitized = {
+      ...user,
+    };
+
+    delete sanitized.passwordHash;
+    delete sanitized.refreshToken;
+
+    return sanitized;
   }
 }

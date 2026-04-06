@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { Roles } from '../common/decorators/roles.decorator';
+import { Permissions } from '../common/decorators/permissions.decorator';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
@@ -27,25 +28,29 @@ export class DeyeConnectionsController {
   constructor(private readonly deyeConnectionsService: DeyeConnectionsService) {}
 
   @Get()
-  @Roles('SUPER_ADMIN', 'ADMIN')
-  list() {
-    return this.deyeConnectionsService.listConnections();
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
+  @Permissions('integrations.read')
+  list(@CurrentUser() actor: AuthenticatedUser) {
+    return this.deyeConnectionsService.listConnections(actor);
   }
 
   @Get(':id')
-  @Roles('SUPER_ADMIN', 'ADMIN')
-  findOne(@Param('id') id: string) {
-    return this.deyeConnectionsService.findOne(id);
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
+  @Permissions('integrations.read')
+  findOne(@Param('id') id: string, @CurrentUser() actor: AuthenticatedUser) {
+    return this.deyeConnectionsService.findOne(id, actor);
   }
 
   @Get(':id/logs')
-  @Roles('SUPER_ADMIN', 'ADMIN')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
+  @Permissions('integrations.read')
   listLogs(@Param('id') id: string) {
     return this.deyeConnectionsService.listLogs(id);
   }
 
   @Post()
   @Roles('SUPER_ADMIN', 'ADMIN')
+  @Permissions('integration.secrets.manage')
   create(
     @Body() dto: CreateDeyeConnectionDto,
     @CurrentUser() actor: AuthenticatedUser,
@@ -55,6 +60,7 @@ export class DeyeConnectionsController {
 
   @Patch(':id')
   @Roles('SUPER_ADMIN', 'ADMIN')
+  @Permissions('integration.secrets.manage')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateDeyeConnectionDto,
@@ -65,24 +71,28 @@ export class DeyeConnectionsController {
 
   @Delete(':id')
   @Roles('SUPER_ADMIN', 'ADMIN')
+  @Permissions('integration.secrets.manage')
   remove(@Param('id') id: string, @CurrentUser() actor: AuthenticatedUser) {
     return this.deyeConnectionsService.remove(id, actor.sub);
   }
 
   @Post(':id/test')
-  @Roles('SUPER_ADMIN', 'ADMIN')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
+  @Permissions('integrations.execute')
   testConnection(@Param('id') id: string, @CurrentUser() actor: AuthenticatedUser) {
     return this.deyeConnectionsService.testConnection(id, actor.sub);
   }
 
   @Post(':id/sync-stations')
-  @Roles('SUPER_ADMIN', 'ADMIN')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
+  @Permissions('integrations.execute')
   syncStations(@Param('id') id: string, @CurrentUser() actor: AuthenticatedUser) {
     return this.deyeConnectionsService.syncStations(id, actor.sub);
   }
 
   @Post(':id/sync-monthly-history')
-  @Roles('SUPER_ADMIN', 'ADMIN')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
+  @Permissions('integrations.execute')
   syncMonthlyHistory(
     @Param('id') id: string,
     @Body() dto: SyncDeyeConnectionDto,
@@ -92,7 +102,8 @@ export class DeyeConnectionsController {
   }
 
   @Post(':id/sync')
-  @Roles('SUPER_ADMIN', 'ADMIN')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
+  @Permissions('integrations.execute')
   syncNow(
     @Param('id') id: string,
     @Body() dto: SyncDeyeConnectionDto,

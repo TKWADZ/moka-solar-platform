@@ -7,7 +7,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       title="Trung tâm điều hành"
       kicker="Vận hành doanh nghiệp năng lượng"
       nav={adminNav}
-      allowedRoles={['SUPER_ADMIN', 'ADMIN', 'STAFF']}
+      allowedRoles={['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF']}
     >
       {children}
     </PortalShell>

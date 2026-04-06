@@ -16,6 +16,7 @@ import { PaymentsService } from './payments.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { Permissions } from '../common/decorators/permissions.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { FeaturePlugin } from '../feature-plugins/feature-plugin.decorator';
@@ -32,7 +33,8 @@ export class PaymentsController {
   constructor(private readonly paymentsService: PaymentsService) {}
 
   @Get()
-  @Roles('SUPER_ADMIN', 'ADMIN', 'STAFF')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')
+  @Permissions('payments.read')
   findAll() {
     return this.paymentsService.findAll();
   }
@@ -72,7 +74,8 @@ export class PaymentsController {
   }
 
   @Patch(':paymentId/review')
-  @Roles('SUPER_ADMIN', 'ADMIN', 'STAFF')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')
+  @Permissions('payments.manage')
   reviewManualPayment(
     @Param('paymentId') paymentId: string,
     @Body() dto: ReviewPaymentDto,
@@ -82,7 +85,8 @@ export class PaymentsController {
   }
 
   @Get(':paymentId/proof')
-  @Roles('SUPER_ADMIN', 'ADMIN', 'STAFF', 'CUSTOMER')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF', 'CUSTOMER')
+  @Permissions('payments.read')
   async downloadProof(
     @Param('paymentId') paymentId: string,
     @CurrentUser() user: AuthenticatedUser,

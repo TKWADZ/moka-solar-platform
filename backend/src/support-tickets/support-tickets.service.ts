@@ -13,6 +13,7 @@ import {
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { hasPermission } from '../common/auth/permissions';
 import { generateCode, slugify } from '../common/helpers/domain.helper';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { NotificationsService } from '../notifications/notifications.service';
@@ -154,6 +155,7 @@ export class SupportTicketsService {
         customerLastReadAt: now,
         lastMessageAt: now,
         lastCustomerMessageAt: now,
+        lastHandledByUserId: user.sub,
         participants: {
           create: {
             userId: user.sub,
@@ -205,6 +207,7 @@ export class SupportTicketsService {
     await this.auditLogsService.log({
       userId: user.sub,
       action: 'SUPPORT_TICKET_CREATED',
+      moduleKey: 'support',
       entityType: 'SupportTicket',
       entityId: hydrated.id,
       payload: {
@@ -212,6 +215,14 @@ export class SupportTicketsService {
         priority: hydrated.priority,
         solarSystemId,
       },
+      afterState: this.serializeTicketAuditState(hydrated),
+    });
+
+    await this.auditLogsService.touchEntity({
+      entityType: 'SupportTicket',
+      entityId: hydrated.id,
+      actorId: user.sub,
+      moduleKey: 'support',
     });
 
     return this.serializeTicket(hydrated, 'CUSTOMER');
@@ -234,12 +245,21 @@ export class SupportTicketsService {
     const ticket = await this.requireTicket(ticketId);
     this.assertTicketAccess(ticket, user);
 
+    if (
+      Boolean(dto.isInternal) &&
+      user.role !== 'CUSTOMER' &&
+      !hasPermission(user.permissions, 'support.internal_notes')
+    ) {
+      throw new ForbiddenException('Báº¡n khÃ´ng cÃ³ quyá»n lÆ°u ghi chÃº ná»™i bá»™.');
+    }
+
     const isInternal = Boolean(dto.isInternal);
     if (isInternal && user.role === 'CUSTOMER') {
       throw new ForbiddenException('Khách hàng không thể gửi ghi chú nội bộ.');
     }
 
     const now = new Date();
+    const beforeState = this.serializeTicketAuditState(ticket);
     const nextStatus =
       user.role === 'CUSTOMER'
         ? TicketStatus.OPEN
@@ -264,6 +284,7 @@ export class SupportTicketsService {
       data: {
         status: nextStatus,
         lastMessageAt: now,
+        lastHandledByUserId: user.sub,
         ...(user.role === 'CUSTOMER'
           ? {
               lastCustomerMessageAt: isInternal ? ticket.lastCustomerMessageAt : now,
@@ -339,12 +360,22 @@ export class SupportTicketsService {
     await this.auditLogsService.log({
       userId: user.sub,
       action: isInternal ? 'SUPPORT_TICKET_INTERNAL_NOTE' : 'SUPPORT_TICKET_REPLIED',
+      moduleKey: 'support',
       entityType: 'SupportTicket',
       entityId: ticketId,
       payload: {
         isInternal,
         attachmentCount: attachments.length,
       },
+      beforeState,
+      afterState: this.serializeTicketAuditState(hydrated),
+    });
+
+    await this.auditLogsService.touchEntity({
+      entityType: 'SupportTicket',
+      entityId: ticketId,
+      actorId: user.sub,
+      moduleKey: 'support',
     });
 
     return this.serializeTicket(hydrated, user.role === 'CUSTOMER' ? 'CUSTOMER' : 'STAFF');
@@ -358,6 +389,7 @@ export class SupportTicketsService {
     }
 
     const now = new Date();
+    const beforeState = this.serializeTicketAuditState(ticket);
     await this.prisma.supportTicket.update({
       where: { id: ticketId },
       data: {
@@ -366,6 +398,7 @@ export class SupportTicketsService {
         lastMessageAt: now,
         lastStaffMessageAt: now,
         staffLastReadAt: now,
+        lastHandledByUserId: actor.sub,
       },
     });
 
@@ -409,9 +442,19 @@ export class SupportTicketsService {
     await this.auditLogsService.log({
       userId: actor.sub,
       action: 'SUPPORT_TICKET_STATUS_UPDATED',
+      moduleKey: 'support',
       entityType: 'SupportTicket',
       entityId: ticketId,
       payload: { status },
+      beforeState,
+      afterState: this.serializeTicketAuditState(hydrated),
+    });
+
+    await this.auditLogsService.touchEntity({
+      entityType: 'SupportTicket',
+      entityId: ticketId,
+      actorId: actor.sub,
+      moduleKey: 'support',
     });
 
     return this.serializeTicket(hydrated, 'STAFF');
@@ -432,7 +475,7 @@ export class SupportTicketsService {
           deletedAt: null,
           role: {
             code: {
-              in: ['SUPER_ADMIN', 'ADMIN', 'STAFF'],
+              in: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF'],
             },
           },
         },
@@ -447,12 +490,16 @@ export class SupportTicketsService {
     }
 
     const now = new Date();
+    const beforeState = this.serializeTicketAuditState(ticket);
     await this.prisma.supportTicket.update({
       where: { id: ticketId },
       data: {
         assigneeUserId,
+        assignedByUserId: assigneeUserId ? actor.sub : null,
+        assignedAt: assigneeUserId ? now : null,
         lastMessageAt: now,
         staffLastReadAt: now,
+        lastHandledByUserId: actor.sub,
       },
     });
 
@@ -496,11 +543,22 @@ export class SupportTicketsService {
     await this.auditLogsService.log({
       userId: actor.sub,
       action: 'SUPPORT_TICKET_ASSIGNED',
+      moduleKey: 'support',
       entityType: 'SupportTicket',
       entityId: ticketId,
       payload: {
         assigneeUserId,
       },
+      beforeState,
+      afterState: this.serializeTicketAuditState(hydrated),
+    });
+
+    await this.auditLogsService.assignEntity({
+      entityType: 'SupportTicket',
+      entityId: ticketId,
+      assignedToUserId: assigneeUserId,
+      actorId: actor.sub,
+      moduleKey: 'support',
     });
 
     return this.serializeTicket(hydrated, 'STAFF');
@@ -656,6 +714,16 @@ export class SupportTicketsService {
           role: true,
         },
       },
+      assignedByUser: {
+        include: {
+          role: true,
+        },
+      },
+      lastHandledByUser: {
+        include: {
+          role: true,
+        },
+      },
       participants: {
         include: {
           user: {
@@ -744,7 +812,7 @@ export class SupportTicketsService {
         deletedAt: null,
         role: {
           code: {
-            in: ['SUPER_ADMIN', 'ADMIN', 'STAFF'],
+            in: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF'],
           },
         },
       },
@@ -943,6 +1011,33 @@ export class SupportTicketsService {
             role: ticket.assigneeUser.role,
           }
         : null,
+      assignment: {
+        assignedTo: ticket.assigneeUser
+          ? {
+              id: ticket.assigneeUser.id,
+              fullName: ticket.assigneeUser.fullName,
+              email: ticket.assigneeUser.email,
+              role: ticket.assigneeUser.role,
+            }
+          : null,
+        assignedBy: ticket.assignedByUser
+          ? {
+              id: ticket.assignedByUser.id,
+              fullName: ticket.assignedByUser.fullName,
+              email: ticket.assignedByUser.email,
+              role: ticket.assignedByUser.role,
+            }
+          : null,
+        assignedAt: ticket.assignedAt,
+        lastHandledBy: ticket.lastHandledByUser
+          ? {
+              id: ticket.lastHandledByUser.id,
+              fullName: ticket.lastHandledByUser.fullName,
+              email: ticket.lastHandledByUser.email,
+              role: ticket.lastHandledByUser.role,
+            }
+          : null,
+      },
       participants: (ticket.participants || []).map((participant: any) => ({
         id: participant.id,
         participantType: participant.participantType,
@@ -989,6 +1084,21 @@ export class SupportTicketsService {
       })),
       lastMessagePreview: lastVisibleMessage?.message || null,
       lastMessageAt: ticket.lastMessageAt,
+    };
+  }
+
+  private serializeTicketAuditState(ticket: any) {
+    return {
+      status: ticket.status,
+      priority: ticket.priority,
+      assigneeUserId: ticket.assigneeUserId || null,
+      assignedByUserId: ticket.assignedByUserId || null,
+      assignedAt: ticket.assignedAt?.toISOString?.() || null,
+      lastHandledByUserId: ticket.lastHandledByUserId || null,
+      customerLastReadAt: ticket.customerLastReadAt?.toISOString?.() || null,
+      staffLastReadAt: ticket.staffLastReadAt?.toISOString?.() || null,
+      lastMessageAt: ticket.lastMessageAt?.toISOString?.() || null,
+      closedAt: ticket.closedAt?.toISOString?.() || null,
     };
   }
 }

@@ -9,8 +9,10 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { hasPermission } from '../common/auth/permissions';
 import { decryptSecret, encryptSecret } from '../common/helpers/secret.helper';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { deriveSystemStatusFromMonitoring } from '../systems/system-status.util';
 import { CreateLuxPowerConnectionDto } from './dto/create-luxpower-connection.dto';
 import { SyncLuxPowerConnectionDto } from './dto/sync-luxpower-connection.dto';
@@ -52,19 +54,23 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
     }
   }
 
-  async listConnections() {
+  async listConnections(actor?: AuthenticatedUser) {
     const connections = await this.prisma.luxPowerConnection.findMany({
       where: { deletedAt: null },
       include: this.includeRelations(),
       orderBy: { createdAt: 'desc' },
     });
 
-    return connections.map((connection) => this.serializeConnection(connection));
+    const canViewSecrets = hasPermission(actor?.permissions, 'integration.secrets.view');
+    return connections.map((connection) => this.serializeConnection(connection, canViewSecrets));
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, actor?: AuthenticatedUser) {
     const connection = await this.getConnectionOrThrow(id);
-    return this.serializeConnection(connection);
+    return this.serializeConnection(
+      connection,
+      hasPermission(actor?.permissions, 'integration.secrets.view'),
+    );
   }
 
   async listLogs(id: string) {
@@ -509,7 +515,10 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
     });
   }
 
-  private serializeConnection(connection: LuxPowerConnectionRecord) {
+  private serializeConnection(
+    connection: LuxPowerConnectionRecord,
+    canViewSecrets = false,
+  ) {
     const { passwordEncrypted, ...safeConnection } = connection;
     const logs = Array.isArray(connection.syncLogs) ? connection.syncLogs : [];
     const lastTest = logs.find((log: any) => log.action === 'TEST_CONNECTION') || null;
@@ -522,6 +531,7 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
 
     return {
       ...safeConnection,
+      username: canViewSecrets ? safeConnection.username : null,
       hasStoredPassword: Boolean(passwordEncrypted),
       statusSummary: {
         configured: Boolean(connection.useDemoMode || (connection.username && passwordEncrypted)),

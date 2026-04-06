@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { useEffect, useMemo, useState } from 'react';
 import { Link2, Link2Off, RefreshCw } from 'lucide-react';
+import { EntityActivityPanel } from '@/components/entity-activity-panel';
 import { SectionCard } from '@/components/section-card';
 import {
   getCustomerRequest,
@@ -477,6 +478,14 @@ export default function AdminCustomerDetailPage() {
           </SectionCard>
         </div>
       ) : null}
+
+      <EntityActivityPanel
+        entityType="Customer"
+        entityId={customer.id}
+        moduleKey="customers"
+        title="Customer activity timeline"
+        eyebrow="Owner changes, assignment tracking và ghi chú nội bộ"
+      />
     </div>
   );
 }

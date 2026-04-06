@@ -1,5 +1,5 @@
 import { resolve } from 'path';
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
@@ -32,6 +32,7 @@ import { PortalAutomationModule } from './portal-automation/portal-automation.mo
 import { SolarmanConnectionsModule } from './solarman-connections/solarman-connections.module';
 import { LuxPowerConnectionsModule } from './luxpower-connections/luxpower-connections.module';
 import { ZaloNotificationsModule } from './zalo-notifications/zalo-notifications.module';
+import { RequestContextMiddleware } from './common/request-context/request-context.middleware';
 
 @Module({
   imports: [
@@ -76,4 +77,8 @@ import { ZaloNotificationsModule } from './zalo-notifications/zalo-notifications
     ReportsModule,
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(RequestContextMiddleware).forRoutes('*');
+  }
+}

@@ -117,13 +117,14 @@ enum ContactInquiryStatus {
 }
 
 model Role {
-  id        String   @id @default(cuid())
-  code      String   @unique
-  name      String
-  users     User[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-}
+    id        String   @id @default(cuid())
+    code      String   @unique
+    name      String
+    permissions Json?
+    users     User[]
+    createdAt DateTime @default(now())
+    updatedAt DateTime @updatedAt
+  }
 
 model User {
   id           String      @id @default(cuid())
@@ -139,16 +140,22 @@ model User {
   uploadedMediaAssets MediaAsset[] @relation("MediaUploadedBy")
   updatedMonthlyEnergyRecords MonthlyEnergyRecord[] @relation("MonthlyEnergyUpdatedBy")
   aiActionDrafts AiActionDraft[] @relation("AiActionDraftCreatedBy")
-  reviewedPayments Payment[] @relation("PaymentReviewedBy")
-  assignedSupportTickets SupportTicket[] @relation("SupportTicketAssignee")
-  supportTicketMessages TicketMessage[] @relation("TicketMessageSender")
+    reviewedPayments Payment[] @relation("PaymentReviewedBy")
+    assignedSupportTickets SupportTicket[] @relation("SupportTicketAssignee")
+    supportTicketsAssignedByUser SupportTicket[] @relation("SupportTicketAssignedBy")
+    supportTicketsLastHandledByUser SupportTicket[] @relation("SupportTicketLastHandledBy")
+    supportTicketMessages TicketMessage[] @relation("TicketMessageSender")
   supportTicketParticipants TicketParticipant[]
   uploadedTicketAttachments TicketAttachment[] @relation("TicketAttachmentUploadedBy")
-  notifications Notification[]
-  auditLogs    AuditLog[]
-  contentPosts ContentPost[]
-  handledContactInquiries ContactInquiry[]
-  updatedAiProviderConfigs AiProviderConfig[]
+    notifications Notification[]
+    auditLogs    AuditLog[]
+    createdInternalNotes InternalNote[] @relation("InternalNoteCreatedBy")
+    assignedEntities EntityAssignment[] @relation("EntityAssignmentAssignedTo")
+    assignedEntitiesByUser EntityAssignment[] @relation("EntityAssignmentAssignedBy")
+    handledEntities EntityAssignment[] @relation("EntityAssignmentLastHandledBy")
+    contentPosts ContentPost[]
+    handledContactInquiries ContactInquiry[]
+    updatedAiProviderConfigs AiProviderConfig[]
   updatedZaloProviderConfigs ZaloProviderConfig[] @relation("ZaloProviderConfigUpdatedBy")
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
@@ -870,11 +877,16 @@ model SupportTicket {
   ticketNumber       String?              @unique
   customerId         String
   customer           Customer             @relation(fields: [customerId], references: [id])
-  solarSystemId      String?
-  solarSystem        SolarSystem?         @relation(fields: [solarSystemId], references: [id], onDelete: SetNull)
-  assigneeUserId     String?
-  assigneeUser       User?                @relation("SupportTicketAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
-  title              String
+    solarSystemId      String?
+    solarSystem        SolarSystem?         @relation(fields: [solarSystemId], references: [id], onDelete: SetNull)
+    assigneeUserId     String?
+    assigneeUser       User?                @relation("SupportTicketAssignee", fields: [assigneeUserId], references: [id], onDelete: SetNull)
+    assignedByUserId   String?
+    assignedByUser     User?                @relation("SupportTicketAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+    assignedAt         DateTime?
+    lastHandledByUserId String?
+    lastHandledByUser  User?                @relation("SupportTicketLastHandledBy", fields: [lastHandledByUserId], references: [id], onDelete: SetNull)
+    title              String
   description        String
   category           TicketCategory       @default(GENERAL)
   status             TicketStatus         @default(OPEN)
@@ -893,9 +905,11 @@ model SupportTicket {
   deletedAt          DateTime?
 
   @@index([customerId])
-  @@index([solarSystemId])
-  @@index([assigneeUserId])
-  @@index([status])
+    @@index([solarSystemId])
+    @@index([assigneeUserId])
+    @@index([assignedByUserId])
+    @@index([lastHandledByUserId])
+    @@index([status])
   @@index([priority])
   @@index([category])
   @@index([lastMessageAt])
@@ -983,18 +997,62 @@ model TicketAttachment {
 }
 
 model AuditLog {
-  id         String   @id @default(cuid())
-  userId     String
-  user       User     @relation(fields: [userId], references: [id])
-  action     String
-  entityType String
-  entityId   String?
-  payload    Json?
-  createdAt  DateTime @default(now())
+    id         String   @id @default(cuid())
+    userId     String
+    user       User     @relation(fields: [userId], references: [id])
+    action     String
+    moduleKey  String?
+    entityType String
+    entityId   String?
+    payload    Json?
+    beforeState Json?
+    afterState Json?
+    ipAddress  String?
+    userAgent  String?
+    createdAt  DateTime @default(now())
 
-  @@index([userId])
-  @@index([entityType])
-  @@index([createdAt])
+    @@index([userId])
+    @@index([entityType])
+    @@index([moduleKey])
+    @@index([createdAt])
+  }
+
+model InternalNote {
+    id              String   @id @default(cuid())
+    entityType      String
+    entityId        String
+    body            String
+    createdByUserId String
+    createdByUser   User     @relation("InternalNoteCreatedBy", fields: [createdByUserId], references: [id])
+    createdAt       DateTime @default(now())
+    updatedAt       DateTime @updatedAt
+    deletedAt       DateTime?
+
+    @@index([entityType, entityId])
+    @@index([createdByUserId])
+    @@index([createdAt])
+    @@index([deletedAt])
+}
+
+model EntityAssignment {
+    id                  String   @id @default(cuid())
+    entityType          String
+    entityId            String
+    assignedToUserId    String?
+    assignedToUser      User?    @relation("EntityAssignmentAssignedTo", fields: [assignedToUserId], references: [id], onDelete: SetNull)
+    assignedByUserId    String?
+    assignedByUser      User?    @relation("EntityAssignmentAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+    assignedAt          DateTime?
+    lastHandledByUserId String?
+    lastHandledByUser   User?    @relation("EntityAssignmentLastHandledBy", fields: [lastHandledByUserId], references: [id], onDelete: SetNull)
+    createdAt           DateTime @default(now())
+    updatedAt           DateTime @updatedAt
+
+    @@unique([entityType, entityId])
+    @@index([entityType, entityId])
+    @@index([assignedToUserId])
+    @@index([assignedByUserId])
+    @@index([lastHandledByUserId])
 }
 
 model FeaturePlugin {

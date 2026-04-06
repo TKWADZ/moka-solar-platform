@@ -1,6 +1,7 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
+import { resolvePermissionsForRole } from '../common/auth/permissions';
 
 @Injectable()
 export class BootstrapService implements OnModuleInit {
@@ -26,21 +27,31 @@ export class BootstrapService implements OnModuleInit {
       fullName: process.env.BOOTSTRAP_ADMIN_NAME?.trim() || 'Moka Operations Admin',
       updatePasswordOnEnsure: false,
     });
+    await this.ensureRoleAccount({
+      roleCode: 'MANAGER',
+      roleLabel: 'MANAGER',
+      email: process.env.BOOTSTRAP_MANAGER_EMAIL?.trim().toLowerCase(),
+      password: process.env.BOOTSTRAP_MANAGER_PASSWORD?.trim(),
+      fullName: process.env.BOOTSTRAP_MANAGER_NAME?.trim() || 'Moka Operations Manager',
+      updatePasswordOnEnsure: false,
+    });
   }
 
   private async ensureRoles() {
     const roles = [
       { code: 'SUPER_ADMIN', name: 'Super Admin' },
       { code: 'ADMIN', name: 'Admin' },
+      { code: 'MANAGER', name: 'Manager' },
       { code: 'STAFF', name: 'Staff' },
       { code: 'CUSTOMER', name: 'Customer' },
     ];
 
     for (const role of roles) {
+      const permissions = resolvePermissionsForRole(role.code as any);
       await this.prisma.role.upsert({
         where: { code: role.code },
-        update: { name: role.name },
-        create: role,
+        update: { name: role.name, permissions },
+        create: { ...role, permissions },
       });
     }
   }

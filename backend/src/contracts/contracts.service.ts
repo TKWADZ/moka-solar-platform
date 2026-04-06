@@ -126,10 +126,21 @@ export class ContractsService {
     await this.auditLogsService.log({
       userId: actorId,
       action: 'CONTRACT_CREATED',
+      moduleKey: 'contracts',
       entityType: 'Contract',
       entityId: contract.id,
       payload: dto as unknown as Record<string, unknown>,
+      afterState: this.serializeContractAuditState(contract),
     });
+
+    if (actorId) {
+      await this.auditLogsService.touchEntity({
+        entityType: 'Contract',
+        entityId: contract.id,
+        actorId,
+        moduleKey: 'contracts',
+      });
+    }
 
     return contract;
   }
@@ -146,6 +157,8 @@ export class ContractsService {
         throw new BadRequestException('Solar system does not belong to this customer');
       }
     }
+
+    const current = await this.findOne(id);
 
     const updated = await this.prisma.contract.update({
       where: { id },
@@ -174,16 +187,28 @@ export class ContractsService {
     await this.auditLogsService.log({
       userId: actorId,
       action: 'CONTRACT_UPDATED',
+      moduleKey: 'contracts',
       entityType: 'Contract',
       entityId: id,
       payload: dto as unknown as Record<string, unknown>,
+      beforeState: this.serializeContractAuditState(current),
+      afterState: this.serializeContractAuditState(updated),
     });
+
+    if (actorId) {
+      await this.auditLogsService.touchEntity({
+        entityType: 'Contract',
+        entityId: id,
+        actorId,
+        moduleKey: 'contracts',
+      });
+    }
 
     return updated;
   }
 
   async remove(id: string, actorId?: string) {
-    await this.findOne(id);
+    const contract = await this.findOne(id);
 
     await this.prisma.contract.update({
       where: { id },
@@ -193,9 +218,25 @@ export class ContractsService {
     await this.auditLogsService.log({
       userId: actorId,
       action: 'CONTRACT_ARCHIVED',
+      moduleKey: 'contracts',
       entityType: 'Contract',
       entityId: id,
+      beforeState: this.serializeContractAuditState(contract),
+      afterState: {
+        ...this.serializeContractAuditState(contract),
+        deletedAt: new Date().toISOString(),
+        status: 'TERMINATED',
+      },
     });
+
+    if (actorId) {
+      await this.auditLogsService.touchEntity({
+        entityType: 'Contract',
+        entityId: id,
+        actorId,
+        moduleKey: 'contracts',
+      });
+    }
 
     return { success: true };
   }
@@ -253,5 +294,21 @@ export class ContractsService {
         },
       }),
     ]);
+  }
+
+  private serializeContractAuditState(contract: any) {
+    return {
+      customerId: contract.customerId || null,
+      solarSystemId: contract.solarSystemId || null,
+      servicePackageId: contract.servicePackageId || null,
+      type: contract.type || null,
+      status: contract.status || null,
+      startDate: contract.startDate?.toISOString?.() || null,
+      endDate: contract.endDate?.toISOString?.() || null,
+      termMonths: contract.termMonths ?? null,
+      pricePerKwh: contract.pricePerKwh != null ? Number(contract.pricePerKwh) : null,
+      fixedMonthlyFee: contract.fixedMonthlyFee != null ? Number(contract.fixedMonthlyFee) : null,
+      vatRate: contract.vatRate != null ? Number(contract.vatRate) : null,
+    };
   }
 }

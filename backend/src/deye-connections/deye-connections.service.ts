@@ -9,7 +9,9 @@ import {
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { hasPermission } from '../common/auth/permissions';
 import { encryptSecret, maskSecret } from '../common/helpers/secret.helper';
+import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateDeyeConnectionDto } from './dto/create-deye-connection.dto';
 import { SyncDeyeConnectionDto } from './dto/sync-deye-connection.dto';
@@ -52,17 +54,18 @@ export class DeyeConnectionsService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async listConnections() {
+  async listConnections(actor?: AuthenticatedUser) {
     const connections = await this.prisma.deyeConnection.findMany({
       where: { deletedAt: null },
       include: this.includeRelations(),
       orderBy: { createdAt: 'desc' },
     });
 
-    return connections.map((connection) => this.serializeConnection(connection));
+    const canViewSecrets = hasPermission(actor?.permissions, 'integration.secrets.view');
+    return connections.map((connection) => this.serializeConnection(connection, canViewSecrets));
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, actor?: AuthenticatedUser) {
     const connection = await this.prisma.deyeConnection.findFirst({
       where: {
         id,
@@ -75,7 +78,10 @@ export class DeyeConnectionsService implements OnModuleInit, OnModuleDestroy {
       throw new NotFoundException('Deye connection not found');
     }
 
-    return this.serializeConnection(connection);
+    return this.serializeConnection(
+      connection,
+      hasPermission(actor?.permissions, 'integration.secrets.view'),
+    );
   }
 
   async listLogs(id: string) {
@@ -445,7 +451,10 @@ export class DeyeConnectionsService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  private serializeConnection(connection: DeyeConnectionWithRelations) {
+  private serializeConnection(
+    connection: DeyeConnectionWithRelations,
+    canViewSecrets = false,
+  ) {
     const {
       appSecretEncrypted,
       passwordEncrypted,
@@ -456,7 +465,11 @@ export class DeyeConnectionsService implements OnModuleInit, OnModuleDestroy {
 
     return {
       ...safeConnection,
-      accessTokenPreview: this.deyeAuthService.getAccessTokenPreview(accessToken),
+      appId: canViewSecrets ? safeConnection.appId : null,
+      email: canViewSecrets ? safeConnection.email : null,
+      accessTokenPreview: canViewSecrets
+        ? this.deyeAuthService.getAccessTokenPreview(accessToken)
+        : null,
       hasStoredAppSecret: Boolean(appSecretEncrypted),
       hasStoredPassword: Boolean(passwordEncrypted),
       systems:

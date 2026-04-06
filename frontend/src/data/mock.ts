@@ -45,6 +45,7 @@ export const adminNav: NavItem[] = [
   { href: '/admin/reports', label: 'Báo cáo', description: 'Phân tích doanh thu, điện năng và thanh toán', featureKey: 'reports' },
   { href: '/admin/packages', label: 'Gói dịch vụ', description: 'Chiến lược giá và quy tắc VAT', featureKey: 'service_packages' },
   { href: '/admin/support', label: 'Hỗ trợ', description: 'Ticket và theo dõi SLA', featureKey: 'support' },
+  { href: '/admin/audit', label: 'Audit log', description: 'Lịch sử thao tác, thay đổi dữ liệu và nhật ký hệ thống' },
   { href: '/admin/plugins', label: 'Plugin', description: 'Cài đặt, bật tắt và cấu hình module', featureKey: 'plugin_center' },
 ];
 

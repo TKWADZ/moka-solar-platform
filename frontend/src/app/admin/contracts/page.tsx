@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { FileText, PencilLine, Plus, Trash2 } from 'lucide-react';
+import { EntityActivityPanel } from '@/components/entity-activity-panel';
 import { SectionCard } from '@/components/section-card';
 import { StatCard } from '@/components/stat-card';
 import { StatusPill } from '@/components/status-pill';
@@ -168,6 +169,11 @@ export default function AdminContractsPage() {
         system.id === form.solarSystemId,
     );
   }, [form.customerId, form.solarSystemId, systems]);
+
+  const selectedContract = useMemo(
+    () => contracts.find((contract) => contract.id === editingId) || contracts[0] || null,
+    [contracts, editingId],
+  );
 
   const stats = useMemo<StatCardItem[]>(() => {
     const activeContracts = contracts.filter((contract) => contract.status === 'ACTIVE').length;
@@ -624,6 +630,15 @@ export default function AdminContractsPage() {
           )}
         </div>
       </SectionCard>
+
+      <EntityActivityPanel
+        entityType="Contract"
+        entityId={selectedContract?.id}
+        moduleKey="contracts"
+        title="Contract activity timeline"
+        eyebrow="Lịch sử cập nhật điều khoản, phân công và ghi chú nội bộ"
+        emptyMessage="Hợp đồng này chưa có thêm hoạt động nào được ghi lại."
+      />
     </div>
   );
 }

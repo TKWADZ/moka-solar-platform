@@ -3,6 +3,7 @@ import { ContractsService } from './contracts.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { Permissions } from '../common/decorators/permissions.decorator';
 import { CreateContractDto } from './dto/create-contract.dto';
 import { UpdateContractDto } from './dto/update-contract.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -17,7 +18,8 @@ export class ContractsController {
   constructor(private readonly contractsService: ContractsService) {}
 
   @Get()
-  @Roles('SUPER_ADMIN', 'ADMIN', 'STAFF')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')
+  @Permissions('contracts.read')
   findAll() {
     return this.contractsService.findAll();
   }
@@ -29,19 +31,22 @@ export class ContractsController {
   }
 
   @Get(':id')
-  @Roles('SUPER_ADMIN', 'ADMIN', 'STAFF')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')
+  @Permissions('contracts.read')
   findOne(@Param('id') id: string) {
     return this.contractsService.findOne(id);
   }
 
   @Post()
-  @Roles('SUPER_ADMIN', 'ADMIN', 'STAFF')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
+  @Permissions('contracts.manage')
   create(@Body() dto: CreateContractDto, @CurrentUser() actor: AuthenticatedUser) {
     return this.contractsService.create(dto, actor.sub);
   }
 
   @Patch(':id')
-  @Roles('SUPER_ADMIN', 'ADMIN', 'STAFF')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
+  @Permissions('contracts.manage')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateContractDto,
@@ -52,6 +57,7 @@ export class ContractsController {
 
   @Delete(':id')
   @Roles('SUPER_ADMIN', 'ADMIN')
+  @Permissions('contracts.manage')
   remove(@Param('id') id: string, @CurrentUser() actor: AuthenticatedUser) {
     return this.contractsService.remove(id, actor.sub);
   }

@@ -105,16 +105,16 @@ export class InvoicesService {
 
   async buildPdf(id: string, user: AuthenticatedUser) {
     const invoice = await this.findOne(id, user);
-    const buffer = buildInvoicePdf({
+    const buffer = await buildInvoicePdf({
       invoiceNumber: invoice.invoiceNumber,
       customerName: invoice.customer.companyName || invoice.customer.user.fullName,
       contractNumber: invoice.contract.contractNumber,
       issuedAt: invoice.issuedAt.toISOString().slice(0, 10),
       dueDate: invoice.dueDate.toISOString().slice(0, 10),
-      totalAmount: `${Number(invoice.totalAmount).toLocaleString('vi-VN')} VND`,
+      totalAmount: `${Number(invoice.totalAmount).toLocaleString('vi-VN')} \u0111`,
       lines: invoice.items.map(
         (item) =>
-          `${item.description} - qty ${Number(item.quantity)} x ${Number(item.unitPrice).toLocaleString('vi-VN')} = ${Number(item.amount).toLocaleString('vi-VN')} VND`,
+          `${item.description} - SL ${Number(item.quantity)} x ${Number(item.unitPrice).toLocaleString('vi-VN')} \u0111 = ${Number(item.amount).toLocaleString('vi-VN')} \u0111`,
       ),
     });
 
@@ -201,7 +201,7 @@ export class InvoicesService {
           totalAmount: Number(monthlyPvBilling.totalAmount),
           items: [
             {
-              description: `San luong PV thang ${String(month).padStart(2, '0')}/${year} - ${monthlyPvBilling.solarSystem.name}`,
+              description: `S\u1ea3n l\u01b0\u1ee3ng PV th\u00e1ng ${String(month).padStart(2, '0')}/${year} - ${monthlyPvBilling.solarSystem.name}`,
               quantity: Number(monthlyPvBilling.billableKwh),
               unitPrice: Number(monthlyPvBilling.unitPrice),
               amount: Number(monthlyPvBilling.subtotalAmount),
@@ -268,6 +268,7 @@ export class InvoicesService {
     await this.auditLogsService.log({
       userId: actorId,
       action: 'INVOICE_GENERATED',
+      moduleKey: 'billing',
       entityType: 'Invoice',
       entityId: invoice.id,
       payload: {
@@ -275,7 +276,17 @@ export class InvoicesService {
         month,
         year,
       },
+      afterState: this.serializeInvoiceAuditState(invoice),
     });
+
+    if (actorId) {
+      await this.auditLogsService.touchEntity({
+        entityType: 'Invoice',
+        entityId: invoice.id,
+        actorId,
+        moduleKey: 'billing',
+      });
+    }
 
     const [serialized] = await this.attachPeriodMetrics([invoice]);
     return serialized;
@@ -425,5 +436,20 @@ export class InvoicesService {
       },
       data: { status: InvoiceStatus.OVERDUE },
     });
+  }
+
+  private serializeInvoiceAuditState(invoice: any) {
+    return {
+      customerId: invoice.customerId || null,
+      contractId: invoice.contractId || null,
+      invoiceNumber: invoice.invoiceNumber || null,
+      billingMonth: invoice.billingMonth ?? null,
+      billingYear: invoice.billingYear ?? null,
+      status: invoice.status || null,
+      totalAmount: invoice.totalAmount != null ? Number(invoice.totalAmount) : null,
+      paidAmount: invoice.paidAmount != null ? Number(invoice.paidAmount) : null,
+      dueDate: invoice.dueDate?.toISOString?.() || null,
+      issuedAt: invoice.issuedAt?.toISOString?.() || null,
+    };
   }
 }

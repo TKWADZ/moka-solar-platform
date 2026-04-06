@@ -3,6 +3,7 @@ import { CustomersService } from './customers.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
+import { Permissions } from '../common/decorators/permissions.decorator';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -17,7 +18,8 @@ export class CustomersController {
   constructor(private readonly customersService: CustomersService) {}
 
   @Get()
-  @Roles('SUPER_ADMIN', 'ADMIN', 'STAFF')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')
+  @Permissions('customers.read')
   findAll() {
     return this.customersService.findAll();
   }
@@ -30,19 +32,22 @@ export class CustomersController {
   }
 
   @Get(':id')
-  @Roles('SUPER_ADMIN', 'ADMIN', 'STAFF')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')
+  @Permissions('customers.read')
   findOne(@Param('id') id: string) {
     return this.customersService.findOne(id);
   }
 
   @Post()
-  @Roles('SUPER_ADMIN', 'ADMIN', 'STAFF')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
+  @Permissions('customers.manage')
   create(@Body() dto: CreateCustomerDto, @CurrentUser() actor: AuthenticatedUser) {
     return this.customersService.create(dto, actor.sub);
   }
 
   @Patch(':id')
-  @Roles('SUPER_ADMIN', 'ADMIN', 'STAFF')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
+  @Permissions('customers.manage')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateCustomerDto,
@@ -53,6 +58,7 @@ export class CustomersController {
 
   @Delete(':id')
   @Roles('SUPER_ADMIN', 'ADMIN')
+  @Permissions('customers.manage')
   remove(@Param('id') id: string, @CurrentUser() actor: AuthenticatedUser) {
     return this.customersService.remove(id, actor.sub);
   }

@@ -13,6 +13,7 @@ import {
   Shield,
   UserCheck2,
 } from 'lucide-react';
+import { EntityActivityPanel } from '@/components/entity-activity-panel';
 import { SectionCard } from '@/components/section-card';
 import { StatCard } from '@/components/stat-card';
 import { StatusPill } from '@/components/status-pill';
@@ -57,7 +58,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   OTHER: 'Khác',
 };
 
-const STAFF_ROLES = new Set(['SUPER_ADMIN', 'ADMIN', 'STAFF']);
+const STAFF_ROLES = new Set(['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF']);
 
 function senderRoleLabel(role?: string | null) {
   if (role === 'CUSTOMER') {
@@ -558,6 +559,15 @@ export default function AdminSupportPage() {
                 ) : null}
               </div>
             </SectionCard>
+
+            <EntityActivityPanel
+              entityType="SupportTicket"
+              entityId={selectedTicket.id}
+              moduleKey="support"
+              title="Activity timeline"
+              eyebrow="Phân công, ghi chú nội bộ và thay đổi trạng thái"
+              emptyMessage="Ticket này chưa có thêm hoạt động nào ngoài luồng chat hiện tại."
+            />
           </div>
         ) : (
           <SectionCard title="Support ticket" eyebrow="Chọn ticket để bắt đầu xử lý" dark>

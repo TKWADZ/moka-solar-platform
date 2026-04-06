@@ -35,10 +35,22 @@ import { LanguageSwitcher } from '@/components/language-switcher';
 import { PortalLiveProvider, usePortalLive } from '@/components/portal-live-provider';
 import { getCustomerPrimaryNav } from '@/lib/customer-app';
 import { featureCatalogRequest } from '@/lib/api';
-import { getDefaultRouteForRole, getSession, hasRole, logout } from '@/lib/auth';
+import {
+  getDefaultRouteForRole,
+  getSession,
+  hasPermission,
+  hasRole,
+  logout,
+} from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
-import { FeaturePlugin, NavItem, SessionPayload, UserRole } from '@/types';
+import {
+  FeaturePlugin,
+  NavItem,
+  PermissionCode,
+  SessionPayload,
+  UserRole,
+} from '@/types';
 
 type PortalShellProps = {
   title: string;
@@ -65,6 +77,7 @@ type PortalShellContentProps = {
   isCustomerPortal: boolean;
   customerPrimaryNav: NavItem[];
   currentFeatureDisabled: boolean;
+  currentNavForbidden: boolean;
   children: React.ReactNode;
 };
 
@@ -89,6 +102,7 @@ const navIconMap: Record<string, LucideIcon> = {
   '/admin/reports': BarChart3,
   '/admin/packages': Package2,
   '/admin/support': LifeBuoy,
+  '/admin/audit': FileText,
   '/admin/plugins': Blocks,
   '/customer': LayoutDashboard,
   '/customer/meters': FileSpreadsheet,
@@ -99,6 +113,47 @@ const navIconMap: Record<string, LucideIcon> = {
   '/customer/profile': UserCog,
   '/customer/support': LifeBuoy,
 };
+
+const navPermissionMap: Partial<Record<string, PermissionCode | PermissionCode[]>> = {
+  '/admin': 'admin.dashboard.read',
+  '/admin/customers': 'customers.read',
+  '/admin/users': 'users.read',
+  '/admin/systems': 'systems.read',
+  '/admin/operations-data': 'systems.manage',
+  '/admin/solarman': 'integrations.read',
+  '/admin/luxpower': 'integrations.read',
+  '/admin/deye': 'integrations.read',
+  '/admin/contracts': 'contracts.read',
+  '/admin/billing': 'billing.read',
+  '/admin/zalo': 'integrations.read',
+  '/admin/ai': 'ai.read',
+  '/admin/website-settings': 'website.read',
+  '/admin/media': 'website.read',
+  '/admin/cms': 'website.read',
+  '/admin/leads': 'customers.read',
+  '/admin/posts': 'website.read',
+  '/admin/reports': 'reports.read',
+  '/admin/packages': 'contracts.manage',
+  '/admin/support': 'support.read',
+  '/admin/audit': 'audit.read',
+};
+
+function canAccessNavItem(session: SessionPayload | null, item: NavItem) {
+  if (!session) {
+    return false;
+  }
+
+  if (item.href === '/admin/plugins') {
+    return ['SUPER_ADMIN', 'ADMIN'].includes(session.user.role);
+  }
+
+  const requiredPermission = navPermissionMap[item.href];
+  if (!requiredPermission) {
+    return true;
+  }
+
+  return hasPermission(session, requiredPermission);
+}
 
 function isActivePath(pathname: string, href: string) {
   return pathname === href || pathname.startsWith(`${href}/`);
@@ -158,7 +213,7 @@ function groupPortalNav(nav: NavItem[]) {
         '/admin/packages',
       ],
     },
-    { label: 'Hệ thống lõi', hrefs: ['/admin/ai', '/admin/plugins'] },
+    { label: 'Hệ thống lõi', hrefs: ['/admin/ai', '/admin/audit', '/admin/plugins'] },
   ];
 
   return definitions
@@ -393,6 +448,7 @@ function PortalShellContent({
   isCustomerPortal,
   customerPrimaryNav,
   currentFeatureDisabled,
+  currentNavForbidden,
   children,
 }: PortalShellContentProps) {
   const { tt } = useI18n();
@@ -460,7 +516,18 @@ function PortalShellContent({
           {isCustomerPortal ? <CustomerAppInstallCard /> : null}
 
           <div className="min-w-0 space-y-4 sm:space-y-5">
-            {currentFeatureDisabled ? (
+            {currentNavForbidden ? (
+              <div className="portal-card p-6 sm:p-8">
+                <p className="eyebrow">Quyen truy cap</p>
+                <h2 className="mt-2 text-xl font-semibold text-white sm:text-2xl">
+                  Ban khong co quyen vao module nay.
+                </h2>
+                <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
+                  Tai khoan hien tai chua du permissions cho khu vuc nay. Ban van co
+                  the tiep tuc lam viec o cac module duoc cap quyen khac trong admin.
+                </p>
+              </div>
+            ) : currentFeatureDisabled ? (
               <div className="portal-card p-6 sm:p-8">
                 <p className="eyebrow">Hỗ trợ</p>
                 <h2 className="mt-2 text-xl font-semibold text-white sm:text-2xl">Module này hiện đang bị tắt.</h2>
@@ -637,9 +704,12 @@ export function PortalShell({ title, kicker, nav, allowedRoles, children }: Port
     featureCatalog.filter((plugin) => plugin.installed && plugin.enabled).map((plugin) => plugin.key),
   );
 
+  const permissionVisibleNav = session
+    ? nav.filter((item) => canAccessNavItem(session, item))
+    : [];
   const visibleNav = featureCatalog.length
-    ? nav.filter((item) => !item.featureKey || enabledKeys.has(item.featureKey))
-    : nav;
+    ? permissionVisibleNav.filter((item) => !item.featureKey || enabledKeys.has(item.featureKey))
+    : permissionVisibleNav;
 
   const navGroups = useMemo(() => groupPortalNav(visibleNav), [visibleNav]);
   const customerPrimaryNav = useMemo(
@@ -647,7 +717,11 @@ export function PortalShell({ title, kicker, nav, allowedRoles, children }: Port
     [isCustomerPortal, visibleNav],
   );
 
+  const requestedNavItem = nav.find((item) => isActivePath(pathname, item.href));
   const currentNavItem = visibleNav.find((item) => isActivePath(pathname, item.href));
+  const currentNavForbidden = Boolean(
+    session && requestedNavItem && !canAccessNavItem(session, requestedNavItem),
+  );
   const currentFeatureDisabled =
     featureCatalog.length > 0 &&
     Boolean(currentNavItem?.featureKey) &&
@@ -694,6 +768,7 @@ export function PortalShell({ title, kicker, nav, allowedRoles, children }: Port
         isCustomerPortal={isCustomerPortal}
         customerPrimaryNav={customerPrimaryNav}
         currentFeatureDisabled={currentFeatureDisabled}
+        currentNavForbidden={currentNavForbidden}
       >
         {children}
       </PortalShellContent>

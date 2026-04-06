@@ -13,6 +13,7 @@ import {
   ContractRecord,
   CustomerRecord,
   CustomerDashboardData,
+  PermissionCode,
   FeaturePlugin,
   DeyeConnectionRecord,
   DeyeSystemPreviewResponse,
@@ -27,6 +28,10 @@ import {
   NotificationUnreadSummary,
   OperationalOverviewResponse,
   PaymentRecord,
+  AuditLogRecord,
+  EntityAssignmentRecord,
+  EntityTimelineResponse,
+  InternalNoteRecord,
   RoleRecord,
   ServicePackageRecord,
   SessionPayload,
@@ -71,6 +76,127 @@ import {
 } from '@/data/mock';
 import { buildDefaultMarketingPages } from '@/data/marketing-cms';
 import { PublicSiteConfig, publicSiteConfig } from '@/config/public-site';
+
+const demoRolePermissions: Record<UserRole, PermissionCode[]> = {
+  SUPER_ADMIN: [
+    'admin.dashboard.read',
+    'users.read',
+    'users.manage',
+    'users.archive',
+    'customers.read',
+    'customers.manage',
+    'systems.read',
+    'systems.manage',
+    'contracts.read',
+    'contracts.manage',
+    'billing.read',
+    'billing.manage',
+    'payments.read',
+    'payments.manage',
+    'reports.read',
+    'support.read',
+    'support.reply',
+    'support.assign',
+    'support.internal_notes',
+    'notifications.read',
+    'audit.read',
+    'internal_notes.read',
+    'internal_notes.manage',
+    'assignments.read',
+    'assignments.manage',
+    'activity.read',
+    'website.read',
+    'website.manage',
+    'integrations.read',
+    'integrations.execute',
+    'integration.secrets.view',
+    'integration.secrets.manage',
+    'ai.read',
+    'ai.manage',
+  ],
+  ADMIN: [
+    'admin.dashboard.read',
+    'users.read',
+    'users.manage',
+    'users.archive',
+    'customers.read',
+    'customers.manage',
+    'systems.read',
+    'systems.manage',
+    'contracts.read',
+    'contracts.manage',
+    'billing.read',
+    'billing.manage',
+    'payments.read',
+    'payments.manage',
+    'reports.read',
+    'support.read',
+    'support.reply',
+    'support.assign',
+    'support.internal_notes',
+    'notifications.read',
+    'audit.read',
+    'internal_notes.read',
+    'internal_notes.manage',
+    'assignments.read',
+    'assignments.manage',
+    'activity.read',
+    'website.read',
+    'website.manage',
+    'integrations.read',
+    'integrations.execute',
+    'integration.secrets.view',
+    'integration.secrets.manage',
+    'ai.read',
+    'ai.manage',
+  ],
+  MANAGER: [
+    'admin.dashboard.read',
+    'users.read',
+    'customers.read',
+    'customers.manage',
+    'systems.read',
+    'systems.manage',
+    'contracts.read',
+    'contracts.manage',
+    'billing.read',
+    'billing.manage',
+    'payments.read',
+    'payments.manage',
+    'reports.read',
+    'support.read',
+    'support.reply',
+    'support.assign',
+    'support.internal_notes',
+    'notifications.read',
+    'audit.read',
+    'internal_notes.read',
+    'internal_notes.manage',
+    'assignments.read',
+    'assignments.manage',
+    'activity.read',
+    'website.read',
+    'integrations.read',
+    'integrations.execute',
+    'ai.read',
+  ],
+  STAFF: [
+    'admin.dashboard.read',
+    'customers.read',
+    'systems.read',
+    'contracts.read',
+    'billing.read',
+    'payments.read',
+    'reports.read',
+    'support.read',
+    'support.reply',
+    'notifications.read',
+    'activity.read',
+    'assignments.read',
+    'internal_notes.read',
+  ],
+  CUSTOMER: ['notifications.read'],
+};
 
 function normalizeApiBaseUrl(rawValue?: string) {
   const value = rawValue?.trim();
@@ -143,6 +269,7 @@ function createDemoSession(
       email,
       fullName,
       role,
+      permissions: demoRolePermissions[role],
       ...(customerId ? { customerId } : {}),
     },
   };
@@ -2348,6 +2475,7 @@ export async function listRolesRequest() {
     return fallbackOrThrow(error, () => [
       { id: 'role-super-admin', code: 'SUPER_ADMIN', name: 'Super Admin', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       { id: 'role-admin', code: 'ADMIN', name: 'Admin', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
+      { id: 'role-manager', code: 'MANAGER', name: 'Manager', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       { id: 'role-staff', code: 'STAFF', name: 'Staff', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
       { id: 'role-customer', code: 'CUSTOMER', name: 'Customer', createdAt: new Date().toISOString(), updatedAt: new Date().toISOString() },
     ]);
@@ -2373,6 +2501,8 @@ export async function createUserRequest(payload: {
           ? 'Super Admin'
           : payload.roleCode === 'ADMIN'
             ? 'Admin'
+            : payload.roleCode === 'MANAGER'
+              ? 'Manager'
             : payload.roleCode === 'STAFF'
               ? 'Staff'
               : 'Customer';
@@ -2915,6 +3045,131 @@ function buildSupportTicketFallback() {
     attachments: [],
     participants: [],
   }));
+}
+
+export async function listAuditLogsRequest(filters?: {
+  entityType?: string;
+  entityId?: string;
+  action?: string;
+  limit?: number;
+}) {
+  const query = new URLSearchParams();
+  if (filters?.entityType?.trim()) {
+    query.set('entityType', filters.entityType.trim());
+  }
+  if (filters?.entityId?.trim()) {
+    query.set('entityId', filters.entityId.trim());
+  }
+  if (filters?.action?.trim()) {
+    query.set('action', filters.action.trim());
+  }
+  if (typeof filters?.limit === 'number') {
+    query.set('limit', String(filters.limit));
+  }
+
+  try {
+    return await apiFetch<AuditLogRecord[]>(
+      `/audit-logs${query.toString() ? `?${query.toString()}` : ''}`,
+    );
+  } catch (error) {
+    return fallbackOrThrow(error, () => []);
+  }
+}
+
+export async function getEntityTimelineRequest(
+  entityType: string,
+  entityId: string,
+  limit = 50,
+) {
+  try {
+    return await apiFetch<EntityTimelineResponse>(
+      `/audit-logs/timeline/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}?limit=${limit}`,
+    );
+  } catch (error) {
+    return fallbackOrThrow(error, () => ({
+      assignment: null,
+      notes: [],
+      timeline: [],
+    }));
+  }
+}
+
+export async function listEntityInternalNotesRequest(entityType: string, entityId: string) {
+  try {
+    return await apiFetch<InternalNoteRecord[]>(
+      `/audit-logs/internal-notes/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}`,
+    );
+  } catch (error) {
+    return fallbackOrThrow(error, () => []);
+  }
+}
+
+export async function createEntityInternalNoteRequest(
+  entityType: string,
+  entityId: string,
+  payload: {
+    body: string;
+    moduleKey?: string;
+  },
+) {
+  try {
+    return await apiFetch<InternalNoteRecord>(
+      `/audit-logs/internal-notes/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+    );
+  } catch (error) {
+    return fallbackOrThrow(error, () => ({
+      id: `note-${Date.now()}`,
+      entityType,
+      entityId,
+      body: payload.body,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      createdByUser: null,
+    }));
+  }
+}
+
+export async function getEntityAssignmentRequest(entityType: string, entityId: string) {
+  try {
+    return await apiFetch<EntityAssignmentRecord | null>(
+      `/audit-logs/assignment/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}`,
+    );
+  } catch (error) {
+    return fallbackOrThrow(error, () => null);
+  }
+}
+
+export async function updateEntityAssignmentRequest(
+  entityType: string,
+  entityId: string,
+  payload: {
+    assignedToUserId?: string | null;
+    moduleKey?: string;
+  },
+) {
+  try {
+    return await apiFetch<EntityAssignmentRecord>(
+      `/audit-logs/assignment/${encodeURIComponent(entityType)}/${encodeURIComponent(entityId)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      },
+    );
+  } catch (error) {
+    return fallbackOrThrow(error, () => ({
+      id: `assignment-${entityType}-${entityId}`,
+      entityType,
+      entityId,
+      assignedAt: payload.assignedToUserId ? new Date().toISOString() : null,
+      assignedToUser: null,
+      assignedByUser: null,
+      lastHandledByUser: null,
+    }));
+  }
 }
 
 export async function listSupportTicketsRequest(filters?: {

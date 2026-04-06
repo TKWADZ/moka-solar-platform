@@ -10,6 +10,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { hasPermission } from '../common/auth/permissions';
 import {
   calculateVatAmount,
   deriveVatRateFromAmounts,
@@ -18,6 +19,7 @@ import {
 import { generateCode, getMonthDateRange, toNumber } from '../common/helpers/domain.helper';
 import { MonthlyPvBillingsService } from '../monthly-pv-billings/monthly-pv-billings.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { CreateSolarmanConnectionDto } from './dto/create-solarman-connection.dto';
 import { SyncSolarmanConnectionDto } from './dto/sync-solarman-connection.dto';
 import { UpdateSolarmanConnectionDto } from './dto/update-solarman-connection.dto';
@@ -60,17 +62,18 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
     }
   }
 
-  async listConnections() {
+  async listConnections(actor?: AuthenticatedUser) {
     const connections = await this.prisma.solarmanConnection.findMany({
       where: { deletedAt: null },
       include: this.includeRelations(),
       orderBy: { createdAt: 'desc' },
     });
 
-    return connections.map((connection) => this.serializeConnection(connection));
+    const canViewSecrets = hasPermission(actor?.permissions, 'integration.secrets.view');
+    return connections.map((connection) => this.serializeConnection(connection, canViewSecrets));
   }
 
-  async findOne(id: string) {
+  async findOne(id: string, actor?: AuthenticatedUser) {
     const connection = await this.prisma.solarmanConnection.findFirst({
       where: {
         id,
@@ -83,7 +86,10 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
       throw new NotFoundException('SOLARMAN connection not found');
     }
 
-    return this.serializeConnection(connection);
+    return this.serializeConnection(
+      connection,
+      hasPermission(actor?.permissions, 'integration.secrets.view'),
+    );
   }
 
   async listLogs(id: string) {
@@ -957,7 +963,10 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
     };
   }
 
-  private serializeConnection(connection: SolarmanConnectionWithRelations) {
+  private serializeConnection(
+    connection: SolarmanConnectionWithRelations,
+    canViewSecrets = false,
+  ) {
     const {
       passwordEncrypted,
       accessToken,
@@ -968,11 +977,12 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
 
     return {
       ...safeConnection,
+      usernameOrEmail: canViewSecrets ? safeConnection.usernameOrEmail : null,
       defaultUnitPrice: toNumber(connection.defaultUnitPrice),
       defaultTaxAmount: toNumber(connection.defaultTaxAmount),
       defaultVatRate: toNumber(connection.defaultVatRate),
       defaultDiscountAmount: toNumber(connection.defaultDiscountAmount),
-      accessTokenPreview: accessToken
+      accessTokenPreview: canViewSecrets && accessToken
         ? `${String(accessToken).slice(0, 10)}...`
         : null,
       hasStoredPassword: Boolean(passwordEncrypted),

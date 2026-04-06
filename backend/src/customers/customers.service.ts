@@ -153,13 +153,32 @@ export class CustomersService {
     await this.auditLogsService.log({
       userId: actorId,
       action: 'CUSTOMER_CREATED',
+      moduleKey: 'customers',
       entityType: 'Customer',
       entityId: customer.id,
       payload: {
         email: dto.email,
         companyName: dto.companyName,
       },
+      afterState: this.serializeCustomerAuditState(customer),
     });
+
+    if (dto.ownerUserId && actorId) {
+      await this.auditLogsService.assignEntity({
+        entityType: 'Customer',
+        entityId: customer.id,
+        assignedToUserId: dto.ownerUserId,
+        actorId,
+        moduleKey: 'customers',
+      });
+    } else if (actorId) {
+      await this.auditLogsService.touchEntity({
+        entityType: 'Customer',
+        entityId: customer.id,
+        actorId,
+        moduleKey: 'customers',
+      });
+    }
 
     return customer;
   }
@@ -190,6 +209,7 @@ export class CustomersService {
 
     const passwordHash = dto.password ? await bcrypt.hash(dto.password, 10) : undefined;
 
+    const beforeState = this.serializeCustomerAuditState(customer);
     const updated = await this.prisma.customer.update({
       where: { id },
       data: {
@@ -233,10 +253,32 @@ export class CustomersService {
     await this.auditLogsService.log({
       userId: actorId,
       action: 'CUSTOMER_UPDATED',
+      moduleKey: 'customers',
       entityType: 'Customer',
       entityId: updated.id,
       payload: dto as unknown as Record<string, unknown>,
+      beforeState,
+      afterState: this.serializeCustomerAuditState(updated),
     });
+
+    if (actorId) {
+      if (dto.ownerUserId !== undefined) {
+        await this.auditLogsService.assignEntity({
+          entityType: 'Customer',
+          entityId: updated.id,
+          assignedToUserId: dto.ownerUserId || null,
+          actorId,
+          moduleKey: 'customers',
+        });
+      } else {
+        await this.auditLogsService.touchEntity({
+          entityType: 'Customer',
+          entityId: updated.id,
+          actorId,
+          moduleKey: 'customers',
+        });
+      }
+    }
 
     return updated;
   }
@@ -258,8 +300,13 @@ export class CustomersService {
     await this.auditLogsService.log({
       userId: actorId,
       action: 'CUSTOMER_ARCHIVED',
+      moduleKey: 'customers',
       entityType: 'Customer',
       entityId: id,
+      beforeState: this.serializeCustomerAuditState(customer),
+      afterState: {
+        deletedAt: new Date().toISOString(),
+      },
     });
 
     return { success: true };
@@ -272,7 +319,7 @@ export class CustomersService {
         deletedAt: null,
         role: {
           code: {
-            in: ['SUPER_ADMIN', 'ADMIN', 'STAFF'],
+            in: ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF'],
           },
         },
       },
@@ -282,5 +329,17 @@ export class CustomersService {
     if (!owner) {
       throw new BadRequestException('Assigned owner was not found');
     }
+  }
+
+  private serializeCustomerAuditState(customer: any) {
+    return {
+      companyName: customer.companyName || null,
+      status: customer.status || null,
+      ownerUserId: customer.ownerUserId || null,
+      installationAddress: customer.installationAddress || null,
+      billingAddress: customer.billingAddress || null,
+      email: customer.user?.email || null,
+      fullName: customer.user?.fullName || null,
+    };
   }
 }

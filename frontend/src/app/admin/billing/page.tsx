@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { CheckCircle2, FileCheck2, FileDown, ReceiptText, RefreshCw, Send, XCircle } from 'lucide-react';
+import { EntityActivityPanel } from '@/components/entity-activity-panel';
 import { MonthlyPvBillingTable } from '@/components/monthly-pv-billing-table';
 import { SectionCard } from '@/components/section-card';
 import { StatCard } from '@/components/stat-card';
@@ -147,6 +148,7 @@ export default function AdminBillingPage() {
   const [proofLoadingId, setProofLoadingId] = useState('');
   const [reviewLoadingId, setReviewLoadingId] = useState('');
   const [zaloLoadingId, setZaloLoadingId] = useState('');
+  const [selectedInvoiceId, setSelectedInvoiceId] = useState('');
   const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({});
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -246,6 +248,19 @@ export default function AdminBillingPage() {
         .slice(0, 6),
     [invoices],
   );
+
+  useEffect(() => {
+    if (!recentInvoices.length) {
+      setSelectedInvoiceId('');
+      return;
+    }
+
+    setSelectedInvoiceId((current) =>
+      current && recentInvoices.some((invoice) => invoice.id === current)
+        ? current
+        : recentInvoices[0].id,
+    );
+  }, [recentInvoices]);
 
   const stats = useMemo<StatCardItem[]>(() => {
     const totalPv = records.reduce((sum, record) => sum + record.pvGenerationKwh, 0);
@@ -652,7 +667,12 @@ export default function AdminBillingPage() {
               recentInvoices.map((invoice) => (
                 <div
                   key={invoice.id}
-                  className="flex flex-wrap items-center justify-between gap-3 rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-3"
+                  onClick={() => setSelectedInvoiceId(invoice.id)}
+                  className={`flex cursor-pointer flex-wrap items-center justify-between gap-3 rounded-[18px] border px-4 py-3 text-left ${
+                    invoice.id === selectedInvoiceId
+                      ? 'border-emerald-300/20 bg-emerald-400/10'
+                      : 'border-white/8 bg-white/[0.03]'
+                  }`}
                 >
                   <div className="min-w-0">
                     <p className="text-sm font-medium text-white">
@@ -670,7 +690,10 @@ export default function AdminBillingPage() {
                       type="button"
                       className="btn-ghost !min-h-[42px] !px-3 !py-2 text-xs"
                       disabled={zaloLoadingId === invoice.id}
-                      onClick={() => void handleSendZalo(invoice.id)}
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleSendZalo(invoice.id);
+                      }}
                     >
                       <Send className="h-3.5 w-3.5" />
                       {zaloLoadingId === invoice.id ? 'Dang gui...' : 'Gui Zalo'}
@@ -875,6 +898,15 @@ export default function AdminBillingPage() {
             ) : null}
           </div>
         )}
+      />
+
+      <EntityActivityPanel
+        entityType="Invoice"
+        entityId={selectedInvoiceId}
+        moduleKey="billing"
+        title="Invoice activity timeline"
+        eyebrow="Phát hành, thanh toán, phân công và ghi chú nội bộ"
+        emptyMessage="Hóa đơn này chưa có thêm hoạt động nào được ghi lại."
       />
     </div>
   );
