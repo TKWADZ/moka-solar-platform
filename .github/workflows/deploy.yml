@@ -32,7 +32,7 @@ jobs:
             fi
 
             if [ -z "$PROJECT_DIRS" ]; then
-              PROJECT_DIRS="$(find "$HOME" -maxdepth 7 -type f \( -name 'docker-compose.prod.yml' -o -name 'docker-compose.yml' -o -name 'compose.yml' -o -name 'compose.yaml' \) 2>/dev/null | sed -E 's|/(docker-compose\.prod\.yml|docker-compose\.yml|compose\.yml|compose\.yaml)$||' | sort -u)"
+              PROJECT_DIRS="$(find "$HOME" /opt /srv /var/www -maxdepth 7 -type f \( -name 'docker-compose.prod.yml' -o -name 'docker-compose.yml' -o -name 'compose.yml' -o -name 'compose.yaml' \) 2>/dev/null | sed -E 's|/(docker-compose\.prod\.yml|docker-compose\.yml|compose\.yml|compose\.yaml)$||' | sort -u)"
             fi
 
             for dir in $PROJECT_DIRS; do
@@ -42,18 +42,24 @@ jobs:
 
               COMPOSE_ARGS=""
               if [ "$dir" = "$INSPECT_DIR" ] && [ -n "$INSPECT_CONFIG_FILES" ]; then
-                for cfg in $(echo "$INSPECT_CONFIG_FILES" | tr ',' ' '); do
-                  cfg_path="$dir/$cfg"
+                OLD_IFS="$IFS"
+                IFS=','
+                for cfg in $INSPECT_CONFIG_FILES; do
+                  case "$cfg" in
+                    /*) cfg_path="$cfg" ;;
+                    *) cfg_path="$dir/$cfg" ;;
+                  esac
                   if [ -f "$cfg_path" ]; then
-                    COMPOSE_ARGS="$COMPOSE_ARGS -f $cfg"
+                    COMPOSE_ARGS="$COMPOSE_ARGS -f $cfg_path"
                   fi
                 done
+                IFS="$OLD_IFS"
               fi
 
               if [ -z "$COMPOSE_ARGS" ]; then
                 for candidate in docker-compose.prod.yml docker-compose.yml compose.yml compose.yaml; do
                   if [ -f "$dir/$candidate" ]; then
-                    COMPOSE_ARGS="$COMPOSE_ARGS -f $candidate"
+                    COMPOSE_ARGS="$COMPOSE_ARGS -f $dir/$candidate"
                   fi
                 done
               fi
@@ -62,7 +68,7 @@ jobs:
                 continue
               fi
 
-              if ! (cd "$dir" && docker compose $COMPOSE_ARGS config --services 2>/dev/null | grep -q '^backend$'); then
+              if [ "$dir" != "$INSPECT_DIR" ] && ! (cd "$dir" && docker compose --project-directory "$dir" $COMPOSE_ARGS config --services 2>/dev/null | grep -q '^backend$'); then
                 continue
               fi
 
@@ -74,8 +80,8 @@ jobs:
                   git checkout main && \
                   git pull --ff-only origin main; \
                 fi && \
-                docker compose $COMPOSE_ARGS build backend frontend && \
-                docker compose $COMPOSE_ARGS up -d backend frontend && \
+                docker compose --project-directory "$dir" $COMPOSE_ARGS build backend frontend && \
+                docker compose --project-directory "$dir" $COMPOSE_ARGS up -d backend frontend && \
                 docker exec moka_solar_backend sh -lc "cd /app && npx prisma migrate deploy"
               ) && REDEPLOY_DONE=1 && break
             done
