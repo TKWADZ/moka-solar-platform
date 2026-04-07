@@ -147,14 +147,19 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
     });
 
     const canViewSecrets = hasPermission(actor?.permissions, 'integration.secrets.view');
-    return connections.map((connection) => this.serializeConnection(connection, canViewSecrets));
+    const canViewDebug = actor?.role === 'SUPER_ADMIN';
+    return connections.map((connection) =>
+      this.serializeConnection(connection, canViewSecrets, canViewDebug),
+    );
   }
 
   async findOne(id: string, actor?: AuthenticatedUser) {
     const connection = await this.getConnectionOrThrow(id);
+    const canViewDebug = actor?.role === 'SUPER_ADMIN';
     return this.serializeConnection(
       connection,
       hasPermission(actor?.permissions, 'integration.secrets.view'),
+      canViewDebug,
     );
   }
 
@@ -1669,18 +1674,20 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
     };
   }
 
-  private serializeDebugSnapshot(snapshot: any) {
+  private serializeDebugSnapshot(snapshot: any, includePayload = true) {
     return {
       ...snapshot,
+      payload: includePayload ? snapshot.payload : null,
       capturedAt: snapshot.capturedAt?.toISOString?.() || snapshot.capturedAt,
       createdAt: snapshot.createdAt?.toISOString?.() || snapshot.createdAt,
       updatedAt: snapshot.updatedAt?.toISOString?.() || snapshot.updatedAt,
     };
   }
 
-  private serializeNormalizedMetric(metric: any) {
+  private serializeNormalizedMetric(metric: any, includeRawPayload = true) {
     return {
       ...metric,
+      rawPayload: includeRawPayload ? metric.rawPayload : null,
       pvPowerW: this.toNullableNumber(metric.pvPowerW),
       loadPowerW: this.toNullableNumber(metric.loadPowerW),
       gridPowerW: this.toNullableNumber(metric.gridPowerW),
@@ -1711,6 +1718,7 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
   private serializeConnection(
     connection: LuxPowerConnectionRecord,
     canViewSecrets = false,
+    canViewDebug = false,
   ) {
     const { passwordEncrypted, ...safeConnection } = connection;
     const logs = Array.isArray(connection.syncLogs) ? connection.syncLogs : [];
@@ -1749,6 +1757,10 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
     return {
       ...safeConnection,
       username: canViewSecrets ? safeConnection.username : null,
+      lastProviderResponse: this.sanitizeProviderResponse(
+        safeConnection.lastProviderResponse,
+        canViewDebug,
+      ),
       hasStoredPassword: Boolean(passwordEncrypted),
       customer: connection.customer
         ? {
@@ -1782,11 +1794,13 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
           }
         : null,
       debugSnapshots: Array.isArray(connection.debugSnapshots)
-        ? connection.debugSnapshots.map((item: any) => this.serializeDebugSnapshot(item))
+        ? connection.debugSnapshots.map((item: any) =>
+            this.serializeDebugSnapshot(item, canViewDebug),
+          )
         : [],
       normalizedMetrics: Array.isArray(connection.normalizedMetrics)
         ? connection.normalizedMetrics.map((item: any) =>
-            this.serializeNormalizedMetric(item),
+            this.serializeNormalizedMetric(item, canViewDebug),
           )
         : [],
       statusSummary: {
@@ -1825,6 +1839,34 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
       },
       solarSystem: connection.solarSystem ? this.serializeSystem(connection.solarSystem) : null,
     };
+  }
+
+  private sanitizeProviderResponse(payload: any, includeDebugPayload = false) {
+    if (!payload || typeof payload !== 'object') {
+      return payload ?? null;
+    }
+
+    if (includeDebugPayload) {
+      return payload;
+    }
+
+    try {
+      const clone = JSON.parse(JSON.stringify(payload));
+
+      if (clone.snapshot && typeof clone.snapshot === 'object') {
+        delete clone.snapshot.raw;
+      }
+
+      delete clone.raw;
+      delete clone.dailyAggregatePoints;
+      delete clone.monthlyAggregatePoints;
+      delete clone.lifetimeAggregatePoints;
+      delete clone.debug;
+
+      return clone;
+    } catch {
+      return null;
+    }
   }
 
   private serializeSystem(system: SolarSystemRecord) {
