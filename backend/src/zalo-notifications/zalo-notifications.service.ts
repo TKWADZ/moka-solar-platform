@@ -6,6 +6,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { Prisma } from '@prisma/client';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import { maskSecret } from '../common/helpers/secret.helper';
 import { PrismaService } from '../prisma/prisma.service';
 import { hasPermission } from '../common/auth/permissions';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
@@ -46,6 +47,9 @@ type ProviderAttemptResult = {
   tokenFingerprint: string | null;
   tokenSource: string;
   configRecordId: string | null;
+  deliveryChannel: 'PHONE' | 'UID';
+  sendUrl: string;
+  authHeaderMode: 'access_token';
 };
 
 type RefreshTokenResult = {
@@ -80,6 +84,15 @@ type TokenResolutionResult = {
   providerCode?: string | null;
   providerMessage?: string;
   responsePayload?: unknown;
+};
+
+type PreparedProviderSendRequest = {
+  deliveryChannel: 'PHONE' | 'UID';
+  sendUrl: string;
+  payload: Record<string, unknown>;
+  authHeaderMode: 'access_token';
+  normalizedRecipientPhone: string | null;
+  recipientUserId: string | null;
 };
 
 @Injectable()
@@ -150,7 +163,6 @@ export class ZaloNotificationsService {
     const recipientPhone = this.normalizePhoneNumber(dto.phone || '');
     const templateId = config.templateIds.INVOICE;
     const requestPayload = {
-      oa_id: config.oaId,
       phone: recipientPhone,
       template_id: templateId,
       template_data: {
@@ -163,7 +175,7 @@ export class ZaloNotificationsService {
         hotline,
       },
       tracking_id: `TEST-${Date.now()}`,
-      mode: 'test_connection',
+      mode: 'development',
     };
 
     if (!recipientPhone) {
@@ -276,12 +288,10 @@ export class ZaloNotificationsService {
     };
 
     const requestPayload = {
-      oa_id: config.oaId,
       phone: recipientPhone,
       template_id: templateId,
       template_data: payloadVariables,
       tracking_id: invoice.invoiceNumber,
-      invoice_id: invoice.id,
     };
 
     if (!recipientPhone) {
@@ -585,6 +595,29 @@ export class ZaloNotificationsService {
     } satisfies Record<string, unknown>;
   }
 
+  private buildSendDebug(params: {
+    resolution: TokenResolutionResult;
+    preparedRequest: PreparedProviderSendRequest;
+    templateType: ZaloTemplateType | 'TEST';
+    primaryAttempt?: ProviderAttemptResult | null;
+  }) {
+    return {
+      ...this.buildTokenDebug({
+        resolution: params.resolution,
+        templateType: params.templateType,
+      }),
+      delivery_channel: params.preparedRequest.deliveryChannel,
+      send_url: params.primaryAttempt?.sendUrl || params.preparedRequest.sendUrl,
+      auth_header_mode:
+        params.primaryAttempt?.authHeaderMode || params.preparedRequest.authHeaderMode,
+      recipient_phone: params.preparedRequest.normalizedRecipientPhone,
+      recipient_user_id_preview: params.preparedRequest.recipientUserId
+        ? maskSecret(params.preparedRequest.recipientUserId, 3, 3)
+        : null,
+      request_keys: Object.keys(params.preparedRequest.payload || {}),
+    } satisfies Record<string, unknown>;
+  }
+
   private extractLatestLogDiagnostics(payload: unknown) {
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
       return null;
@@ -619,6 +652,15 @@ export class ZaloNotificationsService {
       refreshedAt:
         typeof diagnostics.refreshed_at === 'string' ? diagnostics.refreshed_at : null,
       staleTokenDetected: diagnostics.stale_token_detected === true,
+      deliveryChannel:
+        typeof diagnostics.delivery_channel === 'string'
+          ? diagnostics.delivery_channel
+          : null,
+      sendUrl: typeof diagnostics.send_url === 'string' ? diagnostics.send_url : null,
+      authHeaderMode:
+        typeof diagnostics.auth_header_mode === 'string'
+          ? diagnostics.auth_header_mode
+          : null,
     };
   }
 
@@ -635,6 +677,11 @@ export class ZaloNotificationsService {
     forceDryRun?: boolean;
     dryRunMissingMessage: string;
   }) {
+    const preparedRequest = this.prepareProviderSendRequest({
+      config: params.config,
+      requestPayload: params.requestPayload,
+      recipientPhone: params.recipientPhone,
+    });
     const effectiveDryRun =
       params.forceDryRun === true ||
       params.config.dryRun ||
@@ -655,9 +702,9 @@ export class ZaloNotificationsService {
         customerName: params.customerName,
         templateType: params.templateType,
         templateId: params.templateId,
-        recipientPhone: params.recipientPhone,
+        recipientPhone: preparedRequest.normalizedRecipientPhone || params.recipientPhone,
         dryRun: true,
-        requestPayload: params.requestPayload,
+        requestPayload: preparedRequest.payload,
         sendStatus: 'DRY_RUN',
         providerCode: params.config.missingRequired.length > 0 ? 'MISSING_CONFIG' : 'DRY_RUN',
         providerMessage:
@@ -671,15 +718,17 @@ export class ZaloNotificationsService {
           accessTokenSource: params.config.accessTokenSource,
           refreshTokenSource: params.config.refreshTokenSource,
           autoRefreshEnabled: params.config.autoRefreshEnabled,
-          debug: this.buildTokenDebug({
+          debug: this.buildSendDebug({
             resolution: tokenResolution,
+            preparedRequest,
             templateType: params.templateType,
           }),
         },
         missingRequired: params.config.missingRequired,
         missingRecommended: params.config.missingRecommended,
-        debug: this.buildTokenDebug({
+        debug: this.buildSendDebug({
           resolution: tokenResolution,
+          preparedRequest,
           templateType: params.templateType,
         }),
       });
@@ -704,9 +753,9 @@ export class ZaloNotificationsService {
         customerName: params.customerName,
         templateType: params.templateType,
         templateId: params.templateId,
-        recipientPhone: params.recipientPhone,
+        recipientPhone: preparedRequest.normalizedRecipientPhone || params.recipientPhone,
         dryRun: false,
-        requestPayload: params.requestPayload,
+        requestPayload: preparedRequest.payload,
         sendStatus: 'FAILED',
         providerCode: tokenResolution.providerCode || 'MISSING_ACCESS_TOKEN',
         providerMessage:
@@ -715,8 +764,9 @@ export class ZaloNotificationsService {
         missingRequired: tokenResolution.config.missingRequired,
         missingRecommended: tokenResolution.config.missingRecommended,
         responsePayload: tokenResolution.responsePayload,
-        debug: this.buildTokenDebug({
+        debug: this.buildSendDebug({
           resolution: tokenResolution,
+          preparedRequest,
           templateType: params.templateType,
         }),
       });
@@ -725,7 +775,7 @@ export class ZaloNotificationsService {
     const primaryAttempt = await this.performProviderSend({
       accessToken: tokenResolution.accessToken,
       config: tokenResolution.config,
-      requestPayload: params.requestPayload,
+      preparedRequest,
       tokenSource: tokenResolution.tokenSource,
       configRecordId: tokenResolution.configRecordId,
     });
@@ -747,22 +797,24 @@ export class ZaloNotificationsService {
         customerName: params.customerName,
         templateType: params.templateType,
         templateId: params.templateId,
-        recipientPhone: params.recipientPhone,
+        recipientPhone: preparedRequest.normalizedRecipientPhone || params.recipientPhone,
         dryRun: false,
-        requestPayload: params.requestPayload,
+        requestPayload: preparedRequest.payload,
         responsePayload: primaryAttempt.responsePayload,
         sendStatus: primaryAttempt.sendStatus,
         providerCode: primaryAttempt.providerCode,
         providerMessage: primaryAttempt.providerMessage,
         missingRequired: tokenResolution.config.missingRequired,
         missingRecommended: tokenResolution.config.missingRecommended,
-        debug: this.buildTokenDebug({
+        debug: this.buildSendDebug({
           resolution: {
             ...tokenResolution,
             sendTokenFingerprint: primaryAttempt.tokenFingerprint,
             tokenSource: primaryAttempt.tokenSource,
             configRecordId: primaryAttempt.configRecordId,
           },
+          preparedRequest,
+          primaryAttempt,
           templateType: params.templateType,
         }),
       });
@@ -776,8 +828,9 @@ export class ZaloNotificationsService {
       customerName: params.customerName,
       templateType: params.templateType,
       templateId: params.templateId,
-      recipientPhone: params.recipientPhone,
-      requestPayload: params.requestPayload,
+      recipientPhone: preparedRequest.normalizedRecipientPhone || params.recipientPhone,
+      requestPayload: preparedRequest.payload,
+      preparedRequest,
       primaryAttempt,
     });
   }
@@ -792,6 +845,7 @@ export class ZaloNotificationsService {
     templateId: string | null;
     recipientPhone: string;
     requestPayload: Record<string, unknown>;
+    preparedRequest: PreparedProviderSendRequest;
     primaryAttempt: ProviderAttemptResult;
   }) {
     if (this.isTokenRejected(params.primaryAttempt) && params.config.autoRefreshEnabled) {
@@ -821,9 +875,9 @@ export class ZaloNotificationsService {
           customerName: params.customerName,
           templateType: params.templateType,
           templateId: params.templateId,
-          recipientPhone: params.recipientPhone,
+          recipientPhone: params.preparedRequest.normalizedRecipientPhone || params.recipientPhone,
           dryRun: false,
-          requestPayload: params.requestPayload,
+          requestPayload: params.preparedRequest.payload,
           responsePayload: {
             primaryAttempt: params.primaryAttempt.responsePayload,
             refresh: tokenResolution.responsePayload || null,
@@ -835,8 +889,10 @@ export class ZaloNotificationsService {
             : `${params.primaryAttempt.providerMessage}. Auto-refresh that bai: ${tokenResolution.providerMessage}`,
           missingRequired: params.config.missingRequired,
           missingRecommended: params.config.missingRecommended,
-          debug: this.buildTokenDebug({
+          debug: this.buildSendDebug({
             resolution: tokenResolution,
+            preparedRequest: params.preparedRequest,
+            primaryAttempt: params.primaryAttempt,
             templateType: params.templateType,
           }),
         });
@@ -845,7 +901,7 @@ export class ZaloNotificationsService {
       const retryAttempt = await this.performProviderSend({
         accessToken: tokenResolution.accessToken,
         config: tokenResolution.config,
-        requestPayload: params.requestPayload,
+        preparedRequest: params.preparedRequest,
         tokenSource: tokenResolution.tokenSource,
         configRecordId: tokenResolution.configRecordId,
       });
@@ -877,9 +933,9 @@ export class ZaloNotificationsService {
         customerName: params.customerName,
         templateType: params.templateType,
         templateId: params.templateId,
-        recipientPhone: params.recipientPhone,
+        recipientPhone: params.preparedRequest.normalizedRecipientPhone || params.recipientPhone,
         dryRun: false,
-        requestPayload: params.requestPayload,
+        requestPayload: params.preparedRequest.payload,
         responsePayload: {
           primaryAttempt: params.primaryAttempt.responsePayload,
           refresh: tokenResolution.responsePayload || null,
@@ -893,13 +949,15 @@ export class ZaloNotificationsService {
             : retryAttempt.providerMessage,
         missingRequired: params.config.missingRequired,
         missingRecommended: params.config.missingRecommended,
-        debug: this.buildTokenDebug({
+        debug: this.buildSendDebug({
           resolution: {
             ...tokenResolution,
             sendTokenFingerprint: retryAttempt.tokenFingerprint,
             tokenSource: retryAttempt.tokenSource,
             configRecordId: retryAttempt.configRecordId,
           },
+          preparedRequest: params.preparedRequest,
+          primaryAttempt: retryAttempt,
           templateType: params.templateType,
         }),
       });
@@ -920,44 +978,54 @@ export class ZaloNotificationsService {
       customerName: params.customerName,
       templateType: params.templateType,
       templateId: params.templateId,
-      recipientPhone: params.recipientPhone,
+      recipientPhone: params.preparedRequest.normalizedRecipientPhone || params.recipientPhone,
       dryRun: false,
-      requestPayload: params.requestPayload,
+      requestPayload: params.preparedRequest.payload,
       responsePayload: params.primaryAttempt.responsePayload,
       sendStatus: params.primaryAttempt.sendStatus,
       providerCode: params.primaryAttempt.providerCode,
       providerMessage: params.primaryAttempt.providerMessage,
       missingRequired: params.config.missingRequired,
       missingRecommended: params.config.missingRecommended,
-      debug: {
-        token_source: params.primaryAttempt.tokenSource,
-        config_record_id: params.primaryAttempt.configRecordId,
-        send_token_fingerprint: params.primaryAttempt.tokenFingerprint,
-        stale_token_detected: false,
-      },
+      debug: this.buildSendDebug({
+        resolution: {
+          success: true,
+          config: params.config,
+          accessToken: null,
+          tokenSource: params.primaryAttempt.tokenSource,
+          sendTokenFingerprint: params.primaryAttempt.tokenFingerprint,
+          refreshedTokenFingerprint: null,
+          refreshTokenFingerprint: params.config.refreshTokenFingerprint,
+          configRecordId: params.primaryAttempt.configRecordId,
+          refreshedAt: null,
+          refreshAttempted: false,
+          staleTokenDetected: false,
+        },
+        preparedRequest: params.preparedRequest,
+        primaryAttempt: params.primaryAttempt,
+        templateType: params.templateType,
+      }),
     });
   }
 
   private async performProviderSend(params: {
     accessToken: string;
     config: ResolvedZaloConfig;
-    requestPayload: Record<string, unknown>;
+    preparedRequest: PreparedProviderSendRequest;
     tokenSource: string;
     configRecordId: string | null;
   }): Promise<ProviderAttemptResult> {
-    const sendUrl = this.buildSendUrl(params.config.apiBaseUrl);
     let response: Response;
     let responseBody: unknown = null;
 
     try {
-      response = await fetch(sendUrl, {
+      response = await fetch(params.preparedRequest.sendUrl, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${params.accessToken}`,
-          'X-Zalo-OA-ID': params.config.oaId || '',
+          access_token: params.accessToken,
         },
-        body: JSON.stringify(params.requestPayload),
+        body: JSON.stringify(params.preparedRequest.payload),
       });
     } catch (error) {
       throw new ServiceUnavailableException(
@@ -988,6 +1056,9 @@ export class ZaloNotificationsService {
       tokenFingerprint: this.fingerprintToken(params.accessToken),
       tokenSource: params.tokenSource,
       configRecordId: params.configRecordId,
+      deliveryChannel: params.preparedRequest.deliveryChannel,
+      sendUrl: params.preparedRequest.sendUrl,
+      authHeaderMode: params.preparedRequest.authHeaderMode,
     };
   }
 
@@ -1202,8 +1273,64 @@ export class ZaloNotificationsService {
     };
   }
 
-  private buildSendUrl(apiBaseUrl: string) {
+  private prepareProviderSendRequest(params: {
+    config: ResolvedZaloConfig;
+    requestPayload: Record<string, unknown>;
+    recipientPhone?: string | null;
+  }): PreparedProviderSendRequest {
+    const recipientUserId = this.extractStringValue(params.requestPayload, ['user_id', 'userId']);
+    const templateId = this.extractStringValue(params.requestPayload, ['template_id', 'templateId']);
+    const trackingId = this.extractStringValue(params.requestPayload, ['tracking_id', 'trackingId']);
+    const mode = this.extractStringValue(params.requestPayload, ['mode']);
+    const templateData =
+      this.extractObjectValue(params.requestPayload, ['template_data', 'templateData']) || {};
+    const normalizedRecipientPhone = this.normalizePhoneNumberForZns(
+      this.extractStringValue(params.requestPayload, ['phone']) || params.recipientPhone || '',
+    );
+
+    if (recipientUserId) {
+      return {
+        deliveryChannel: 'UID',
+        sendUrl: this.buildOaSendUrl(params.config.apiBaseUrl),
+        payload: {
+          user_id: recipientUserId,
+          template_id: templateId || '',
+          template_data: templateData,
+          ...(trackingId ? { tracking_id: trackingId } : {}),
+        },
+        authHeaderMode: 'access_token',
+        normalizedRecipientPhone: null,
+        recipientUserId,
+      };
+    }
+
+    return {
+      deliveryChannel: 'PHONE',
+      sendUrl: this.buildZnsSendUrl(),
+      payload: {
+        phone: normalizedRecipientPhone,
+        template_id: templateId || '',
+        template_data: templateData,
+        ...(trackingId ? { tracking_id: trackingId } : {}),
+        ...(mode === 'development' ? { mode } : {}),
+      },
+      authHeaderMode: 'access_token',
+      normalizedRecipientPhone: normalizedRecipientPhone || null,
+      recipientUserId: null,
+    };
+  }
+
+  private buildOaSendUrl(apiBaseUrl: string) {
     const trimmed = apiBaseUrl.replace(/\/$/, '');
+    return trimmed.endsWith('/message/template')
+      ? trimmed
+      : `${trimmed}/message/template`;
+  }
+
+  private buildZnsSendUrl() {
+    const fromEnv = this.configService.get<string>('ZALO_ZNS_API_BASE_URL')?.trim();
+    const baseUrl = fromEnv || 'https://business.openapi.zalo.me';
+    const trimmed = baseUrl.replace(/\/$/, '');
     return trimmed.endsWith('/message/template')
       ? trimmed
       : `${trimmed}/message/template`;
@@ -1274,6 +1401,11 @@ export class ZaloNotificationsService {
     }
 
     return normalized;
+  }
+
+  private normalizePhoneNumberForZns(value: string) {
+    const normalized = this.normalizePhoneNumber(value);
+    return normalized.replace(/^\+/, '');
   }
 
   private formatDecimalForPayload(value: unknown) {
@@ -1385,6 +1517,20 @@ export class ZaloNotificationsService {
     const match = keys.find((key) => typeof source[key] === 'string' && source[key]);
 
     return match ? String(source[match]) : null;
+  }
+
+  private extractObjectValue(payload: unknown, keys: string[]) {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+      return null;
+    }
+
+    const source = payload as Record<string, unknown>;
+    const match = keys.find((key) => {
+      const value = source[key];
+      return value && typeof value === 'object' && !Array.isArray(value);
+    });
+
+    return match ? (source[match] as Record<string, unknown>) : null;
   }
 
   private extractNumericValue(payload: unknown, keys: string[]) {

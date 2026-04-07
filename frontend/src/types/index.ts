@@ -643,6 +643,9 @@ export type ZaloNotificationStatus = {
     refreshTokenFingerprint?: string | null;
     refreshedAt?: string | null;
     staleTokenDetected?: boolean;
+    deliveryChannel?: string | null;
+    sendUrl?: string | null;
+    authHeaderMode?: string | null;
   } | null;
   lastTokenCheckedAt?: string | null;
   fieldSources?: Partial<
@@ -702,6 +705,9 @@ export type ZaloMessageLogRecord = {
     refreshTokenFingerprint?: string | null;
     refreshedAt?: string | null;
     staleTokenDetected?: boolean;
+    deliveryChannel?: string | null;
+    sendUrl?: string | null;
+    authHeaderMode?: string | null;
   } | null;
 };
 

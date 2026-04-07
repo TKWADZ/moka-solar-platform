@@ -246,8 +246,7 @@ export default function AdminLuxPowerPage() {
     setForm((current) => ({ ...current, [key]: value }));
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function saveConnection() {
     setSaving(true);
     setMessage('');
     setError('');
@@ -287,6 +286,11 @@ export default function AdminLuxPowerPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    await saveConnection();
   }
 
   async function handleTest() {
@@ -453,10 +457,10 @@ export default function AdminLuxPowerPage() {
                     selectedId === connection.id ? 'text-slate-700' : 'text-slate-300',
                   )}
                 >
-                  <p>System: {connection.solarSystem?.name || 'Chưa gắn'}</p>
-                  <p>Contract: {connection.contract?.contractNumber || 'Chưa gắn'}</p>
+                  <p>Hệ thống: {connection.solarSystem?.name || 'Chưa gắn'}</p>
+                  <p>Hợp đồng: {connection.contract?.contractNumber || 'Chưa gắn'}</p>
                   <p>Plant: {connection.plantId || '-'}</p>
-                  <p>Billing: {connection.statusSummary?.billingSourceLabel || 'Chưa chọn'}</p>
+                  <p>Nguồn bill: {connection.statusSummary?.billingSourceLabel || 'Chưa chọn'}</p>
                 </div>
               </button>
             ))}
@@ -507,11 +511,7 @@ export default function AdminLuxPowerPage() {
               ) : null}
             </div>
           ) : null}
-          <SectionCard
-            title={mode === 'create' ? '1. Kết nối LuxPower' : '1. Kết nối LuxPower'}
-            eyebrow="Lưu tài khoản cloud và chuẩn bị plant để đồng bộ vào Moka"
-            dark
-          >
+          <SectionCard title="1. Kết nối LuxPower" eyebrow="Lưu tài khoản cloud và kiểm tra đăng nhập trước khi chọn plant" dark>
             <form onSubmit={handleSubmit} className="grid gap-4">
               {!canManageConfig ? (
                 <div className="rounded-[18px] border border-white/10 bg-white/[0.03] px-4 py-3 text-sm text-slate-300">
@@ -538,55 +538,6 @@ export default function AdminLuxPowerPage() {
                   ))}
                 </select>
 
-                <select
-                  className="portal-field"
-                  value={form.customerId}
-                  onChange={(event) => updateField('customerId', event.target.value)}
-                >
-                    <option value="">Chọn khách hàng</option>
-                  {customers.map((customer) => (
-                    <option key={customer.id} value={customer.id}>
-                      {customer.companyName || customer.user.fullName} - {customer.customerCode}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  className="portal-field"
-                  value={form.solarSystemId}
-                  onChange={(event) => updateField('solarSystemId', event.target.value)}
-                >
-                    <option value="">Chọn system/site</option>
-                  {filteredSystems.map((system) => (
-                    <option key={system.id} value={system.id}>
-                      {system.name} - {system.systemCode}
-                    </option>
-                  ))}
-                </select>
-
-                <select
-                  className="portal-field"
-                  value={form.contractId}
-                  onChange={(event) => updateField('contractId', event.target.value)}
-                >
-                    <option value="">Chọn hợp đồng</option>
-                  {filteredContracts.map((contract) => (
-                    <option key={contract.id} value={contract.id}>
-                      {contract.contractNumber}
-                    </option>
-                  ))}
-                </select>
-                <select
-                  className="portal-field"
-                  value={form.billingRuleLabel}
-                  onChange={(event) => updateField('billingRuleLabel', event.target.value)}
-                >
-                  {billingSourceOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-
                 <input
                   className="portal-field"
                   value={form.username}
@@ -605,19 +556,6 @@ export default function AdminLuxPowerPage() {
                       : 'LuxPower password'
                   }
                   disabled={form.useDemoMode}
-                />
-
-                <input
-                  className="portal-field"
-                  value={form.plantId}
-                  onChange={(event) => updateField('plantId', event.target.value)}
-                  placeholder="Plant ID"
-                />
-                <input
-                  className="portal-field"
-                  value={form.inverterSerial}
-                  onChange={(event) => updateField('inverterSerial', event.target.value)}
-                  placeholder="Inverter serial"
                 />
 
                 <input
@@ -666,7 +604,7 @@ export default function AdminLuxPowerPage() {
                 {canManageConfig ? (
                 <button type="submit" className="btn-primary" disabled={saving}>
                   {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                  Lưu cấu hình
+                  Lưu kết nối
                 </button>
                 ) : null}
                 <button
@@ -762,6 +700,33 @@ export default function AdminLuxPowerPage() {
                   eyebrow="Plant đang dùng để lấy monitor và realtime summary"
                   dark
                 >
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <label className="grid gap-2">
+                      <span className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
+                        Plant ID
+                      </span>
+                      <input
+                        className="portal-field"
+                        value={form.plantId}
+                        onChange={(event) => updateField('plantId', event.target.value)}
+                        placeholder="Nhập plant ID LuxPower"
+                        disabled={!canManageConfig}
+                      />
+                    </label>
+                    <label className="grid gap-2">
+                      <span className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
+                        Inverter serial
+                      </span>
+                      <input
+                        className="portal-field"
+                        value={form.inverterSerial}
+                        onChange={(event) => updateField('inverterSerial', event.target.value)}
+                        placeholder="Nhập inverter serial"
+                        disabled={!canManageConfig}
+                      />
+                    </label>
+                  </div>
+
                   <div className="grid gap-3 md:grid-cols-3">
                     <div className="portal-card-soft p-4">
                       <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Plant name</p>
@@ -832,11 +797,88 @@ export default function AdminLuxPowerPage() {
                   eyebrow="Hợp đồng và billing source đang dùng để tính hóa đơn tháng"
                   dark
                 >
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <label className="grid gap-2">
+                      <span className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
+                        Khách hàng
+                      </span>
+                      <select
+                        className="portal-field"
+                        value={form.customerId}
+                        onChange={(event) => updateField('customerId', event.target.value)}
+                        disabled={!canManageConfig}
+                      >
+                        <option value="">Chọn khách hàng</option>
+                        {customers.map((customer) => (
+                          <option key={customer.id} value={customer.id}>
+                            {customer.companyName || customer.user.fullName} - {customer.customerCode}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="grid gap-2">
+                      <span className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
+                        Hệ thống / site
+                      </span>
+                      <select
+                        className="portal-field"
+                        value={form.solarSystemId}
+                        onChange={(event) => updateField('solarSystemId', event.target.value)}
+                        disabled={!canManageConfig}
+                      >
+                        <option value="">Chọn system/site</option>
+                        {filteredSystems.map((system) => (
+                          <option key={system.id} value={system.id}>
+                            {system.name} - {system.systemCode}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="grid gap-2">
+                      <span className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
+                        Hợp đồng
+                      </span>
+                      <select
+                        className="portal-field"
+                        value={form.contractId}
+                        onChange={(event) => updateField('contractId', event.target.value)}
+                        disabled={!canManageConfig}
+                      >
+                        <option value="">Chọn hợp đồng</option>
+                        {filteredContracts.map((contract) => (
+                          <option key={contract.id} value={contract.id}>
+                            {contract.contractNumber}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+
+                    <label className="grid gap-2">
+                      <span className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
+                        Nguồn dữ liệu tính bill
+                      </span>
+                      <select
+                        className="portal-field"
+                        value={form.billingRuleLabel}
+                        onChange={(event) => updateField('billingRuleLabel', event.target.value)}
+                        disabled={!canManageConfig}
+                      >
+                        {billingSourceOptions.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  </div>
+
                   <div className="grid gap-3 text-sm text-slate-300">
-                    <p>Customer: {selectedConnection.customer?.companyName || selectedConnection.customer?.user?.fullName || 'Chưa link'}</p>
-                    <p>System/site: {selectedConnection.solarSystem?.name || 'Chưa link'}</p>
-                    <p>Contract: {selectedConnection.contract?.contractNumber || 'Chưa link'}</p>
-                    <p>Billing source: {selectedConnection.statusSummary?.billingSourceLabel || 'Chưa chọn'}</p>
+                    <p>Khách hàng: {selectedConnection.customer?.companyName || selectedConnection.customer?.user?.fullName || 'Chưa link'}</p>
+                    <p>Hệ thống / site: {selectedConnection.solarSystem?.name || 'Chưa link'}</p>
+                    <p>Hợp đồng: {selectedConnection.contract?.contractNumber || 'Chưa link'}</p>
+                    <p>Nguồn bill: {selectedConnection.statusSummary?.billingSourceLabel || 'Chưa chọn'}</p>
                     <p>
                       Monthly metric gần nhất:{' '}
                       {latestMonthlyMetric?.periodKey || 'Chưa có normalized monthly'}
@@ -858,6 +900,20 @@ export default function AdminLuxPowerPage() {
                       </p>
                     </div>
                   </div>
+
+                  {canManageConfig ? (
+                    <div className="mt-4 flex flex-wrap gap-3">
+                      <button
+                        type="button"
+                        className="btn-primary"
+                        onClick={() => void saveConnection()}
+                        disabled={saving}
+                      >
+                        {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                        Lưu liên kết
+                      </button>
+                    </div>
+                  ) : null}
                 </SectionCard>
               </div>
 

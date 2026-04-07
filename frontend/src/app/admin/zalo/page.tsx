@@ -341,7 +341,8 @@ export default function AdminZaloPage() {
 
               <div className="rounded-[18px] border border-white/8 bg-white/[0.04] px-4 py-4 text-sm leading-6 text-slate-300">
                 Secret va token duoc ma hoa o backend. Frontend chi nhan preview da an bot ky tu va
-                trang thai cau hinh.
+                trang thai cau hinh. Gui theo so dien thoai se tu dong di qua kenh ZNS; gui theo UID
+                se di qua OA template API.
               </div>
 
               <div className="flex flex-wrap gap-3">
@@ -591,6 +592,24 @@ export default function AdminZaloPage() {
                             : '-'}
                       </span>
                     </p>
+                    <p>
+                      Delivery channel:{' '}
+                      <span className="font-medium text-white">
+                        {settings?.latestSendDiagnostics?.deliveryChannel || '-'}
+                      </span>
+                    </p>
+                    <p>
+                      Send URL:{' '}
+                      <span className="font-medium text-white break-all">
+                        {settings?.latestSendDiagnostics?.sendUrl || '-'}
+                      </span>
+                    </p>
+                    <p>
+                      Auth header:{' '}
+                      <span className="font-medium text-white">
+                        {settings?.latestSendDiagnostics?.authHeaderMode || '-'}
+                      </span>
+                    </p>
                     {(settings?.tokenDiagnostics?.staleTokenDetected ||
                       settings?.latestSendDiagnostics?.staleTokenDetected) && (
                       <p className="mt-1 text-rose-300">send flow is using stale token.</p>
@@ -613,6 +632,10 @@ export default function AdminZaloPage() {
                       placeholder="Vi du: 0909123456"
                     />
                   </label>
+                  <p className="text-xs leading-5 text-slate-500">
+                    Khi nhap so dien thoai, he thong se dung luong gui ZNS qua SĐT va tu dong su dung
+                    header `access_token`.
+                  </p>
 
                   <button
                     type="button"
@@ -698,10 +721,13 @@ export default function AdminZaloPage() {
                   <span>{log.dryRun ? 'Dry run' : 'Live send'}</span>
                   <span>Token source: {log.debug?.tokenSource || '-'}</span>
                   <span>Send fp: {log.debug?.sendTokenFingerprint || '-'}</span>
+                  <span>Channel: {log.debug?.deliveryChannel || '-'}</span>
                 </div>
                 {log.debug?.refreshedTokenFingerprint || log.debug?.staleTokenDetected ? (
                   <div className="mt-2 text-xs leading-5 text-slate-400">
                     <p>Refreshed fp: {log.debug?.refreshedTokenFingerprint || '-'}</p>
+                    {log.debug?.sendUrl ? <p>Send URL: {log.debug.sendUrl}</p> : null}
+                    {log.debug?.authHeaderMode ? <p>Auth header: {log.debug.authHeaderMode}</p> : null}
                     {log.debug?.refreshedAt ? (
                       <p>Refreshed at: {formatDateTime(log.debug.refreshedAt)}</p>
                     ) : null}
