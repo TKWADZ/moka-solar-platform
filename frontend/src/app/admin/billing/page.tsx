@@ -32,6 +32,7 @@ import {
   PaymentRecord,
   StatCardItem,
   ZaloMessageLogRecord,
+  ZaloSendResult,
   ZaloNotificationStatus,
 } from '@/types';
 
@@ -127,6 +128,21 @@ function zaloSendStatusLabel(status: string) {
     default:
       return status;
   }
+}
+
+function buildZaloValidationMessage(
+  result: Pick<ZaloSendResult, 'providerMessage' | 'missingTemplateFields' | 'invalidTemplateFields'>,
+) {
+  const problems = [
+    ...(result.missingTemplateFields || []).map((field) => `thieu ${field}`),
+    ...(result.invalidTemplateFields || []).map((field) => `${field} khong dung dinh dang`),
+  ];
+
+  if (problems.length) {
+    return `Khong the gui Zalo: ${problems.join(', ')}.`;
+  }
+
+  return result.providerMessage || 'Khong the gui thong bao Zalo.';
 }
 
 export default function AdminBillingPage() {
@@ -391,6 +407,11 @@ export default function AdminBillingPage() {
       });
 
       await loadZaloData(invoiceId);
+
+      if (result.status === 'BLOCKED' || result.status === 'FAILED') {
+        setError(buildZaloValidationMessage(result));
+        return;
+      }
 
       setMessage(
         result.dryRun

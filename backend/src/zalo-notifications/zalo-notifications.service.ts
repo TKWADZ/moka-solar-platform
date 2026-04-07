@@ -35,6 +35,8 @@ type SendExecutionParams = {
   providerMessage: string;
   missingRequired?: string[];
   missingRecommended?: string[];
+  missingTemplateFields?: string[];
+  invalidTemplateFields?: string[];
   debug?: Record<string, unknown>;
 };
 
@@ -93,6 +95,12 @@ type PreparedProviderSendRequest = {
   authHeaderMode: 'access_token';
   normalizedRecipientPhone: string | null;
   recipientUserId: string | null;
+};
+
+type TemplatePayloadValidationResult = {
+  missingTemplateFields: string[];
+  invalidTemplateFields: string[];
+  validationMessage: string | null;
 };
 
 @Injectable()
@@ -159,21 +167,23 @@ export class ZaloNotificationsService {
 
   async testConnection(dto: TestZaloConnectionDto, actorId?: string) {
     const config = await this.zaloSettingsService.resolveConfig();
-    const hotline = await this.resolveHotline();
     const recipientPhone = this.normalizePhoneNumber(dto.phone || '');
     const templateId = config.templateIds.INVOICE;
+    const now = new Date();
     const requestPayload = {
       phone: recipientPhone,
       template_id: templateId,
-      template_data: {
-        customer_name: 'Khach hang test',
-        billing_month: new Date().toISOString().slice(0, 7).replace('-', '/'),
-        consumption_kwh: '0',
-        amount_due: '0',
-        due_date: '',
-        payment_link: this.buildPaymentLink('test-zalo'),
-        hotline,
-      },
+      template_data: this.buildInvoiceTemplatePayloadForTemplate({
+        templateId,
+        customerName: 'Khach hang test',
+        contractNumber: 'HD-MOKA-TEST',
+        transferAmount: this.formatCurrencyForPayload(2500000),
+        bankTransferNote: 'MOKA TEST-ZALO CUS-TEST',
+        year: String(now.getFullYear()),
+        month: String(now.getMonth() + 1).padStart(2, '0'),
+        price: this.formatDecimalForPayload(2500),
+        kwh: this.formatDecimalForPayload(1250.5),
+      }),
       tracking_id: `TEST-${Date.now()}`,
       mode: 'development',
     };
@@ -272,20 +282,40 @@ export class ZaloNotificationsService {
     const billableConsumption =
       Number(invoice.monthlyPvBilling?.billableKwh || 0) ||
       Number(invoice.monthlyPvBilling?.pvGenerationKwh || 0);
-    const payloadVariables = {
-      customer_name:
+    const bankTransferNote = await this.resolveBankTransferNote({
+      invoiceNumber: invoice.invoiceNumber,
+      customerCode: invoice.customer?.customerCode || null,
+      contractNumber: invoice.contract?.contractNumber || null,
+      customerName:
+        invoice.customer?.companyName?.trim() ||
+        invoice.customer?.user?.fullName?.trim() ||
+        null,
+      billingMonth: invoice.billingMonth,
+      billingYear: invoice.billingYear,
+    });
+    const pricePerKwh =
+      Number(invoice.monthlyPvBilling?.unitPrice || 0) ||
+      Number(invoice.contract?.pricePerKwh || 0);
+    const payloadVariables = this.buildInvoiceTemplatePayloadForTemplate({
+      templateId,
+      customerName:
         invoice.customer?.companyName?.trim() ||
         invoice.customer?.user?.fullName?.trim() ||
         'Quy khach',
-      billing_month: `${String(invoice.billingMonth).padStart(2, '0')}/${invoice.billingYear}`,
-      consumption_kwh: this.formatDecimalForPayload(billableConsumption),
-      amount_due: this.formatCurrencyForPayload(
+      contractNumber: invoice.contract?.contractNumber || '',
+      transferAmount: this.formatCurrencyForPayload(
         Math.max(Number(invoice.totalAmount || 0) - Number(invoice.paidAmount || 0), 0),
       ),
-      due_date: invoice.dueDate ? invoice.dueDate.toISOString().slice(0, 10) : '',
-      payment_link: paymentLink,
+      bankTransferNote,
+      year: String(invoice.billingYear),
+      month: String(invoice.billingMonth).padStart(2, '0'),
+      price: this.formatDecimalForPayload(pricePerKwh),
+      kwh: this.formatDecimalForPayload(billableConsumption),
+      paymentLink,
       hotline,
-    };
+      dueDate: invoice.dueDate ? invoice.dueDate.toISOString().slice(0, 10) : '',
+      billingMonthLabel: `${String(invoice.billingMonth).padStart(2, '0')}/${invoice.billingYear}`,
+    });
 
     const requestPayload = {
       phone: recipientPhone,
@@ -682,6 +712,44 @@ export class ZaloNotificationsService {
       requestPayload: params.requestPayload,
       recipientPhone: params.recipientPhone,
     });
+    const templateValidation = this.validateTemplatePayload({
+      templateId: params.templateId,
+      templateData:
+        this.extractObjectValue(params.requestPayload, ['template_data', 'templateData']) || {},
+    });
+
+    if (
+      templateValidation.missingTemplateFields.length > 0 ||
+      templateValidation.invalidTemplateFields.length > 0
+    ) {
+      return this.logAndReturnResult({
+        invoice: params.invoice || null,
+        actorId: params.actorId,
+        customerId: params.customerId || null,
+        customerName: params.customerName,
+        templateType: params.templateType,
+        templateId: params.templateId,
+        recipientPhone: preparedRequest.normalizedRecipientPhone || params.recipientPhone,
+        dryRun: Boolean(params.forceDryRun || params.config.dryRun),
+        requestPayload: preparedRequest.payload,
+        sendStatus: 'BLOCKED',
+        providerCode: 'MISSING_TEMPLATE_FIELDS',
+        providerMessage:
+          templateValidation.validationMessage ||
+          'Khong the gui Zalo vi thieu bien template bat buoc.',
+        responsePayload: {
+          validation: {
+            templateId: params.templateId,
+            missingTemplateFields: templateValidation.missingTemplateFields,
+            invalidTemplateFields: templateValidation.invalidTemplateFields,
+          },
+        },
+        missingRequired: params.config.missingRequired,
+        missingRecommended: params.config.missingRecommended,
+        missingTemplateFields: templateValidation.missingTemplateFields,
+        invalidTemplateFields: templateValidation.invalidTemplateFields,
+      });
+    }
     const effectiveDryRun =
       params.forceDryRun === true ||
       params.config.dryRun ||
@@ -1210,6 +1278,27 @@ export class ZaloNotificationsService {
         : params.debug
           ? { debug: params.debug }
           : params.responsePayload;
+    const responsePayloadWithValidation =
+      (params.missingTemplateFields?.length || params.invalidTemplateFields?.length) &&
+      responsePayloadWithDebug &&
+      typeof responsePayloadWithDebug === 'object' &&
+      !Array.isArray(responsePayloadWithDebug)
+        ? {
+            ...(responsePayloadWithDebug as Record<string, unknown>),
+            validation: {
+              missingTemplateFields: params.missingTemplateFields || [],
+              invalidTemplateFields: params.invalidTemplateFields || [],
+            },
+          }
+        : (params.missingTemplateFields?.length || params.invalidTemplateFields?.length)
+          ? {
+              validation: {
+                missingTemplateFields: params.missingTemplateFields || [],
+                invalidTemplateFields: params.invalidTemplateFields || [],
+              },
+              ...(params.debug ? { debug: params.debug } : {}),
+            }
+          : responsePayloadWithDebug;
 
     const log = await this.prisma.zaloMessageLog.create({
       data: {
@@ -1229,8 +1318,8 @@ export class ZaloNotificationsService {
         requestPayload:
           (params.requestPayload as Prisma.InputJsonValue) ?? Prisma.JsonNull,
         responsePayload:
-          responsePayloadWithDebug !== undefined
-            ? ((responsePayloadWithDebug as Prisma.InputJsonValue) ?? Prisma.JsonNull)
+          responsePayloadWithValidation !== undefined
+            ? ((responsePayloadWithValidation as Prisma.InputJsonValue) ?? Prisma.JsonNull)
             : Prisma.JsonNull,
       },
     });
@@ -1267,6 +1356,8 @@ export class ZaloNotificationsService {
       providerMessage: params.providerMessage,
       missingRequired: params.missingRequired || [],
       missingRecommended: params.missingRecommended || [],
+      missingTemplateFields: params.missingTemplateFields || [],
+      invalidTemplateFields: params.invalidTemplateFields || [],
       logId: log.id,
       sentAt: log.createdAt.toISOString(),
       debug: params.debug || null,
@@ -1378,6 +1469,178 @@ export class ZaloNotificationsService {
       'https://mokasolar.com';
 
     return `${base.replace(/\/$/, '')}/customer/payments?invoice=${encodeURIComponent(invoiceId)}`;
+  }
+
+  private isApprovedInvoiceTemplate560202(templateId: string | null | undefined) {
+    return String(templateId || '').trim() === '560202';
+  }
+
+  private buildInvoiceTemplatePayloadForTemplate(params: {
+    templateId?: string | null;
+    customerName: string;
+    contractNumber: string;
+    transferAmount: string;
+    bankTransferNote: string;
+    year: string;
+    month: string;
+    price: string;
+    kwh: string;
+    paymentLink?: string;
+    hotline?: string;
+    dueDate?: string;
+    billingMonthLabel?: string;
+  }) {
+    if (this.isApprovedInvoiceTemplate560202(params.templateId)) {
+      return {
+        customer_name: params.customerName,
+        contract_number: params.contractNumber,
+        transfer_amount: params.transferAmount,
+        bank_transfer_note: params.bankTransferNote,
+        year: params.year,
+        month: params.month,
+        price: params.price,
+        kwh: params.kwh,
+      } satisfies Record<string, string>;
+    }
+
+    return {
+      customer_name: params.customerName,
+      billing_month: params.billingMonthLabel || `${params.month}/${params.year}`,
+      consumption_kwh: params.kwh,
+      amount_due: params.transferAmount,
+      due_date: params.dueDate || '',
+      payment_link: params.paymentLink || '',
+      hotline: params.hotline || '',
+    } satisfies Record<string, string>;
+  }
+
+  private validateTemplatePayload(params: {
+    templateId: string | null;
+    templateData: Record<string, unknown>;
+  }): TemplatePayloadValidationResult {
+    if (!this.isApprovedInvoiceTemplate560202(params.templateId)) {
+      return {
+        missingTemplateFields: [],
+        invalidTemplateFields: [],
+        validationMessage: null,
+      };
+    }
+
+    const requiredFields = [
+      'customer_name',
+      'contract_number',
+      'transfer_amount',
+      'bank_transfer_note',
+      'year',
+      'month',
+      'price',
+      'kwh',
+    ] as const;
+
+    const missingTemplateFields = requiredFields.filter((field) =>
+      this.isMissingTemplateField(params.templateData[field]),
+    );
+    const invalidTemplateFields = requiredFields.filter((field) =>
+      !missingTemplateFields.includes(field) &&
+      !this.isValidTemplateFieldValue(field, params.templateData[field]),
+    );
+
+    const problems = [
+      ...missingTemplateFields.map((field) => `thieu ${field}`),
+      ...invalidTemplateFields.map((field) => `${field} khong dung dinh dang`),
+    ];
+
+    return {
+      missingTemplateFields,
+      invalidTemplateFields,
+      validationMessage: problems.length
+        ? `Khong the gui template 560202: ${problems.join(', ')}.`
+        : null,
+    };
+  }
+
+  private isMissingTemplateField(value: unknown) {
+    if (value === null || value === undefined) {
+      return true;
+    }
+
+    return String(value).trim().length === 0;
+  }
+
+  private isValidTemplateFieldValue(field: string, value: unknown) {
+    const normalized = String(value ?? '').trim();
+    if (!normalized) {
+      return false;
+    }
+
+    switch (field) {
+      case 'transfer_amount':
+        return /^\d+$/.test(normalized);
+      case 'year':
+        return /^\d{4}$/.test(normalized);
+      case 'month':
+        return /^(0?[1-9]|1[0-2])$/.test(normalized);
+      case 'price':
+      case 'kwh':
+        return /^\d+(?:\.\d+)?$/.test(normalized);
+      default:
+        return true;
+    }
+  }
+
+  private async resolveBankTransferNote(params: {
+    invoiceNumber?: string | null;
+    customerCode?: string | null;
+    contractNumber?: string | null;
+    customerName?: string | null;
+    billingMonth?: number | null;
+    billingYear?: number | null;
+  }) {
+    const defaultTemplate = 'MOKA {{invoiceNumber}} {{customerCode}}';
+    let noteTemplate = defaultTemplate;
+
+    try {
+      const setting = await this.websiteSettingsService.findPublicSite();
+      const content = (setting.content || {}) as Record<string, any>;
+      const rails = Array.isArray(content?.payments?.manual?.rails)
+        ? (content.payments.manual.rails as Array<Record<string, unknown>>)
+        : [];
+      const preferredRail =
+        rails.find(
+          (rail) =>
+            String(rail?.key || '').trim() === 'BANK_TRANSFER' &&
+            rail?.isEnabled !== false,
+        ) ||
+        rails.find((rail) => rail?.isDefault === true && rail?.isEnabled !== false) ||
+        rails.find((rail) => rail?.isEnabled !== false);
+
+      const configuredTemplate =
+        preferredRail && typeof preferredRail.noteTemplate === 'string'
+          ? preferredRail.noteTemplate.trim()
+          : '';
+
+      if (configuredTemplate) {
+        noteTemplate = configuredTemplate;
+      }
+    } catch {
+      // Ignore website settings lookup errors and fallback below.
+    }
+
+    const replacements: Record<string, string> = {
+      invoiceNumber: params.invoiceNumber?.trim() || '',
+      customerCode: params.customerCode?.trim() || '',
+      contractNumber: params.contractNumber?.trim() || '',
+      customerName: params.customerName?.trim() || '',
+      month: params.billingMonth ? String(params.billingMonth).padStart(2, '0') : '',
+      year: params.billingYear ? String(params.billingYear) : '',
+    };
+
+    const rendered = noteTemplate.replace(/\{\{\s*(\w+)\s*\}\}/g, (_match, token) => {
+      const replacement = replacements[token] || '';
+      return replacement;
+    });
+
+    return rendered.replace(/\s+/g, ' ').trim();
   }
 
   private normalizePhoneNumber(value: string) {

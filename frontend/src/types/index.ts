@@ -725,6 +725,8 @@ export type ZaloSendResult = {
   providerMessage?: string | null;
   missingRequired?: string[];
   missingRecommended?: string[];
+  missingTemplateFields?: string[];
+  invalidTemplateFields?: string[];
   logId: string;
   sentAt: string;
   debug?: Record<string, unknown> | null;
@@ -742,6 +744,8 @@ export type ZaloTestResult = {
   providerMessage?: string | null;
   missingRequired: string[];
   missingRecommended: string[];
+  missingTemplateFields?: string[];
+  invalidTemplateFields?: string[];
   logId: string;
   sentAt: string;
   debug?: Record<string, unknown> | null;
@@ -1672,6 +1676,36 @@ export type LuxPowerSyncResponse = {
   warnings: string[];
   plantDetail?: LuxPowerPlantDetail;
   snapshot: LuxPowerMonitorSnapshot;
+  system?: AdminSystemRecord | null;
+};
+
+export type LuxPowerSystemPreviewResponse = {
+  connection: {
+    id: string;
+    accountName: string;
+    status: string;
+    linkedSystem?: {
+      id: string;
+      name: string;
+      systemCode: string;
+      stationId?: string | null;
+    } | null;
+  };
+  snapshot: MonitorSnapshot;
+  warnings: string[];
+  plantDetail?: LuxPowerPlantDetail;
+};
+
+export type LuxPowerSystemSyncResponse = {
+  systemId: string;
+  systemCode: string;
+  provider: 'LUXPOWER';
+  snapshot: MonitorSnapshot;
+  connectionId: string;
+  dailySynced?: number;
+  monthlySynced?: number;
+  billingSynced?: number;
+  warnings: string[];
   system?: AdminSystemRecord | null;
 };
 

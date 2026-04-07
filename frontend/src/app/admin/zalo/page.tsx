@@ -12,7 +12,13 @@ import {
   zaloNotificationsSettingsRequest,
 } from '@/lib/api';
 import { formatDateTime } from '@/lib/utils';
-import { SessionPayload, ZaloMessageLogRecord, ZaloSettingsRecord } from '@/types';
+import {
+  SessionPayload,
+  ZaloMessageLogRecord,
+  ZaloSendResult,
+  ZaloSettingsRecord,
+  ZaloTestResult,
+} from '@/types';
 
 function statusTone(status?: string | null) {
   if (!status) {
@@ -76,6 +82,24 @@ function tokenStateTone(state?: string | null) {
     default:
       return 'default' as const;
   }
+}
+
+function buildZaloValidationMessage(
+  result: Pick<
+    ZaloTestResult | ZaloSendResult,
+    'providerMessage' | 'missingTemplateFields' | 'invalidTemplateFields'
+  >,
+) {
+  const problems = [
+    ...(result.missingTemplateFields || []).map((field) => `thieu ${field}`),
+    ...(result.invalidTemplateFields || []).map((field) => `${field} khong dung dinh dang`),
+  ];
+
+  if (problems.length) {
+    return `Khong the gui Zalo: ${problems.join(', ')}.`;
+  }
+
+  return result.providerMessage || 'Khong the gui Zalo.';
 }
 
 export default function AdminZaloPage() {
@@ -176,6 +200,11 @@ export default function AdminZaloPage() {
       });
 
       await loadPage();
+
+      if (result.status === 'BLOCKED' || result.status === 'FAILED') {
+        setError(buildZaloValidationMessage(result));
+        return;
+      }
 
       setMessage(
         result.dryRun
