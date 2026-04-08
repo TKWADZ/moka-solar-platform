@@ -62,8 +62,26 @@ export type LuxPowerMonitoringBundle = {
   plantDetail: LuxPowerPlantDetail;
   snapshot: LuxPowerSnapshot;
   realtimeSeries: LuxPowerDayPoint[];
+  dailyAggregateWindows: Array<{
+    year: number;
+    month: number;
+    payload: unknown | null;
+    points: LuxPowerAggregatePoint[];
+    warning: string | null;
+  }>;
   dailyAggregatePoints: LuxPowerAggregatePoint[];
+  monthlyAggregateWindows: Array<{
+    year: number;
+    payload: unknown | null;
+    points: LuxPowerAggregatePoint[];
+    warning: string | null;
+  }>;
   monthlyAggregatePoints: LuxPowerAggregatePoint[];
+  lifetimeAggregateWindow: {
+    payload: unknown | null;
+    points: LuxPowerAggregatePoint[];
+    warning: string | null;
+  };
   lifetimeAggregatePoints: LuxPowerAggregatePoint[];
   rawPayloads: {
     plantList: unknown;
@@ -90,10 +108,20 @@ class LuxPowerSessionExpiredError extends Error {
 @Injectable()
 export class LuxPowerClientService {
   private readonly timeoutMs: number;
+  private readonly historyMonths: number;
+  private readonly historyYears: number;
   private readonly sessionCache = new Map<string, SessionCacheValue>();
 
   constructor(private readonly configService: ConfigService) {
     this.timeoutMs = Number(this.configService.get('REQUEST_TIMEOUT') || 20000);
+    this.historyMonths = Math.max(
+      1,
+      Number(this.configService.get('LUXPOWER_HISTORY_MONTHS') || 12),
+    );
+    this.historyYears = Math.max(
+      1,
+      Number(this.configService.get('LUXPOWER_HISTORY_YEARS') || 2),
+    );
   }
 
   clearSession(connectionId: string) {
@@ -451,15 +479,46 @@ export class LuxPowerClientService {
       warnings.push(lifetimeAggregateResult.warning);
     }
 
+    const dailyAggregateWindows = await this.fetchDailyAggregateHistoryPayloads({
+      session,
+      referer,
+      serialNumber,
+      referenceDate: now,
+    });
+    const monthlyAggregateWindows = await this.fetchMonthlyAggregateHistoryPayloads({
+      session,
+      referer,
+      serialNumber,
+      currentYear,
+    });
+
+    for (const item of dailyAggregateWindows) {
+      if (item.warning) {
+        warnings.push(item.warning);
+      }
+    }
+
+    for (const item of monthlyAggregateWindows) {
+      if (item.warning) {
+        warnings.push(item.warning);
+      }
+    }
+
     const realtimeSeries = realtimeSeriesResult.payload
       ? parseLuxPowerDayChart(realtimeSeriesResult.payload)
       : [];
-    const dailyAggregatePoints = dailyAggregateResult.payload
-      ? parseLuxPowerMonthChart(dailyAggregateResult.payload)
-      : [];
-    const monthlyAggregatePoints = monthlyAggregateResult.payload
-      ? parseLuxPowerYearChart(monthlyAggregateResult.payload)
-      : [];
+    const dailyAggregatePoints = [
+      ...(dailyAggregateResult.payload
+        ? parseLuxPowerMonthChart(dailyAggregateResult.payload)
+        : []),
+      ...dailyAggregateWindows.flatMap((item) => item.points),
+    ];
+    const monthlyAggregatePoints = [
+      ...(monthlyAggregateResult.payload
+        ? parseLuxPowerYearChart(monthlyAggregateResult.payload)
+        : []),
+      ...monthlyAggregateWindows.flatMap((item) => item.points),
+    ];
     const lifetimeAggregatePoints = lifetimeAggregateResult.payload
       ? parseLuxPowerTotalChart(lifetimeAggregateResult.payload)
       : [];
@@ -485,8 +544,15 @@ export class LuxPowerClientService {
       plantDetail,
       snapshot,
       realtimeSeries,
+      dailyAggregateWindows,
       dailyAggregatePoints,
+      monthlyAggregateWindows,
       monthlyAggregatePoints,
+      lifetimeAggregateWindow: {
+        payload: lifetimeAggregateResult.payload,
+        points: lifetimeAggregatePoints,
+        warning: lifetimeAggregateResult.warning,
+      },
       lifetimeAggregatePoints,
       rawPayloads: {
         plantList: resolvedTarget.rawPayloads.plantList,
@@ -496,12 +562,121 @@ export class LuxPowerClientService {
         runtime: runtimePayload,
         energy: energyPayload,
         realtimeSeries: realtimeSeriesResult.payload,
-        dailyAggregate: dailyAggregateResult.payload,
-        monthlyAggregate: monthlyAggregateResult.payload,
+        dailyAggregate: dailyAggregateWindows.map((item) => ({
+          year: item.year,
+          month: item.month,
+          warning: item.warning,
+          payload: item.payload,
+        })),
+        monthlyAggregate: monthlyAggregateWindows.map((item) => ({
+          year: item.year,
+          warning: item.warning,
+          payload: item.payload,
+        })),
         lifetimeAggregate: lifetimeAggregateResult.payload,
       },
       warnings,
     };
+  }
+
+  private buildHistoryMonthWindows(referenceDate: Date) {
+    const windows: Array<{ year: number; month: number }> = [];
+
+    for (let offset = 0; offset < this.historyMonths; offset += 1) {
+      const cursor = new Date(Date.UTC(referenceDate.getUTCFullYear(), referenceDate.getUTCMonth() - offset, 1));
+      windows.push({
+        year: cursor.getUTCFullYear(),
+        month: cursor.getUTCMonth() + 1,
+      });
+    }
+
+    return windows;
+  }
+
+  private buildHistoryYears(currentYear: number) {
+    return Array.from({ length: this.historyYears }, (_, index) => currentYear - index);
+  }
+
+  private async fetchDailyAggregateHistoryPayloads(params: {
+    session: LuxPowerSession;
+    referer: string;
+    serialNumber: string;
+    referenceDate: Date;
+  }) {
+    const windows = this.buildHistoryMonthWindows(params.referenceDate);
+    const responses = await Promise.all(
+      windows.map(async ({ year, month }) => {
+        const result = await this.requestOptionalChart(
+          '/api/inverterChart/monthColumn',
+          [
+            {
+              serialNum: params.serialNumber,
+              year,
+              month,
+            },
+            {
+              serialNum: params.serialNumber,
+              dateText: `${year}-${String(month).padStart(2, '0')}`,
+            },
+          ],
+          {
+            session: params.session,
+            referer: params.referer,
+            warningLabel: `daily aggregate ${String(month).padStart(2, '0')}/${year}`,
+          },
+        );
+
+        return {
+          year,
+          month,
+          payload: result.payload,
+          points: result.payload ? parseLuxPowerMonthChart(result.payload) : [],
+          warning: result.warning,
+        };
+      }),
+    );
+
+    return responses;
+  }
+
+  private async fetchMonthlyAggregateHistoryPayloads(params: {
+    session: LuxPowerSession;
+    referer: string;
+    serialNumber: string;
+    currentYear: number;
+  }) {
+    const years = this.buildHistoryYears(params.currentYear);
+    const responses = await Promise.all(
+      years.map(async (year) => {
+        const result = await this.requestOptionalChart(
+          '/api/inverterChart/yearColumn',
+          [
+            {
+              serialNum: params.serialNumber,
+              year,
+            },
+            {
+              serialNum: params.serialNumber,
+              dateText: String(year),
+            },
+          ],
+          {
+            session: params.session,
+            referer: params.referer,
+            warningLabel: `monthly aggregate ${year}`,
+          },
+        );
+
+        return {
+          year,
+          payload: result.payload,
+          points: result.payload ? parseLuxPowerYearChart(result.payload) : [],
+          warning: result.warning,
+        };
+      }),
+    );
+
+    return responses;
   }
 
   private fetchRealtimeSeriesPayload(params: {

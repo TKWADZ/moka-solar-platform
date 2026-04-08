@@ -1,5 +1,6 @@
-'use client';
+﻿'use client';
 
+import Link from 'next/link';
 import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { Bug, Link2, Loader2, Plus, RefreshCw, Save, Trash2, Zap } from 'lucide-react';
 import { SectionCard } from '@/components/section-card';
@@ -134,8 +135,25 @@ function getLatestMetric(
   metrics: LuxPowerNormalizedMetricRecord[] | undefined,
   granularity: LuxPowerNormalizedMetricRecord['granularity'],
 ) {
+  const now = new Date();
+  const currentPeriod = now.getFullYear() * 100 + (now.getMonth() + 1);
+
   return (metrics || [])
-    .filter((metric) => metric.granularity === granularity)
+    .filter((metric) => {
+      if (metric.granularity !== granularity) {
+        return false;
+      }
+
+      if (granularity !== 'MONTHLY') {
+        return true;
+      }
+
+      if (!metric.year || !metric.month) {
+        return false;
+      }
+
+      return metric.year * 100 + metric.month <= currentPeriod;
+    })
     .sort((left, right) => right.periodKey.localeCompare(left.periodKey))[0];
 }
 
@@ -502,6 +520,14 @@ export default function AdminLuxPowerPage() {
                   >
                     Debug
                   </button>
+                ) : null}
+                {canViewDebug && selectedConnection ? (
+                  <Link
+                    href={`/admin/luxpower/debug?connectionId=${selectedConnection.id}`}
+                    className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-white/10"
+                  >
+                    Test pipeline
+                  </Link>
                 ) : null}
               </div>
               {session?.user.role === 'MANAGER' || session?.user.role === 'STAFF' ? (

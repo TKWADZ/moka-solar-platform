@@ -7,6 +7,7 @@ Module LuxPower duoc them theo huong backend-only de Moka Solar co the dang nhap
 ## Vi tri trong admin
 
 - Trang cau hinh: `http://localhost:3000/admin/luxpower`
+- Trang debug pipeline: `http://localhost:3000/admin/luxpower/debug`
 - API backend:
   - `GET /api/luxpower-connections`
   - `POST /api/luxpower-connections`
@@ -14,6 +15,7 @@ Module LuxPower duoc them theo huong backend-only de Moka Solar co the dang nhap
   - `DELETE /api/luxpower-connections/:id`
   - `POST /api/luxpower-connections/:id/test`
   - `POST /api/luxpower-connections/:id/sync`
+  - `POST /api/luxpower-connections/:id/pipeline-preview`
   - `GET /api/luxpower-connections/:id/logs`
 
 ## Cau hinh
@@ -89,9 +91,9 @@ Module hien dang dung cac buoc/endpoint sau:
 - `POST /api/lsp/inverterChart/dayMultiLine`
   - lay realtime series trong ngay
 - `POST /api/inverterChart/monthColumn`
-  - lay daily aggregate trong thang
+  - lay daily aggregate theo thang, duoc quet nhieu thang de tao lich su billing
 - `POST /api/inverterChart/yearColumn`
-  - lay monthly aggregate trong nam
+  - lay monthly aggregate theo nam, dung de doi chieu/fallback
 - `POST /api/inverterChart/totalColumn`
   - lay tong hop lifetime/historical aggregate
 
@@ -109,6 +111,15 @@ Pipeline hien tai tach 3 fetcher rieng:
 - `daily aggregate`
 - `monthly aggregate`
 
+History sync hien tai:
+
+- quet daily aggregate cho nhieu thang gan day
+- quet monthly aggregate cho nhieu nam gan day
+- luu raw payload moi window vao `LuxPowerDebugSnapshot`
+- normalize daily metric truoc
+- tu daily metric build monthly aggregation de phuc vu billing
+- monthly endpoint cua LuxPower duoc giu lam fallback va doi chieu mapping
+
 Moi lan `test` hoac `sync` se:
 
 1. lay raw payload
@@ -116,6 +127,18 @@ Moi lan `test` hoac `sync` se:
 3. normalize vao `LuxPowerNormalizedMetric`
 4. neu da linked system thi day vao `SolarSystem.latestMonitorSnapshot`
 5. neu da linked contract + billing source hop le thi sync sang `MonthlyEnergyRecord` va `MonthlyPvBilling`
+
+## Man debug pipeline
+
+`/admin/luxpower/debug` hien 3 lop du lieu de doi chieu:
+
+- raw LuxPower response
+- normalized daily metrics
+- monthly billing preview
+
+Muc tieu la de kiem tra nhanh chuoi:
+
+`raw payload -> normalized metric -> linked system/contract -> monthly billing`
 
 ## Scale va normalize
 
@@ -186,6 +209,7 @@ Neu source duoc chon khong co du lieu hop le trong monthly aggregate thi:
 - `Billing ready = false`
 - he thong van luu raw + normalized metric
 - admin se thay warning ro trong UI va sync log
+- monthly billing preview van hien ly do block theo tung thang
 
 ## Logging
 

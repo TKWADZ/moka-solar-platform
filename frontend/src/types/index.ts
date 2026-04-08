@@ -1670,8 +1670,58 @@ export type LuxPowerConnectionRecord = {
     lastSyncStatus?: string | null;
     lastSyncMessage?: string | null;
     lastSyncAt?: string | null;
+    lastSuccessfulSyncAt?: string | null;
     lastFailureMessage?: string | null;
+    latestMonthlyMetricPeriod?: string | null;
+    latestMonthlyMetricSource?: string | null;
+    latestMonthlyPvKwh?: number | null;
     missingData?: string[];
+  };
+};
+
+export type LuxPowerMonthlyBillingPreviewRow = {
+  periodKey: string;
+  year: number;
+  month: number;
+  sourceMode: 'AGGREGATED_DAILY' | 'PROVIDER_MONTHLY';
+  contractId?: string | null;
+  contractNumber?: string | null;
+  billingSource?: string | null;
+  billingSourceLabel?: string | null;
+  sourceValueKwh?: number | null;
+  pvGenerationKwh?: number | null;
+  loadConsumptionKwh?: number | null;
+  gridImportKwh?: number | null;
+  gridExportKwh?: number | null;
+  batteryChargeKwh?: number | null;
+  batteryDischargeKwh?: number | null;
+  unitPrice?: number | null;
+  subtotalAmount?: number | null;
+  taxAmount?: number | null;
+  totalAmount?: number | null;
+  ready: boolean;
+  reasons: string[];
+  metric?: Record<string, unknown>;
+};
+
+export type LuxPowerPipelinePreviewResponse = {
+  connection: LuxPowerConnectionRecord;
+  sessionMode: 'LOGIN' | 'DEMO';
+  warnings: string[];
+  plantDetail?: LuxPowerPlantDetail;
+  snapshot: LuxPowerMonitorSnapshot;
+  rawPayloads?: Record<string, unknown> | null;
+  normalized: {
+    realtime?: LuxPowerNormalizedMetricRecord | null;
+    daily: LuxPowerNormalizedMetricRecord[];
+    monthly: LuxPowerNormalizedMetricRecord[];
+    total?: LuxPowerNormalizedMetricRecord | null;
+  };
+  billingPreview: {
+    billingSource?: string | null;
+    billingSourceLabel?: string | null;
+    latestReadyMonth?: string | null;
+    rows: LuxPowerMonthlyBillingPreviewRow[];
   };
 };
 

@@ -37,6 +37,7 @@ import {
   ServicePackageRecord,
   SessionPayload,
   LuxPowerConnectionRecord,
+  LuxPowerPipelinePreviewResponse,
   LuxPowerSystemPreviewResponse,
   LuxPowerSystemSyncResponse,
   LuxPowerSyncLogRecord,
@@ -1960,6 +1961,18 @@ export async function deleteLuxPowerConnectionRequest(id: string) {
 export async function testLuxPowerConnectionRequest(id: string) {
   return apiFetch<LuxPowerTestResponse>(`/luxpower-connections/${id}/test`, {
     method: 'POST',
+  });
+}
+
+export async function previewLuxPowerPipelineRequest(
+  id: string,
+  payload?: {
+    forceRelogin?: boolean;
+  },
+) {
+  return apiFetch<LuxPowerPipelinePreviewResponse>(`/luxpower-connections/${id}/pipeline-preview`, {
+    method: 'POST',
+    body: JSON.stringify(payload || {}),
   });
 }
 

@@ -41,6 +41,31 @@ type LuxPowerConnectionRecord = any;
 type SolarSystemRecord = any;
 type BillingMetricSource = 'E_INV_DAY' | 'E_TO_USER_DAY' | 'E_CONSUMPTION_DAY';
 
+type LuxPowerMonthlyPreviewRow = {
+  periodKey: string;
+  year: number;
+  month: number;
+  sourceMode: 'AGGREGATED_DAILY' | 'PROVIDER_MONTHLY';
+  contractId: string | null;
+  contractNumber: string | null;
+  billingSource: BillingMetricSource | null;
+  billingSourceLabel: string | null;
+  sourceValueKwh: number | null;
+  pvGenerationKwh: number | null;
+  loadConsumptionKwh: number | null;
+  gridImportKwh: number | null;
+  gridExportKwh: number | null;
+  batteryChargeKwh: number | null;
+  batteryDischargeKwh: number | null;
+  unitPrice: number | null;
+  subtotalAmount: number | null;
+  taxAmount: number | null;
+  totalAmount: number | null;
+  ready: boolean;
+  reasons: string[];
+  metric: Record<string, unknown>;
+};
+
 type NormalizedMetricDraft = {
   granularity: 'REALTIME' | 'DAILY' | 'MONTHLY' | 'TOTAL';
   periodKey: string;
@@ -95,17 +120,17 @@ const BILLING_SOURCE_OPTIONS: Array<{
 }> = [
   {
     value: 'E_INV_DAY',
-    label: 'eInvDay / 10',
+    label: 'Sản lượng inverter',
     field: 'monthlyInverterOutputKwh',
   },
   {
     value: 'E_TO_USER_DAY',
-    label: 'eToUserDay / 10',
+    label: 'Điện cấp cho tải',
     field: 'monthlyToUserKwh',
   },
   {
     value: 'E_CONSUMPTION_DAY',
-    label: 'eConsumptionDay / 10',
+    label: 'Tổng điện tiêu thụ',
     field: 'monthlyConsumptionKwh',
   },
 ];
@@ -408,9 +433,312 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
     }
   }
 
+  async previewPipeline(
+    id: string,
+    dto: SyncLuxPowerConnectionDto,
+    actor?: AuthenticatedUser,
+  ) {
+    const connection = await this.getConnectionOrThrow(id);
+    const result = await this.luxPowerClientService.fetchConnectionSnapshot(
+      this.toClientConfig(connection),
+      { forceRelogin: dto.forceRelogin },
+    );
+    const normalized = this.normalizeBundle(result);
+    const billingPreview = await this.buildMonthlyBillingPreview(connection, normalized.monthly);
+    const canViewDebug = actor?.role === 'SUPER_ADMIN';
+
+    return {
+      connection: this.serializeConnection(
+        connection,
+        hasPermission(actor?.permissions, 'integration.secrets.view'),
+        canViewDebug,
+      ),
+      sessionMode: result.sessionMode,
+      warnings: result.warnings,
+      plantDetail: result.plantDetail,
+      snapshot: result.snapshot,
+      rawPayloads: canViewDebug
+        ? result.rawPayloads
+        : {
+            runtime: result.rawPayloads.runtime,
+            energy: result.rawPayloads.energy,
+            dailyAggregate: Array.isArray(result.rawPayloads.dailyAggregate)
+              ? result.rawPayloads.dailyAggregate.map((item: any) => ({
+                  year: item.year,
+                  month: item.month,
+                  warning: item.warning || null,
+                }))
+              : [],
+            monthlyAggregate: Array.isArray(result.rawPayloads.monthlyAggregate)
+              ? result.rawPayloads.monthlyAggregate.map((item: any) => ({
+                  year: item.year,
+                  warning: item.warning || null,
+                }))
+              : [],
+          },
+      normalized: {
+        realtime: normalized.realtime ? this.serializeNormalizedMetric(normalized.realtime, canViewDebug) : null,
+        daily: normalized.daily.map((item) => this.serializeNormalizedMetric(item, canViewDebug)),
+        monthly: normalized.monthly.map((item) => this.serializeNormalizedMetric(item, canViewDebug)),
+        total: normalized.total ? this.serializeNormalizedMetric(normalized.total, canViewDebug) : null,
+      },
+      billingPreview,
+    };
+  }
+
   async syncNow(id: string, dto: SyncLuxPowerConnectionDto, actorId?: string) {
     const connection = await this.getConnectionOrThrow(id);
     return this.syncSingleConnection(connection, dto, actorId, 'MANUAL_SYNC');
+  }
+
+  async previewForSystem(
+    systemId: string,
+    params: {
+      connectionId: string;
+      plantId?: string | null;
+      inverterSerial?: string | null;
+    },
+    actorId?: string,
+  ) {
+    const system = await this.getSystemOrThrow(systemId);
+    const connection = await this.getConnectionOrThrow(params.connectionId);
+    const linkedSystem =
+      connection.solarSystem && connection.solarSystem.deletedAt === null
+        ? this.serializeLinkedSystem(connection.solarSystem)
+        : null;
+    const effectiveConnection = this.applyRuntimeOverrides(connection, params);
+    const result = await this.luxPowerClientService.testConnection(
+      this.toClientConfig(effectiveConnection),
+    );
+    const normalized = this.normalizeBundle(result);
+    const preview = this.buildSystemMonitorPreview(result, normalized, effectiveConnection);
+
+    await this.auditLogsService.log({
+      userId: actorId,
+      action: 'LUXPOWER_SYSTEM_PREVIEWED',
+      entityType: 'SolarSystem',
+      entityId: system.id,
+      payload: {
+        connectionId: connection.id,
+        plantId: preview.plantId,
+        inverterSerial: preview.inverterSerial,
+      },
+    });
+
+    return {
+      connection: {
+        id: connection.id,
+        accountName: connection.accountName,
+        status: connection.status,
+        linkedSystem,
+      },
+      snapshot: preview,
+      warnings: result.warnings,
+      plantDetail: result.plantDetail,
+    };
+  }
+
+  async syncToSystem(
+    systemId: string,
+    params: {
+      connectionId: string;
+      plantId?: string | null;
+      inverterSerial?: string | null;
+      forceRelogin?: boolean;
+    },
+    actorId?: string,
+  ) {
+    const system = await this.getSystemOrThrow(systemId);
+    const connection = await this.getConnectionOrThrow(params.connectionId);
+
+    if (connection.solarSystemId && connection.solarSystemId !== system.id) {
+      throw new BadRequestException(
+        `LuxPower connection nay dang gan voi he thong ${connection.solarSystem?.name || connection.solarSystemId}.`,
+      );
+    }
+
+    const nextConnection = await this.prisma.luxPowerConnection.update({
+      where: { id: connection.id },
+      data: {
+        customerId: system.customerId || connection.customerId,
+        solarSystemId: system.id,
+        plantId:
+          params.plantId !== undefined
+            ? params.plantId?.trim() || null
+            : connection.plantId || system.monitoringPlantId || null,
+        inverterSerial:
+          params.inverterSerial !== undefined
+            ? params.inverterSerial?.trim() || null
+            : connection.inverterSerial || null,
+        deletedAt: null,
+      },
+      include: this.includeRelations(),
+    });
+
+    if (
+      (params.plantId !== undefined && params.plantId?.trim() !== (connection.plantId || '')) ||
+      (params.inverterSerial !== undefined &&
+        params.inverterSerial?.trim() !== (connection.inverterSerial || ''))
+    ) {
+      this.luxPowerClientService.clearSession(connection.id);
+    }
+
+    const result = await this.syncSingleConnection(
+      nextConnection,
+      { forceRelogin: params.forceRelogin },
+      actorId,
+      'SYSTEM_SYNC',
+    );
+
+    return {
+      systemId: system.id,
+      systemCode: system.systemCode,
+      provider: 'LUXPOWER',
+      snapshot: this.buildSystemMonitorSnapshot({
+        snapshot: result.snapshot,
+        connection: nextConnection,
+      }),
+      connectionId: nextConnection.id,
+      dailySynced: result.dailySynced || 0,
+      monthlySynced: result.monthlySynced || 0,
+      billingSynced: result.billingSynced || 0,
+      warnings: result.warnings || [],
+      system: result.system || null,
+    };
+  }
+
+  private async getSystemOrThrow(systemId: string) {
+    const system = await this.prisma.solarSystem.findFirst({
+      where: {
+        id: systemId,
+        deletedAt: null,
+      },
+      include: {
+        customer: true,
+      },
+    });
+
+    if (!system) {
+      throw new NotFoundException('He thong Moka khong ton tai.');
+    }
+
+    return system;
+  }
+
+  private applyRuntimeOverrides(
+    connection: LuxPowerConnectionRecord,
+    params: {
+      plantId?: string | null;
+      inverterSerial?: string | null;
+    },
+  ) {
+    return {
+      ...connection,
+      plantId:
+        params.plantId !== undefined
+          ? params.plantId?.trim() || null
+          : connection.plantId || null,
+      inverterSerial:
+        params.inverterSerial !== undefined
+          ? params.inverterSerial?.trim() || null
+          : connection.inverterSerial || null,
+    };
+  }
+
+  private serializeLinkedSystem(system: any) {
+    if (!system) {
+      return null;
+    }
+
+    return {
+      id: system.id,
+      name: system.name,
+      systemCode: system.systemCode,
+      stationId: system.stationId || null,
+    };
+  }
+
+  private buildSystemMonitorPreview(
+    result: LuxPowerMonitoringBundle,
+    normalized: NormalizedBundle,
+    connection?: Partial<LuxPowerConnectionRecord> | null,
+  ) {
+    return this.buildSystemMonitorSnapshot({
+      snapshot: result.snapshot,
+      connection: connection || undefined,
+      normalized,
+    });
+  }
+
+  private buildSystemMonitorSnapshot(params: {
+    snapshot: LuxPowerSnapshot;
+    connection?: Partial<LuxPowerConnectionRecord> | null;
+    normalized?: Partial<NormalizedBundle> | null;
+  }) {
+    const snapshot = params.snapshot;
+    const dailyMetrics = Array.isArray(params.normalized?.daily)
+      ? [...params.normalized!.daily!]
+      : [];
+    const monthlyMetrics = Array.isArray(params.normalized?.monthly)
+      ? [...params.normalized!.monthly!]
+      : [];
+    const totalMetric = params.normalized?.total || null;
+    const latestDaily = dailyMetrics
+      .sort((left, right) =>
+        (right.metricDate?.toISOString() || '').localeCompare(
+          left.metricDate?.toISOString() || '',
+        ),
+      )
+      .at(0);
+    const latestMonthly = monthlyMetrics
+      .sort((left, right) =>
+        `${right.year || ''}-${String(right.month || '').padStart(2, '0')}`.localeCompare(
+          `${left.year || ''}-${String(left.month || '').padStart(2, '0')}`,
+        ),
+      )
+      .at(0);
+    const latestAt = this.parseDateOrNull(snapshot.runtimeRecordedAt || snapshot.fetchedAt) || null;
+
+    return {
+      provider: 'LUXPOWER',
+      sourceMode: snapshot.sourceMode,
+      plantId: snapshot.plantId || params.connection?.plantId || null,
+      plantName: snapshot.plantName || null,
+      currentPvKw: this.toNullableNumber(snapshot.currentPvKw),
+      batterySocPct: this.toNullableNumber(snapshot.batterySocPct),
+      batteryPowerKw: this.toNullableNumber(snapshot.batteryPowerKw),
+      loadPowerKw: this.toNullableNumber(snapshot.loadPowerKw),
+      gridImportKw: this.toNullableNumber(snapshot.gridImportKw),
+      gridExportKw: this.toNullableNumber(snapshot.gridExportKw),
+      todayGeneratedKwh:
+        this.toNullableNumber(snapshot.todayGenerationKwh) ??
+        this.toNullableNumber(latestDaily?.dailyInverterOutputKwh) ??
+        this.toNullableNumber(latestDaily?.dailyPvKwh),
+      totalGeneratedKwh:
+        this.toNullableNumber(snapshot.totalGenerationKwh) ??
+        this.toNullableNumber(totalMetric?.totalPvKwh) ??
+        this.toNullableNumber(latestMonthly?.monthlyInverterOutputKwh) ??
+        this.toNullableNumber(latestMonthly?.monthlyPvKwh),
+      todayLoadConsumedKwh: this.toNullableNumber(latestDaily?.dailyConsumptionKwh),
+      todayGridImportedKwh: this.toNullableNumber(latestDaily?.dailyToUserKwh),
+      todayGridExportedKwh:
+        this.toNullableNumber(latestDaily?.gridExportKwh) ??
+        this.toNullableNumber(snapshot.todayExportKwh),
+      inverterSerial: snapshot.serialNumber || params.connection?.inverterSerial || null,
+      inverterStatus: snapshot.inverterStatus || null,
+      connectionStatus: this.normalizeConnectionStatus(snapshot.inverterStatus, latestAt),
+      daySeries: Array.isArray(snapshot.daySeries)
+        ? snapshot.daySeries.map((point) => ({
+            recordedAt: point.recordedAt,
+            pvPowerKw: this.powerWattsToKw(point.pvPowerW),
+            loadPowerKw: this.powerWattsToKw(point.loadPowerW),
+            batteryDischargingKw: this.powerWattsToKw(point.batteryPowerW),
+          }))
+        : [],
+      fetchedAt: snapshot.fetchedAt,
+      runtimeRecordedAt: snapshot.runtimeRecordedAt,
+      raw: snapshot.raw || null,
+    };
   }
 
   private async syncDueConnections() {
@@ -763,11 +1091,12 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
 
   private normalizeBundle(result: LuxPowerMonitoringBundle): NormalizedBundle {
     const capturedAt = this.parseDateOrNull(result.snapshot.fetchedAt) || new Date();
+    const dailyMetrics = this.buildDailyMetrics(result, capturedAt);
 
     return {
       realtime: this.buildRealtimeMetric(result, capturedAt),
-      daily: this.buildDailyMetrics(result, capturedAt),
-      monthly: this.buildMonthlyMetrics(result, capturedAt),
+      daily: dailyMetrics,
+      monthly: this.buildMonthlyMetrics(result, dailyMetrics, capturedAt),
       total: this.buildTotalMetric(result, capturedAt),
     };
   }
@@ -832,111 +1161,347 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
   }
 
   private buildDailyMetrics(result: LuxPowerMonitoringBundle, referenceDate: Date) {
-    const year = referenceDate.getFullYear();
-    const month = referenceDate.getMonth() + 1;
-
-    return result.dailyAggregatePoints
-      .map((point) => {
-        if (!point.day) {
-          return null;
-        }
-
-        const metricDate = new Date(Date.UTC(year, month - 1, point.day, 0, 0, 0));
-        const raw = (point.raw || {}) as Record<string, unknown>;
-
-        return {
-          granularity: 'DAILY' as const,
-          periodKey: `${year}-${String(month).padStart(2, '0')}-${String(point.day).padStart(2, '0')}`,
-          metricDate,
-          year,
-          month,
-          dailyInverterOutputKwh: point.inverterOutputKwh,
-          dailyToUserKwh: point.toUserKwh,
-          dailyConsumptionKwh: point.consumptionKwh,
-          dailyPvKwh: point.pvGenerationKwh,
-          gridImportKwh: point.toUserKwh,
-          gridExportKwh: point.gridExportKwh,
-          capturedAt: referenceDate,
-          rawPayload: {
-            source: 'DAILY_AGGREGATE',
-            rawPayload: raw,
-            mappings: {
-              daily_inverter_output_kwh: this.buildScaledDebugValue(
-                'eInvDay',
-                raw,
-                point.inverterOutputKwh,
-              ),
-              daily_to_user_kwh: this.buildScaledDebugValue(
-                'eToUserDay',
-                raw,
-                point.toUserKwh,
-              ),
-              daily_consumption_kwh: this.buildScaledDebugValue(
-                'eConsumptionDay',
-                raw,
-                point.consumptionKwh,
-              ),
-              daily_pv_kwh: this.buildScaledDebugValue(
-                ['ePv1Day', 'ePv2Day', 'ePv3Day'],
-                raw,
-                point.pvGenerationKwh,
-              ),
+    const fallbackWindows =
+      result.rawPayloads.dailyAggregate && !Array.isArray(result.rawPayloads.dailyAggregate)
+        ? [
+            {
+              year: referenceDate.getFullYear(),
+              month: referenceDate.getMonth() + 1,
+              payload: result.rawPayloads.dailyAggregate,
+              points: result.dailyAggregatePoints,
+              warning: null,
             },
-          },
-        } satisfies NormalizedMetricDraft;
-      })
+          ]
+        : [];
+    const windows =
+      Array.isArray(result.dailyAggregateWindows) && result.dailyAggregateWindows.length
+        ? result.dailyAggregateWindows
+        : fallbackWindows;
+
+    return windows
+      .flatMap((windowItem) =>
+        (windowItem.points || []).map((point) => {
+          if (!point.day) {
+            return null;
+          }
+
+          const metricDate = new Date(
+            Date.UTC(windowItem.year, windowItem.month - 1, point.day, 0, 0, 0),
+          );
+          const raw = (point.raw || {}) as Record<string, unknown>;
+          const batteryChargeKwh = this.toNullableNumber(point.batteryChargeKwh);
+          const batteryDischargeKwh = this.toNullableNumber(point.batteryDischargeKwh);
+          const dailyConsumptionKwh = this.toNullableNumber(point.consumptionKwh);
+          const dailyToUserKwh = this.toNullableNumber(point.toUserKwh);
+          const derivedGridImportKwh = this.deriveGridImportKwh(
+            dailyConsumptionKwh,
+            dailyToUserKwh,
+            batteryDischargeKwh,
+          );
+
+          return {
+            granularity: 'DAILY' as const,
+            periodKey: `${windowItem.year}-${String(windowItem.month).padStart(2, '0')}-${String(point.day).padStart(2, '0')}`,
+            metricDate,
+            year: windowItem.year,
+            month: windowItem.month,
+            dailyInverterOutputKwh: point.inverterOutputKwh,
+            dailyToUserKwh: point.toUserKwh,
+            dailyConsumptionKwh: point.consumptionKwh,
+            dailyPvKwh: point.pvGenerationKwh,
+            gridImportKwh: derivedGridImportKwh,
+            gridExportKwh: point.gridExportKwh,
+            capturedAt: referenceDate,
+            rawPayload: {
+              source: 'DAILY_AGGREGATE',
+              aggregateWindow: {
+                year: windowItem.year,
+                month: windowItem.month,
+                warning: windowItem.warning || null,
+              },
+              rawPayload: raw,
+              derived: {
+                battery_charge_kwh: batteryChargeKwh,
+                battery_discharge_kwh: batteryDischargeKwh,
+                grid_import_kwh: derivedGridImportKwh,
+              },
+              mappings: {
+                daily_inverter_output_kwh: this.buildScaledDebugValue(
+                  'eInvDay',
+                  raw,
+                  point.inverterOutputKwh,
+                ),
+                daily_to_user_kwh: this.buildScaledDebugValue(
+                  'eToUserDay',
+                  raw,
+                  point.toUserKwh,
+                ),
+                daily_consumption_kwh: this.buildScaledDebugValue(
+                  'eConsumptionDay',
+                  raw,
+                  point.consumptionKwh,
+                ),
+                daily_pv_kwh: this.buildScaledDebugValue(
+                  ['ePv1Day', 'ePv2Day', 'ePv3Day'],
+                  raw,
+                  point.pvGenerationKwh,
+                ),
+                grid_export_kwh: this.buildScaledDebugValue(
+                  'eToGridDay',
+                  raw,
+                  point.gridExportKwh,
+                ),
+                battery_charge_kwh: this.buildScaledDebugValue(
+                  'eChgDay',
+                  raw,
+                  batteryChargeKwh,
+                ),
+                battery_discharge_kwh: this.buildScaledDebugValue(
+                  'eDisChgDay',
+                  raw,
+                  batteryDischargeKwh,
+                ),
+                grid_import_kwh: {
+                  raw_field: ['eConsumptionDay', 'eToUserDay', 'eDisChgDay'],
+                  raw_value: [
+                    this.toNullableNumber(raw.eConsumptionDay),
+                    this.toNullableNumber(raw.eToUserDay),
+                    this.toNullableNumber(raw.eDisChgDay),
+                  ],
+                  scale_factor: 0.1,
+                  normalized_value: derivedGridImportKwh,
+                },
+              },
+            },
+          } satisfies NormalizedMetricDraft;
+        }),
+      )
       .filter((item): item is Exclude<typeof item, null> => item !== null);
   }
 
-  private buildMonthlyMetrics(result: LuxPowerMonitoringBundle, referenceDate: Date) {
-    const year = referenceDate.getFullYear();
+  private buildMonthlyMetrics(
+    result: LuxPowerMonitoringBundle,
+    dailyMetrics: NormalizedMetricDraft[],
+    referenceDate: Date,
+  ) {
+    const providerMonthlyMap = new Map<
+      string,
+      { year: number; month: number; raw: Record<string, unknown>; point: any }
+    >();
 
-    return result.monthlyAggregatePoints
-      .map((point) => {
+    for (const windowItem of result.monthlyAggregateWindows || []) {
+      for (const point of windowItem.points || []) {
         if (!point.month) {
+          continue;
+        }
+
+        providerMonthlyMap.set(`${windowItem.year}-${String(point.month).padStart(2, '0')}`, {
+          year: windowItem.year,
+          month: point.month,
+          raw: (point.raw || {}) as Record<string, unknown>,
+          point,
+        });
+      }
+    }
+
+    const aggregatedDailyMap = new Map<
+      string,
+      {
+        year: number;
+        month: number;
+        pointCount: number;
+        periodKeys: string[];
+        dailyInverterOutputKwh: number;
+        dailyToUserKwh: number;
+        dailyConsumptionKwh: number;
+        dailyPvKwh: number;
+        gridImportKwh: number;
+        gridExportKwh: number;
+        batteryChargeKwh: number;
+        batteryDischargeKwh: number;
+      }
+    >();
+
+    for (const metric of dailyMetrics) {
+      if (!metric.year || !metric.month) {
+        continue;
+      }
+
+      const key = `${metric.year}-${String(metric.month).padStart(2, '0')}`;
+      const current =
+        aggregatedDailyMap.get(key) ||
+        {
+          year: metric.year,
+          month: metric.month,
+          pointCount: 0,
+          periodKeys: [],
+          dailyInverterOutputKwh: 0,
+          dailyToUserKwh: 0,
+          dailyConsumptionKwh: 0,
+          dailyPvKwh: 0,
+          gridImportKwh: 0,
+          gridExportKwh: 0,
+          batteryChargeKwh: 0,
+          batteryDischargeKwh: 0,
+        };
+
+      current.pointCount += 1;
+      current.periodKeys.push(metric.periodKey);
+      current.dailyInverterOutputKwh += this.toNullableNumber(metric.dailyInverterOutputKwh) || 0;
+      current.dailyToUserKwh += this.toNullableNumber(metric.dailyToUserKwh) || 0;
+      current.dailyConsumptionKwh += this.toNullableNumber(metric.dailyConsumptionKwh) || 0;
+      current.dailyPvKwh += this.toNullableNumber(metric.dailyPvKwh) || 0;
+      current.gridImportKwh += this.toNullableNumber(metric.gridImportKwh) || 0;
+      current.gridExportKwh += this.toNullableNumber(metric.gridExportKwh) || 0;
+      current.batteryChargeKwh += this.toDailyDerivedNumber(metric, 'battery_charge_kwh') || 0;
+      current.batteryDischargeKwh +=
+        this.toDailyDerivedNumber(metric, 'battery_discharge_kwh') || 0;
+      aggregatedDailyMap.set(key, current);
+    }
+
+    const keys = Array.from(new Set([...aggregatedDailyMap.keys(), ...providerMonthlyMap.keys()]))
+      .sort()
+      .reverse();
+
+    return keys
+      .map((key) => {
+        const aggregated = aggregatedDailyMap.get(key) || null;
+        const provider = providerMonthlyMap.get(key) || null;
+        const year = aggregated?.year || provider?.year || null;
+        const month = aggregated?.month || provider?.month || null;
+
+        if (!year || !month) {
           return null;
         }
 
-        const metricDate = new Date(Date.UTC(year, point.month - 1, 1, 0, 0, 0));
-        const raw = (point.raw || {}) as Record<string, unknown>;
+        const metricDate = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0));
+        const sourceMode =
+          aggregated && aggregated.pointCount > 0 ? 'MONTHLY_FROM_DAILY' : 'MONTHLY_AGGREGATE';
+        const providerPoint = provider?.point || null;
+        const providerRaw = provider?.raw || {};
+        const monthlyInverterOutputKwh =
+          sourceMode === 'MONTHLY_FROM_DAILY'
+            ? this.roundMetricValue(aggregated?.dailyInverterOutputKwh || 0)
+            : this.toNullableNumber(providerPoint?.inverterOutputKwh);
+        const monthlyToUserKwh =
+          sourceMode === 'MONTHLY_FROM_DAILY'
+            ? this.roundMetricValue(aggregated?.dailyToUserKwh || 0)
+            : this.toNullableNumber(providerPoint?.toUserKwh);
+        const monthlyConsumptionKwh =
+          sourceMode === 'MONTHLY_FROM_DAILY'
+            ? this.roundMetricValue(aggregated?.dailyConsumptionKwh || 0)
+            : this.toNullableNumber(providerPoint?.consumptionKwh);
+        const monthlyPvKwh =
+          sourceMode === 'MONTHLY_FROM_DAILY'
+            ? this.roundMetricValue(aggregated?.dailyPvKwh || 0)
+            : this.toNullableNumber(providerPoint?.pvGenerationKwh);
+        const gridImportKwh =
+          sourceMode === 'MONTHLY_FROM_DAILY'
+            ? this.roundMetricValue(aggregated?.gridImportKwh || 0)
+            : this.deriveGridImportKwh(
+                this.toNullableNumber(providerPoint?.consumptionKwh),
+                this.toNullableNumber(providerPoint?.toUserKwh),
+                this.toNullableNumber(providerPoint?.batteryDischargeKwh),
+              );
+        const gridExportKwh =
+          sourceMode === 'MONTHLY_FROM_DAILY'
+            ? this.roundMetricValue(aggregated?.gridExportKwh || 0)
+            : this.toNullableNumber(providerPoint?.gridExportKwh);
 
         return {
           granularity: 'MONTHLY' as const,
-          periodKey: `${year}-${String(point.month).padStart(2, '0')}`,
+          periodKey: key,
           metricDate,
           year,
-          month: point.month,
-          monthlyInverterOutputKwh: point.inverterOutputKwh,
-          monthlyToUserKwh: point.toUserKwh,
-          monthlyConsumptionKwh: point.consumptionKwh,
-          monthlyPvKwh: point.pvGenerationKwh,
-          gridImportKwh: point.toUserKwh,
-          gridExportKwh: point.gridExportKwh,
+          month,
+          monthlyInverterOutputKwh,
+          monthlyToUserKwh,
+          monthlyConsumptionKwh,
+          monthlyPvKwh,
+          gridImportKwh,
+          gridExportKwh,
           capturedAt: referenceDate,
           rawPayload: {
-            source: 'MONTHLY_AGGREGATE',
-            rawPayload: raw,
+            source: sourceMode,
+            aggregateWindow: {
+              year,
+              month,
+            },
+            providerMonthlyRaw: providerRaw,
+            aggregatedDaily:
+              sourceMode === 'MONTHLY_FROM_DAILY'
+                ? {
+                    pointCount: aggregated?.pointCount || 0,
+                    periodKeys: aggregated?.periodKeys || [],
+                    battery_charge_kwh: this.roundMetricValue(
+                      aggregated?.batteryChargeKwh || 0,
+                    ),
+                    battery_discharge_kwh: this.roundMetricValue(
+                      aggregated?.batteryDischargeKwh || 0,
+                    ),
+                  }
+                : null,
             mappings: {
-              monthly_inverter_output_kwh: this.buildScaledDebugValue(
-                'eInvDay',
-                raw,
-                point.inverterOutputKwh,
-              ),
-              monthly_to_user_kwh: this.buildScaledDebugValue(
-                'eToUserDay',
-                raw,
-                point.toUserKwh,
-              ),
-              monthly_consumption_kwh: this.buildScaledDebugValue(
-                'eConsumptionDay',
-                raw,
-                point.consumptionKwh,
-              ),
-              monthly_pv_kwh: this.buildScaledDebugValue(
-                ['ePv1Day', 'ePv2Day', 'ePv3Day'],
-                raw,
-                point.pvGenerationKwh,
-              ),
+              monthly_inverter_output_kwh:
+                sourceMode === 'MONTHLY_FROM_DAILY'
+                  ? this.buildAggregatedDebugValue(
+                      'daily_inverter_output_kwh',
+                      aggregated?.pointCount || 0,
+                      monthlyInverterOutputKwh,
+                    )
+                  : this.buildScaledDebugValue(
+                      'eInvDay',
+                      providerRaw,
+                      monthlyInverterOutputKwh,
+                    ),
+              monthly_to_user_kwh:
+                sourceMode === 'MONTHLY_FROM_DAILY'
+                  ? this.buildAggregatedDebugValue(
+                      'daily_to_user_kwh',
+                      aggregated?.pointCount || 0,
+                      monthlyToUserKwh,
+                    )
+                  : this.buildScaledDebugValue(
+                      'eToUserDay',
+                      providerRaw,
+                      monthlyToUserKwh,
+                    ),
+              monthly_consumption_kwh:
+                sourceMode === 'MONTHLY_FROM_DAILY'
+                  ? this.buildAggregatedDebugValue(
+                      'daily_consumption_kwh',
+                      aggregated?.pointCount || 0,
+                      monthlyConsumptionKwh,
+                    )
+                  : this.buildScaledDebugValue(
+                      'eConsumptionDay',
+                      providerRaw,
+                      monthlyConsumptionKwh,
+                    ),
+              monthly_pv_kwh:
+                sourceMode === 'MONTHLY_FROM_DAILY'
+                  ? this.buildAggregatedDebugValue(
+                      'daily_pv_kwh',
+                      aggregated?.pointCount || 0,
+                      monthlyPvKwh,
+                    )
+                  : this.buildScaledDebugValue(
+                      ['ePv1Day', 'ePv2Day', 'ePv3Day'],
+                      providerRaw,
+                      monthlyPvKwh,
+                    ),
+              grid_export_kwh:
+                sourceMode === 'MONTHLY_FROM_DAILY'
+                  ? this.buildAggregatedDebugValue(
+                      'daily_grid_export_kwh',
+                      aggregated?.pointCount || 0,
+                      gridExportKwh,
+                    )
+                  : this.buildScaledDebugValue(
+                      'eToGridDay',
+                      providerRaw,
+                      gridExportKwh,
+                    ),
             },
           },
         } satisfies NormalizedMetricDraft;
@@ -1227,6 +1792,10 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
 
     for (const metric of monthlyMetrics) {
       if (!metric.month || !metric.year) {
+        continue;
+      }
+
+      if (this.isFutureMonthlyPeriod(metric.year, metric.month)) {
         continue;
       }
 
@@ -1630,6 +2199,115 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
     };
   }
 
+  private async buildMonthlyBillingPreview(
+    connection: LuxPowerConnectionRecord,
+    monthlyMetrics: NormalizedMetricDraft[],
+  ) {
+    const rows: LuxPowerMonthlyPreviewRow[] = [];
+    const connectionWithRelations =
+      connection.contract && connection.solarSystem
+        ? connection
+        : await this.getConnectionOrThrow(connection.id);
+    const system = connectionWithRelations.solarSystem || null;
+    const billingSource = this.getResolvedBillingSource(
+      connectionWithRelations,
+      connectionWithRelations.contract,
+    );
+
+    for (const metric of [...monthlyMetrics]
+      .filter(
+        (item) =>
+          item.year &&
+          item.month &&
+          !this.isFutureMonthlyPeriod(item.year, item.month),
+      )
+      .sort((left, right) => right.periodKey.localeCompare(left.periodKey))
+      .slice(0, 12)) {
+      const reasons: string[] = [];
+      const contract = await this.resolveContractForPeriod(
+        connectionWithRelations,
+        metric.month || null,
+        metric.year || null,
+      );
+      const pricing = system ? await this.resolvePricingDefaults(system, contract) : null;
+      const sourceValueKwh = this.extractBillingMetricValue(metric, billingSource);
+      const pvGenerationKwh =
+        this.toNullableNumber(metric.monthlyPvKwh) ??
+        this.toNullableNumber(metric.monthlyInverterOutputKwh);
+      const loadConsumptionKwh = this.toNullableNumber(metric.monthlyConsumptionKwh);
+      const gridImportKwh = this.toNullableNumber(metric.gridImportKwh);
+      const gridExportKwh = this.toNullableNumber(metric.gridExportKwh);
+      const batteryChargeKwh = this.toMonthlyDerivedNumber(metric, 'battery_charge_kwh');
+      const batteryDischargeKwh = this.toMonthlyDerivedNumber(metric, 'battery_discharge_kwh');
+
+      if (!contract?.id) {
+        reasons.push('Chưa có contract liên kết cho kỳ này.');
+      }
+      if (!billingSource) {
+        reasons.push('Chưa chọn billing source hợp lệ.');
+      }
+      if (!metric.month || !metric.year) {
+        reasons.push('Thiếu kỳ tháng hợp lệ.');
+      }
+      if (sourceValueKwh === null) {
+        reasons.push('Billing source chưa có dữ liệu normalized.');
+      } else if (sourceValueKwh <= 0) {
+        reasons.push('Billing source đang bằng 0 nên chưa thể tính bill.');
+      }
+      if (!system?.id) {
+        reasons.push('Connection chưa linked với hệ thống Moka.');
+      }
+
+      const subtotalAmount =
+        pricing && sourceValueKwh && sourceValueKwh > 0
+          ? roundMoney(sourceValueKwh * pricing.unitPrice)
+          : null;
+      const taxAmount =
+        subtotalAmount !== null && pricing
+          ? calculateVatAmount(subtotalAmount, pricing.vatRate)
+          : null;
+      const totalAmount =
+        subtotalAmount !== null && taxAmount !== null && pricing
+          ? roundMoney(subtotalAmount + taxAmount - pricing.discountAmount)
+          : null;
+
+      rows.push({
+        periodKey: metric.periodKey,
+        year: metric.year!,
+        month: metric.month!,
+        sourceMode:
+          String((metric.rawPayload as any)?.source || '') === 'MONTHLY_FROM_DAILY'
+            ? 'AGGREGATED_DAILY'
+            : 'PROVIDER_MONTHLY',
+        contractId: contract?.id || null,
+        contractNumber: contract?.contractNumber || null,
+        billingSource,
+        billingSourceLabel: billingSource ? this.getBillingSourceLabel(billingSource) : null,
+        sourceValueKwh,
+        pvGenerationKwh,
+        loadConsumptionKwh,
+        gridImportKwh,
+        gridExportKwh,
+        batteryChargeKwh,
+        batteryDischargeKwh,
+        unitPrice: pricing?.unitPrice || null,
+        subtotalAmount,
+        taxAmount,
+        totalAmount,
+        ready: reasons.length === 0,
+        reasons,
+        metric: this.serializeNormalizedMetric(metric, true),
+      });
+    }
+
+    return {
+      billingSource,
+      billingSourceLabel: billingSource ? this.getBillingSourceLabel(billingSource) : null,
+      latestReadyMonth: rows.find((item) => item.ready)?.periodKey || null,
+      rows,
+    };
+  }
+
   private buildBillingNote(
     month: number,
     year: number,
@@ -1637,6 +2315,73 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
   ) {
     const label = billingSource ? this.getBillingSourceLabel(billingSource) : 'chua chon';
     return `LuxPower monthly aggregate ${month}/${year}. Billing source: ${label}.`;
+  }
+
+  private deriveGridImportKwh(
+    consumptionKwh: number | null | undefined,
+    toUserKwh: number | null | undefined,
+    batteryDischargeKwh: number | null | undefined,
+  ) {
+    const consumption = this.toNullableNumber(consumptionKwh);
+    const toUser = this.toNullableNumber(toUserKwh);
+    const batteryDischarge = this.toNullableNumber(batteryDischargeKwh);
+
+    if (consumption === null && toUser === null) {
+      return null;
+    }
+
+    const normalized = Math.max(
+      0,
+      (consumption || 0) - (toUser || 0) - Math.max(0, batteryDischarge || 0),
+    );
+
+    return this.roundMetricValue(normalized);
+  }
+
+  private isFutureMonthlyPeriod(year: number | null | undefined, month: number | null | undefined) {
+    if (!year || !month) {
+      return false;
+    }
+
+    const now = new Date();
+    const currentPeriod = now.getFullYear() * 100 + (now.getMonth() + 1);
+    const targetPeriod = year * 100 + month;
+
+    return targetPeriod > currentPeriod;
+  }
+
+  private toDailyDerivedNumber(metric: NormalizedMetricDraft, key: string) {
+    const payload =
+      metric.rawPayload && typeof metric.rawPayload === 'object' && !Array.isArray(metric.rawPayload)
+        ? (metric.rawPayload as Record<string, any>)
+        : null;
+    const derived =
+      payload?.derived && typeof payload.derived === 'object' && !Array.isArray(payload.derived)
+        ? (payload.derived as Record<string, unknown>)
+        : null;
+    return this.toNullableNumber(derived?.[key]);
+  }
+
+  private toMonthlyDerivedNumber(metric: NormalizedMetricDraft, key: string) {
+    const payload =
+      metric.rawPayload && typeof metric.rawPayload === 'object' && !Array.isArray(metric.rawPayload)
+        ? (metric.rawPayload as Record<string, any>)
+        : null;
+    const aggregatedDaily =
+      payload?.aggregatedDaily &&
+      typeof payload.aggregatedDaily === 'object' &&
+      !Array.isArray(payload.aggregatedDaily)
+        ? (payload.aggregatedDaily as Record<string, unknown>)
+        : null;
+    return this.toNullableNumber(aggregatedDaily?.[key]);
+  }
+
+  private roundMetricValue(value: number | null | undefined) {
+    if (value === null || value === undefined || Number.isNaN(Number(value))) {
+      return null;
+    }
+
+    return Number(Number(value).toFixed(2));
   }
 
   private buildScaledDebugValue(
@@ -1658,6 +2403,20 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
       raw_value: this.toNullableNumber(raw[rawField]),
       scale_factor: 0.1,
       normalized_value: this.toNullableNumber(normalizedValue),
+    };
+  }
+
+  private buildAggregatedDebugValue(
+    sourceField: string,
+    pointCount: number,
+    normalizedValue: number | null | undefined,
+  ) {
+    return {
+      raw_field: sourceField,
+      raw_value: pointCount,
+      scale_factor: 1,
+      normalized_value: this.toNullableNumber(normalizedValue),
+      aggregation: 'sum',
     };
   }
 
@@ -1730,9 +2489,16 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
     const lastFailure =
       logs.find((log: any) => ['ERROR', 'WARNING'].includes(log.status)) || null;
     const billingSource = this.getResolvedBillingSource(connection, connection.contract);
-    const monthlyMetric =
-      Array.isArray(connection.normalizedMetrics) &&
-      connection.normalizedMetrics.find((metric: any) => metric.granularity === 'MONTHLY');
+    const monthlyMetric = Array.isArray(connection.normalizedMetrics)
+      ? [...connection.normalizedMetrics]
+          .filter(
+            (metric: any) =>
+              metric.granularity === 'MONTHLY' &&
+              !this.isFutureMonthlyPeriod(metric.year, metric.month),
+          )
+          .sort((left: any, right: any) => right.periodKey.localeCompare(left.periodKey))[0] ||
+        null
+      : null;
     const missingData: string[] = [];
 
     if (!connection.authReadyAt) {
@@ -1752,6 +2518,8 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
     }
     if (!monthlyMetric) {
       missingData.push('Chua co monthly aggregate normalized.');
+    } else if ((this.extractBillingMetricValue(this.serializeNormalizedMetric(monthlyMetric), billingSource) || 0) <= 0) {
+      missingData.push('Billing source hien tai chua co gia tri kWh hop le.');
     }
 
     return {
@@ -1834,7 +2602,18 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
           lastSync?.startedAt?.toISOString?.() ||
           connection.lastSyncTime?.toISOString?.() ||
           null,
+        lastSuccessfulSyncAt: connection.lastSyncTime?.toISOString?.() || null,
         lastFailureMessage: lastFailure?.message || connection.lastError || null,
+        latestMonthlyMetricPeriod: monthlyMetric?.periodKey || null,
+        latestMonthlyMetricSource:
+          typeof monthlyMetric?.rawPayload === 'object' && monthlyMetric?.rawPayload
+            ? ((monthlyMetric.rawPayload as any).source || null)
+            : null,
+        latestMonthlyPvKwh: monthlyMetric
+          ? this.toNullableNumber(
+              monthlyMetric.monthlyPvKwh ?? monthlyMetric.monthlyInverterOutputKwh,
+            )
+          : null,
         missingData,
       },
       solarSystem: connection.solarSystem ? this.serializeSystem(connection.solarSystem) : null,
@@ -1912,7 +2691,7 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
       },
       normalizedMetrics: {
         orderBy: [{ capturedAt: 'desc' as const }, { periodKey: 'desc' as const }],
-        take: 36,
+        take: 500,
       },
       syncLogs: {
         orderBy: { createdAt: 'desc' as const },
@@ -2129,5 +2908,10 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
 
     const numeric = Number(value);
     return Number.isFinite(numeric) ? numeric : null;
+  }
+
+  private powerWattsToKw(value: unknown) {
+    const numeric = this.toNullableNumber(value);
+    return numeric === null ? null : Number((numeric / 1000).toFixed(3));
   }
 }

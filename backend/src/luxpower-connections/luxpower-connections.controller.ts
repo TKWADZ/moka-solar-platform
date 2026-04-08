@@ -85,6 +85,17 @@ export class LuxPowerConnectionsController {
     return this.luxPowerConnectionsService.testConnection(id, actor.sub);
   }
 
+  @Post(':id/pipeline-preview')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
+  @Permissions('integrations.execute')
+  previewPipeline(
+    @Param('id') id: string,
+    @Body() dto: SyncLuxPowerConnectionDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.luxPowerConnectionsService.previewPipeline(id, dto, actor);
+  }
+
   @Post(':id/sync')
   @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
   @Permissions('integrations.execute')
