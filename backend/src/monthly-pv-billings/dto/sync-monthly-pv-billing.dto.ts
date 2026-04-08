@@ -41,6 +41,10 @@ export class SyncMonthlyPvBillingDto {
 
   @IsOptional()
   @IsString()
+  contractId?: string;
+
+  @IsOptional()
+  @IsString()
   source?: string;
 
   @IsOptional()

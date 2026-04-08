@@ -1689,6 +1689,7 @@ export type LuxPowerMonthlyBillingPreviewRow = {
   billingSource?: string | null;
   billingSourceLabel?: string | null;
   sourceValueKwh?: number | null;
+  billedPvTotalKwh?: number | null;
   pvGenerationKwh?: number | null;
   loadConsumptionKwh?: number | null;
   gridImportKwh?: number | null;
@@ -1702,6 +1703,20 @@ export type LuxPowerMonthlyBillingPreviewRow = {
   ready: boolean;
   reasons: string[];
   metric?: Record<string, unknown>;
+};
+
+export type LuxPowerBillingAuditRow = {
+  periodKey: string;
+  year: number;
+  month: number;
+  rawPvTotal?: number | null;
+  normalizedPvTotal?: number | null;
+  billedPvTotal?: number | null;
+  sourceValueKwh?: number | null;
+  billingSource?: string | null;
+  billingSourceLabel?: string | null;
+  missingDays: number[];
+  dayCount: number;
 };
 
 export type LuxPowerPipelinePreviewResponse = {
@@ -1722,6 +1737,7 @@ export type LuxPowerPipelinePreviewResponse = {
     billingSourceLabel?: string | null;
     latestReadyMonth?: string | null;
     rows: LuxPowerMonthlyBillingPreviewRow[];
+    auditRows?: LuxPowerBillingAuditRow[];
   };
 };
 

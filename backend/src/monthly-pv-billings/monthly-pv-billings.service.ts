@@ -134,7 +134,17 @@ export class MonthlyPvBillingsService {
 
     this.ensureRecordIsMutable(existing?.invoice);
 
-    const contract = await this.resolveContract(systemId, dto.month, dto.year);
+    const contract = dto.contractId
+      ? await this.prisma.contract.findFirst({
+          where: {
+            id: dto.contractId,
+            deletedAt: null,
+          },
+          include: {
+            servicePackage: true,
+          },
+        })
+      : await this.resolveContract(systemId, dto.month, dto.year);
     const amounts = await this.calculateAmounts(systemId, dto, existing, contract);
     const syncTime = new Date();
     const source = dto.source?.trim() || amounts.source;

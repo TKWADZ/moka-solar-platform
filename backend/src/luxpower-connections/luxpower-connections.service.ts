@@ -39,7 +39,11 @@ import { LuxPowerSnapshot } from './luxpower.parser';
 
 type LuxPowerConnectionRecord = any;
 type SolarSystemRecord = any;
-type BillingMetricSource = 'E_INV_DAY' | 'E_TO_USER_DAY' | 'E_CONSUMPTION_DAY';
+type BillingMetricSource =
+  | 'PV_MONTHLY_GENERATION'
+  | 'E_INV_DAY'
+  | 'E_TO_USER_DAY'
+  | 'E_CONSUMPTION_DAY';
 
 type LuxPowerMonthlyPreviewRow = {
   periodKey: string;
@@ -51,6 +55,7 @@ type LuxPowerMonthlyPreviewRow = {
   billingSource: BillingMetricSource | null;
   billingSourceLabel: string | null;
   sourceValueKwh: number | null;
+  billedPvTotalKwh: number | null;
   pvGenerationKwh: number | null;
   loadConsumptionKwh: number | null;
   gridImportKwh: number | null;
@@ -64,6 +69,20 @@ type LuxPowerMonthlyPreviewRow = {
   ready: boolean;
   reasons: string[];
   metric: Record<string, unknown>;
+};
+
+type LuxPowerBillingAuditRow = {
+  periodKey: string;
+  year: number;
+  month: number;
+  rawPvTotal: number | null;
+  normalizedPvTotal: number | null;
+  billedPvTotal: number | null;
+  sourceValueKwh: number | null;
+  billingSource: BillingMetricSource | null;
+  billingSourceLabel: string | null;
+  missingDays: number[];
+  dayCount: number;
 };
 
 type NormalizedMetricDraft = {
@@ -123,6 +142,11 @@ const BILLING_SOURCE_OPTIONS: Array<{
   label: string;
   field: keyof NormalizedMetricDraft;
 }> = [
+  {
+    value: 'PV_MONTHLY_GENERATION',
+    label: 'PV tháng',
+    field: 'monthlyPvKwh',
+  },
   {
     value: 'E_INV_DAY',
     label: 'Sản lượng inverter',
@@ -717,13 +741,13 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
       gridExportKw: this.toNullableNumber(snapshot.gridExportKw),
       todayGeneratedKwh:
         this.toNullableNumber(snapshot.todayGenerationKwh) ??
-        this.toNullableNumber(latestDaily?.dailyInverterOutputKwh) ??
-        this.toNullableNumber(latestDaily?.dailyPvKwh),
+        this.toNullableNumber(latestDaily?.dailyPvKwh) ??
+        this.toNullableNumber(latestDaily?.dailyInverterOutputKwh),
       totalGeneratedKwh:
         this.toNullableNumber(snapshot.totalGenerationKwh) ??
         this.toNullableNumber(totalMetric?.totalPvKwh) ??
-        this.toNullableNumber(latestMonthly?.monthlyInverterOutputKwh) ??
-        this.toNullableNumber(latestMonthly?.monthlyPvKwh),
+        this.toNullableNumber(latestMonthly?.monthlyPvKwh) ??
+        this.toNullableNumber(latestMonthly?.monthlyInverterOutputKwh),
       todayLoadConsumedKwh: this.toNullableNumber(latestDaily?.dailyConsumptionKwh),
       todayGridImportedKwh: this.toNullableNumber(latestDaily?.dailyToUserKwh),
       todayGridExportedKwh:
@@ -1034,8 +1058,8 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
         currentGenerationPowerKw:
           snapshot.currentPvKw ?? this.toNullableNumber(system.currentGenerationPowerKw),
         currentMonthGenerationKwh:
-          latestMonthly?.monthlyInverterOutputKwh ??
           latestMonthly?.monthlyPvKwh ??
+          latestMonthly?.monthlyInverterOutputKwh ??
           this.toNullableNumber(system.currentMonthGenerationKwh),
         totalGenerationKwh:
           snapshot.totalGenerationKwh ?? this.toNullableNumber(system.totalGenerationKwh),
@@ -1737,7 +1761,7 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
       }
 
       const solarGenerated = this.toPositiveNumber(
-        metric.dailyInverterOutputKwh ?? metric.dailyPvKwh,
+        metric.dailyPvKwh ?? metric.dailyInverterOutputKwh,
       );
       const loadConsumed = this.toPositiveNumber(metric.dailyConsumptionKwh);
       const gridImported = this.toPositiveNumber(metric.dailyToUserKwh);
@@ -1827,7 +1851,7 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
       );
       const pricing = await this.resolvePricingDefaults(system, contract);
       const pvOutput = this.toPositiveNumber(
-        metric.monthlyInverterOutputKwh ?? metric.monthlyPvKwh,
+        metric.monthlyPvKwh ?? metric.monthlyInverterOutputKwh,
       );
       const loadConsumed = this.optionalPositiveNumber(metric.monthlyConsumptionKwh);
       const subtotalAmount = roundMoney(pvOutput * pricing.unitPrice);
@@ -1838,6 +1862,8 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
         system.stationId ||
         connectionWithRelations.id;
       const billingMetricValue = this.extractBillingMetricValue(metric, billingSource);
+      const billedPvGenerationKwh = this.toBilledPvGenerationKwh(metric, billingSource);
+      const luxPowerDiscountAmount = this.resolveLuxPowerDiscountAmount(system);
 
       await this.prisma.monthlyEnergyRecord.upsert({
         where: {
@@ -1912,7 +1938,7 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
         continue;
       }
 
-      if (!billingMetricValue || billingMetricValue <= 0) {
+      if (!billingMetricValue || billingMetricValue <= 0 || !billedPvGenerationKwh) {
         warnings.push(
           `Thang ${metric.month}/${metric.year}: billing source ${this.getBillingSourceLabel(
             billingSource,
@@ -1927,7 +1953,11 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
           {
             month: metric.month,
             year: metric.year,
-            pvGenerationKwh: billingMetricValue,
+            contractId: contract.id,
+            pvGenerationKwh: billedPvGenerationKwh,
+            unitPrice: pricing.unitPrice,
+            vatRate: pricing.vatRate,
+            discountAmount: luxPowerDiscountAmount,
             source: `LUXPOWER_${billingSource}`,
             note: this.buildBillingNote(metric.month, metric.year, billingSource),
           },
@@ -2055,11 +2085,12 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
     connection: Partial<LuxPowerConnectionRecord>,
     contract?: any,
   ): BillingMetricSource | null {
-    return (
-      this.normalizeBillingMetricSource(connection.billingRuleLabel) ||
-      this.normalizeBillingMetricSource(contract?.servicePackage?.billingRule) ||
-      null
-    );
+    const contractRule =
+      this.normalizeBillingMetricSource(contract?.billingRuleLabel) ||
+      this.normalizeBillingMetricSource(contract?.servicePackage?.billingRule);
+    const connectionRule = this.normalizeBillingMetricSource(connection.billingRuleLabel);
+
+    return contractRule || connectionRule || null;
   }
 
   private normalizeBillingMetricSource(value?: string | null): BillingMetricSource | null {
@@ -2075,6 +2106,15 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
 
     if (normalized.includes('EINVDAY')) {
       return 'E_INV_DAY';
+    }
+
+    if (
+      normalized.includes('PVMONTHLYGENERATION') ||
+      normalized.includes('PVMONTHLY') ||
+      normalized.includes('MONTHLYPV') ||
+      normalized.includes('PVGENERATION')
+    ) {
+      return 'PV_MONTHLY_GENERATION';
     }
 
     if (normalized.includes('ETOUSERDAY')) {
@@ -2102,6 +2142,8 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
     }
 
     switch (source) {
+      case 'PV_MONTHLY_GENERATION':
+        return this.toNullableNumber((metric as any).monthlyPvKwh);
       case 'E_INV_DAY':
         return this.toNullableNumber((metric as any).monthlyInverterOutputKwh);
       case 'E_TO_USER_DAY':
@@ -2252,6 +2294,7 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
       );
       const pricing = system ? await this.resolvePricingDefaults(system, contract) : null;
       const sourceValueKwh = this.extractBillingMetricValue(metric, billingSource);
+      const billedPvTotalKwh = this.toBilledPvGenerationKwh(metric, billingSource);
       const pvGenerationKwh =
         this.toNullableNumber(metric.monthlyPvKwh) ??
         this.toNullableNumber(metric.monthlyInverterOutputKwh);
@@ -2279,9 +2322,10 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
         reasons.push('Connection chưa linked với hệ thống Moka.');
       }
 
+      const luxPowerDiscountAmount = system ? this.resolveLuxPowerDiscountAmount(system) : 0;
       const subtotalAmount =
-        pricing && sourceValueKwh && sourceValueKwh > 0
-          ? roundMoney(sourceValueKwh * pricing.unitPrice)
+        pricing && billedPvTotalKwh && billedPvTotalKwh > 0
+          ? roundMoney(billedPvTotalKwh * pricing.unitPrice)
           : null;
       const taxAmount =
         subtotalAmount !== null && pricing
@@ -2289,7 +2333,7 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
           : null;
       const totalAmount =
         subtotalAmount !== null && taxAmount !== null && pricing
-          ? roundMoney(subtotalAmount + taxAmount - pricing.discountAmount)
+          ? roundMoney(subtotalAmount + taxAmount - luxPowerDiscountAmount)
           : null;
 
       rows.push({
@@ -2305,6 +2349,7 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
         billingSource,
         billingSourceLabel: billingSource ? this.getBillingSourceLabel(billingSource) : null,
         sourceValueKwh,
+        billedPvTotalKwh,
         pvGenerationKwh,
         loadConsumptionKwh,
         gridImportKwh,
@@ -2326,6 +2371,7 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
       billingSourceLabel: billingSource ? this.getBillingSourceLabel(billingSource) : null,
       latestReadyMonth: rows.find((item) => item.ready)?.periodKey || null,
       rows,
+      auditRows: this.buildBillingAuditRows(monthlyMetrics, billingSource),
     };
   }
 
@@ -2395,6 +2441,144 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
         ? (payload.aggregatedDaily as Record<string, unknown>)
         : null;
     return this.toNullableNumber(aggregatedDaily?.[key]);
+  }
+
+  private getMetricDebugMapping(metric: NormalizedMetricDraft, key: string) {
+    const payload =
+      metric.rawPayload && typeof metric.rawPayload === 'object' && !Array.isArray(metric.rawPayload)
+        ? (metric.rawPayload as Record<string, any>)
+        : null;
+    const mappings =
+      payload?.mappings && typeof payload.mappings === 'object' && !Array.isArray(payload.mappings)
+        ? (payload.mappings as Record<string, unknown>)
+        : null;
+
+    if (!mappings?.[key] || typeof mappings[key] !== 'object' || Array.isArray(mappings[key])) {
+      return null;
+    }
+
+    return mappings[key] as Record<string, unknown>;
+  }
+
+  private sumMetricRawValue(value: unknown): number | null {
+    if (Array.isArray(value)) {
+      const numbers = value
+        .map((item) => this.toNullableNumber(item))
+        .filter((item): item is number => item !== null);
+      return numbers.length ? this.roundMetricValue(numbers.reduce((sum, item) => sum + item, 0)) : null;
+    }
+
+    return this.toNullableNumber(value);
+  }
+
+  private computeMissingDaysForMonth(metric: NormalizedMetricDraft) {
+    const payload =
+      metric.rawPayload && typeof metric.rawPayload === 'object' && !Array.isArray(metric.rawPayload)
+        ? (metric.rawPayload as Record<string, any>)
+        : null;
+    const aggregatedDaily =
+      payload?.aggregatedDaily &&
+      typeof payload.aggregatedDaily === 'object' &&
+      !Array.isArray(payload.aggregatedDaily)
+        ? (payload.aggregatedDaily as Record<string, unknown>)
+        : null;
+    const periodKeys = Array.isArray(aggregatedDaily?.periodKeys)
+      ? (aggregatedDaily.periodKeys as string[])
+      : [];
+
+    if (!metric.year || !metric.month || !periodKeys.length) {
+      return [];
+    }
+
+    const seenDays = new Set<number>();
+    for (const periodKey of periodKeys) {
+      const day = Number(String(periodKey).split('-')[2]);
+      if (Number.isFinite(day)) {
+        seenDays.add(day);
+      }
+    }
+
+    const totalDays = new Date(metric.year, metric.month, 0).getDate();
+    const missing: number[] = [];
+    for (let day = 1; day <= totalDays; day += 1) {
+      if (!seenDays.has(day)) {
+        missing.push(day);
+      }
+    }
+
+    return missing;
+  }
+
+  private computeDayCountForMonth(metric: NormalizedMetricDraft) {
+    const payload =
+      metric.rawPayload && typeof metric.rawPayload === 'object' && !Array.isArray(metric.rawPayload)
+        ? (metric.rawPayload as Record<string, any>)
+        : null;
+    const aggregatedDaily =
+      payload?.aggregatedDaily &&
+      typeof payload.aggregatedDaily === 'object' &&
+      !Array.isArray(payload.aggregatedDaily)
+        ? (payload.aggregatedDaily as Record<string, unknown>)
+        : null;
+
+    return this.toNullableNumber(aggregatedDaily?.pointCount) ?? 0;
+  }
+
+  private buildBillingAuditRows(
+    monthlyMetrics: NormalizedMetricDraft[],
+    billingSource: BillingMetricSource | null,
+  ): LuxPowerBillingAuditRow[] {
+    return [...monthlyMetrics]
+      .filter(
+        (item) =>
+          item.year &&
+          item.month &&
+          !this.isFutureMonthlyPeriod(item.year, item.month),
+      )
+      .sort((left, right) => right.periodKey.localeCompare(left.periodKey))
+      .slice(0, 12)
+      .map((metric) => {
+        const mapping = this.getMetricDebugMapping(metric, 'monthly_pv_kwh');
+
+        return {
+          periodKey: metric.periodKey,
+          year: metric.year!,
+          month: metric.month!,
+          rawPvTotal: this.sumMetricRawValue(mapping?.raw_value),
+          normalizedPvTotal: this.toNullableNumber(metric.monthlyPvKwh),
+          billedPvTotal: this.toBilledPvGenerationKwh(metric, billingSource),
+          sourceValueKwh: this.extractBillingMetricValue(metric, billingSource),
+          billingSource,
+          billingSourceLabel: billingSource ? this.getBillingSourceLabel(billingSource) : null,
+          missingDays: this.computeMissingDaysForMonth(metric),
+          dayCount: this.computeDayCountForMonth(metric),
+        };
+      });
+  }
+
+  private toBilledPvGenerationKwh(
+    metric: Partial<NormalizedMetricDraft> | Record<string, unknown> | null,
+    source: BillingMetricSource | null,
+  ) {
+    const value = this.extractBillingMetricValue(metric, source);
+    if (value === null) {
+      return null;
+    }
+
+    if (source === 'PV_MONTHLY_GENERATION') {
+      return Math.max(0, Math.round(value));
+    }
+
+    return this.toPositiveNumber(value);
+  }
+
+  private resolveLuxPowerDiscountAmount(system: SolarSystemRecord | null | undefined) {
+    if (!system) {
+      return 0;
+    }
+
+    const systemDiscount = toNumber(system.defaultDiscountAmount);
+    return systemDiscount > 0 ? roundMoney(systemDiscount) : 0;
   }
 
   private roundMetricValue(value: number | null | undefined) {

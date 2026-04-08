@@ -51,6 +51,7 @@ type FormState = {
 type ViewMode = 'overview' | 'debug';
 
 const billingSourceOptions = [
+  { value: 'PV_MONTHLY_GENERATION', label: 'PV tháng' },
   { value: 'E_INV_DAY', label: 'Sản lượng inverter' },
   { value: 'E_TO_USER_DAY', label: 'Điện cấp cho tải' },
   { value: 'E_CONSUMPTION_DAY', label: 'Tổng điện tiêu thụ' },
