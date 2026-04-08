@@ -170,6 +170,10 @@ export class ZaloNotificationsService {
     const recipientPhone = this.normalizePhoneNumber(dto.phone || '');
     const templateId = config.templateIds.INVOICE;
     const now = new Date();
+    const approvedTemplateDateValue = this.formatApprovedTemplate560202DateParam({
+      year: now.getFullYear(),
+      month: now.getMonth() + 1,
+    });
     const requestPayload = {
       phone: recipientPhone,
       template_id: templateId,
@@ -179,8 +183,8 @@ export class ZaloNotificationsService {
         contractNumber: 'MKSL002',
         transferAmount: this.formatCurrencyForPayload(1749600),
         bankTransferNote: 'Ti\u1ec1n \u0111i\u1ec7n test th\u00e1ng 2',
-        year: String(now.getFullYear()),
-        month: String(now.getMonth() + 1),
+        year: approvedTemplateDateValue,
+        month: approvedTemplateDateValue,
         price: this.formatCurrencyForPayload(1749600),
         kwh: this.formatKwhForApprovedTemplate(720),
       }),
@@ -294,6 +298,10 @@ export class ZaloNotificationsService {
       systemName: invoice.contract?.solarSystem?.name?.trim() || null,
       month: invoice.billingMonth,
     });
+    const approvedTemplateDateValue = this.formatApprovedTemplate560202DateParam({
+      year: invoice.billingYear,
+      month: invoice.billingMonth,
+    });
     const payloadVariables = this.buildInvoiceTemplatePayloadForTemplate({
       templateId,
       customerName:
@@ -303,8 +311,8 @@ export class ZaloNotificationsService {
       contractNumber: invoice.contract?.contractNumber || '',
       transferAmount: this.formatCurrencyForPayload(outstandingAmount),
       bankTransferNote,
-      year: String(invoice.billingYear),
-      month: String(invoice.billingMonth),
+      year: approvedTemplateDateValue,
+      month: approvedTemplateDateValue,
       price: this.formatCurrencyForPayload(outstandingAmount),
       kwh: this.formatKwhForApprovedTemplate(billableConsumption),
       paymentLink: this.buildPaymentLink(invoice.id),
@@ -1574,14 +1582,41 @@ export class ZaloNotificationsService {
       case 'price':
         return /^\d+$/.test(normalized);
       case 'year':
-        return /^\d{4}$/.test(normalized);
       case 'month':
-        return /^(0?[1-9]|1[0-2])$/.test(normalized);
+        return this.isValidApprovedTemplate560202DateParam(normalized);
       case 'kwh':
         return /^\d+(?:\.\d+)?$/.test(normalized);
       default:
         return true;
     }
+  }
+
+  private formatApprovedTemplate560202DateParam(params: {
+    year?: number | string | null;
+    month?: number | string | null;
+    day?: number | string | null;
+  }) {
+    const year = Number(params.year);
+    const month = Number(params.month);
+    const day = Number(params.day ?? 1);
+
+    if (!Number.isInteger(year) || year < 2000 || year > 9999) {
+      return '';
+    }
+
+    if (!Number.isInteger(month) || month < 1 || month > 12) {
+      return '';
+    }
+
+    if (!Number.isInteger(day) || day < 1 || day > 31) {
+      return '';
+    }
+
+    return `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${String(year)}`;
+  }
+
+  private isValidApprovedTemplate560202DateParam(value: string) {
+    return /^(0[1-9]|[12]\d|3[01])\/(0[1-9]|1[0-2])\/\d{4}$/.test(value);
   }
 
   private formatKwhForApprovedTemplate(value: unknown) {
