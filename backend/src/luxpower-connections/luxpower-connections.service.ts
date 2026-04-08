@@ -1491,7 +1491,7 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
                 sourceMode === 'MONTHLY_FROM_DAILY'
                   ? this.buildAggregatedDebugValue(
                       'daily_inverter_output_kwh',
-                      aggregated?.pointCount || 0,
+                      aggregated?.dailyInverterOutputKwh || 0,
                       monthlyInverterOutputKwh,
                     )
                   : this.buildScaledDebugValue(
@@ -1503,7 +1503,7 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
                 sourceMode === 'MONTHLY_FROM_DAILY'
                   ? this.buildAggregatedDebugValue(
                       'daily_to_user_kwh',
-                      aggregated?.pointCount || 0,
+                      aggregated?.dailyToUserKwh || 0,
                       monthlyToUserKwh,
                     )
                   : this.buildScaledDebugValue(
@@ -1515,7 +1515,7 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
                 sourceMode === 'MONTHLY_FROM_DAILY'
                   ? this.buildAggregatedDebugValue(
                       'daily_consumption_kwh',
-                      aggregated?.pointCount || 0,
+                      aggregated?.dailyConsumptionKwh || 0,
                       monthlyConsumptionKwh,
                     )
                   : this.buildScaledDebugValue(
@@ -1527,7 +1527,7 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
                 sourceMode === 'MONTHLY_FROM_DAILY'
                   ? this.buildAggregatedDebugValue(
                       'daily_pv_kwh',
-                      aggregated?.pointCount || 0,
+                      aggregated?.dailyPvKwh || 0,
                       monthlyPvKwh,
                     )
                   : this.buildScaledDebugValue(
@@ -1539,7 +1539,7 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
                 sourceMode === 'MONTHLY_FROM_DAILY'
                   ? this.buildAggregatedDebugValue(
                       'daily_grid_export_kwh',
-                      aggregated?.pointCount || 0,
+                      aggregated?.gridExportKwh || 0,
                       gridExportKwh,
                     )
                   : this.buildScaledDebugValue(
