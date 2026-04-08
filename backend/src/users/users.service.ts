@@ -8,6 +8,11 @@ import * as bcrypt from 'bcrypt';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { generateCode } from '../common/helpers/domain.helper';
+import {
+  isValidEmail,
+  normalizeEmail,
+  normalizeVietnamPhone,
+} from '../common/helpers/identity.helper';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -61,14 +66,14 @@ export class UsersService {
 
   async create(dto: CreateUserDto, actor?: AuthenticatedUser) {
     this.ensureActorCanManageRole(actor, dto.roleCode);
-
-    const existingUser = await this.prisma.user.findUnique({
-      where: { email: dto.email },
+    const email = this.normalizeOptionalEmail(dto.email);
+    const phone = this.normalizeOptionalPhone(dto.phone);
+    this.ensureIdentityRequirements({
+      roleCode: dto.roleCode,
+      email,
+      phone,
     });
-
-    if (existingUser) {
-      throw new BadRequestException('Email already exists');
-    }
+    await this.ensureIdentityIsAvailable({ email, phone });
 
     const role = await this.prisma.role.findFirst({
       where: { code: dto.roleCode },
@@ -81,10 +86,10 @@ export class UsersService {
     const passwordHash = await bcrypt.hash(dto.password, 10);
     const user = await this.prisma.user.create({
       data: {
-        email: dto.email,
+        email,
         passwordHash,
-        fullName: dto.fullName,
-        phone: dto.phone,
+        fullName: dto.fullName.trim(),
+        phone,
         roleId: role.id,
         ...(dto.roleCode === 'CUSTOMER'
           ? {
@@ -109,7 +114,8 @@ export class UsersService {
       entityType: 'User',
       entityId: user.id,
       payload: {
-        email: dto.email,
+        email,
+        phone,
         roleCode: dto.roleCode,
       },
       afterState: this.serializeUserAuditState(user),
@@ -121,16 +127,25 @@ export class UsersService {
   async update(id: string, dto: UpdateUserDto, actor?: AuthenticatedUser) {
     const currentUser = await this.findMe(id);
     this.ensureActorCanTouchUser(actor, currentUser);
-
-    if (dto.email && dto.email !== currentUser.email) {
-      const existingUser = await this.prisma.user.findUnique({
-        where: { email: dto.email },
-      });
-
-      if (existingUser) {
-        throw new BadRequestException('Email already exists');
-      }
-    }
+    const nextRoleCode = dto.roleCode || currentUser.role?.code || 'CUSTOMER';
+    const email =
+      dto.email === undefined
+        ? currentUser.email || null
+        : this.normalizeOptionalEmail(dto.email);
+    const phone =
+      dto.phone === undefined
+        ? currentUser.phone || null
+        : this.normalizeOptionalPhone(dto.phone);
+    this.ensureIdentityRequirements({
+      roleCode: nextRoleCode,
+      email,
+      phone,
+    });
+    await this.ensureIdentityIsAvailable({
+      email,
+      phone,
+      excludeUserId: id,
+    });
 
     if (dto.roleCode) {
       this.ensureActorCanManageRole(actor, dto.roleCode);
@@ -146,9 +161,9 @@ export class UsersService {
     const updated = await this.prisma.user.update({
       where: { id },
       data: {
-        email: dto.email,
-        fullName: dto.fullName,
-        phone: dto.phone,
+        email,
+        fullName: dto.fullName?.trim(),
+        phone,
         ...(passwordHash ? { passwordHash } : {}),
         ...(role ? { roleId: role.id } : {}),
       },
@@ -278,5 +293,71 @@ export class UsersService {
     delete sanitized.refreshToken;
 
     return sanitized;
+  }
+
+  private normalizeOptionalEmail(value?: string | null) {
+    if (value === undefined || value === null || String(value).trim() === '') {
+      return null;
+    }
+
+    if (!isValidEmail(value)) {
+      throw new BadRequestException('Email is invalid');
+    }
+
+    return normalizeEmail(value);
+  }
+
+  private normalizeOptionalPhone(value?: string | null) {
+    if (value === undefined || value === null || String(value).trim() === '') {
+      return null;
+    }
+
+    const phone = normalizeVietnamPhone(value);
+    if (!phone) {
+      throw new BadRequestException('Vietnamese phone number is invalid');
+    }
+
+    return phone;
+  }
+
+  private ensureIdentityRequirements(params: {
+    roleCode: string;
+    email: string | null;
+    phone: string | null;
+  }) {
+    const internalRoles = ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF'];
+    if (internalRoles.includes(params.roleCode) && !params.email) {
+      throw new BadRequestException('Internal users must have an email address');
+    }
+
+    if (!params.email && !params.phone) {
+      throw new BadRequestException('At least one of email or phone is required');
+    }
+  }
+
+  private async ensureIdentityIsAvailable(params: {
+    email: string | null;
+    phone: string | null;
+    excludeUserId?: string;
+  }) {
+    if (params.email) {
+      const existingByEmail = await this.prisma.user.findUnique({
+        where: { email: params.email },
+      });
+
+      if (existingByEmail && existingByEmail.id !== params.excludeUserId) {
+        throw new BadRequestException('Email already exists');
+      }
+    }
+
+    if (params.phone) {
+      const existingByPhone = await this.prisma.user.findUnique({
+        where: { phone: params.phone },
+      });
+
+      if (existingByPhone && existingByPhone.id !== params.excludeUserId) {
+        throw new BadRequestException('Phone already exists');
+      }
+    }
   }
 }

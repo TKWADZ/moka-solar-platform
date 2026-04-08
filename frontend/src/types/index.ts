@@ -272,7 +272,7 @@ export type ContactInquiryRecord = {
   handledBy?: {
     id: string;
     fullName: string;
-    email: string;
+    email?: string | null;
     role?: {
       code: UserRole;
       name: string;
@@ -289,17 +289,20 @@ export type NavItem = {
 
 export type SessionUser = {
   id: string;
-  email: string;
+  email?: string | null;
+  phone?: string | null;
+  phoneVerifiedAt?: string | null;
   fullName: string;
   role: UserRole;
   roleId?: string | null;
   permissions?: PermissionCode[];
   customerId?: string | null;
+  secondFactorReady?: boolean;
 };
 
 export type UserRecord = {
   id: string;
-  email: string;
+  email?: string | null;
   fullName: string;
   phone?: string | null;
   createdAt: string;
@@ -393,6 +396,22 @@ export type SessionPayload = {
   refreshToken?: string;
   user: SessionUser;
 };
+
+export type OtpRequestResult = {
+  success: boolean;
+  requestId: string;
+  provider: string;
+  deliveryChannel: string;
+  deliveryMode: string;
+  expiresAt: string;
+  resendAvailableAt: string;
+  cooldownSeconds: number;
+  phonePreview?: string | null;
+  debugCode?: string;
+  message: string;
+};
+
+export type LoginOtpRequestResult = OtpRequestResult;
 
 export type AiAssistantStatus = {
   provider: 'openai';
@@ -579,7 +598,7 @@ export type NotificationUnreadSummary = {
   unreadCount: number;
 };
 
-export type ZaloTemplateType = 'INVOICE' | 'REMINDER' | 'PAID';
+export type ZaloTemplateType = 'INVOICE' | 'REMINDER' | 'PAID' | 'OTP';
 
 export type ZaloTemplateStatus = {
   configured: boolean;
@@ -605,6 +624,7 @@ export type ZaloNotificationStatus = {
     INVOICE: ZaloTemplateStatus;
     REMINDER: ZaloTemplateStatus;
     PAID: ZaloTemplateStatus;
+    OTP: ZaloTemplateStatus;
   };
   missingRequired: string[];
   missingRecommended: string[];
@@ -659,7 +679,8 @@ export type ZaloNotificationStatus = {
       | 'oauthBaseUrl'
       | 'templateInvoiceId'
       | 'templateReminderId'
-      | 'templatePaidId',
+      | 'templatePaidId'
+      | 'templateOtpId',
       'database' | 'env' | 'default' | 'missing'
     >
   >;
@@ -672,6 +693,7 @@ export type ZaloSettingsRecord = ZaloNotificationStatus & {
   templateInvoiceId?: string | null;
   templateReminderId?: string | null;
   templatePaidId?: string | null;
+  templateOtpId?: string | null;
   appSecretPreview?: string | null;
   accessTokenPreview?: string | null;
   refreshTokenPreview?: string | null;
@@ -876,7 +898,7 @@ export type CustomerSystemMonitor = {
     lastUpdatedBy?: {
       id: string;
       fullName: string;
-      email: string;
+      email?: string | null;
     } | null;
     freshness?: {
       code: 'READY' | 'STALE' | 'MISSING';
@@ -1062,7 +1084,7 @@ export type ContentPost = {
   updatedAt: string;
   author: {
     fullName: string;
-    email: string;
+    email?: string | null;
     role?: {
       code: UserRole;
       name: string;
@@ -1104,7 +1126,7 @@ export type PaymentRecord = {
   reviewedByUser?: {
     id: string;
     fullName: string;
-    email: string;
+    email?: string | null;
     role?: {
       code: UserRole;
       name: string;
@@ -1303,7 +1325,7 @@ export type MonthlyEnergyRecordRecord = {
   updatedByUser?: {
     id: string;
     fullName: string;
-    email: string;
+    email?: string | null;
   } | null;
   rawPayload?: Record<string, unknown> | null;
   createdAt: string;
@@ -1609,7 +1631,7 @@ export type LuxPowerConnectionRecord = {
     user?: {
       id: string;
       fullName: string;
-      email: string;
+      email?: string | null;
     } | null;
   } | null;
   contract?: {
@@ -1726,7 +1748,7 @@ export type CustomerRecord = {
   user: {
     id: string;
     fullName: string;
-    email: string;
+    email?: string | null;
     phone?: string | null;
     role?: {
       code: UserRole;
@@ -1736,7 +1758,7 @@ export type CustomerRecord = {
   ownerUser?: {
     id: string;
     fullName: string;
-    email: string;
+    email?: string | null;
     role?: {
       code: UserRole;
       name: string;
@@ -1813,7 +1835,7 @@ export type MediaAssetRecord = {
   uploadedByUser?: {
     id: string;
     fullName: string;
-    email: string;
+    email?: string | null;
     role?: {
       code: UserRole;
       name: string;
@@ -2075,7 +2097,7 @@ export type OperationalOverviewSystemRow = {
   latestUpdatedBy?: {
     id: string;
     fullName: string;
-    email: string;
+    email?: string | null;
   } | null;
   latestPvGenerationKwh?: number | null;
   latestLoadConsumedKwh?: number | null;

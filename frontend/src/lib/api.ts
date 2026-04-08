@@ -32,10 +32,13 @@ import {
   EntityAssignmentRecord,
   EntityTimelineResponse,
   InternalNoteRecord,
+  LoginOtpRequestResult,
   RoleRecord,
   ServicePackageRecord,
   SessionPayload,
   LuxPowerConnectionRecord,
+  LuxPowerSystemPreviewResponse,
+  LuxPowerSystemSyncResponse,
   LuxPowerSyncLogRecord,
   LuxPowerSyncResponse,
   LuxPowerTestResponse,
@@ -256,10 +259,11 @@ function getApiBaseUrl() {
 }
 
 function createDemoSession(
-  email: string,
+  email: string | null,
   fullName: string,
   role: UserRole,
   customerId?: string,
+  phone?: string | null,
 ): SessionPayload {
   return {
     accessToken: `demo-${role.toLowerCase()}-token`,
@@ -267,10 +271,12 @@ function createDemoSession(
     user: {
       id: `demo-${role.toLowerCase()}`,
       email,
+      phone,
       fullName,
       role,
       permissions: demoRolePermissions[role],
       ...(customerId ? { customerId } : {}),
+      secondFactorReady: role !== 'CUSTOMER',
     },
   };
 }
@@ -390,7 +396,7 @@ const demoSessions = Object.fromEntries(
     },
   ]
     .filter((item) => item.email && item.password)
-    .map((item) => [item.email, item]),
+    .map((item) => [item.email.trim().toLowerCase(), item]),
 ) as Record<
   string,
   {
@@ -465,14 +471,15 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
   return response.json();
 }
 
-export async function loginRequest(email: string, password: string) {
+export async function loginRequest(identifier: string, password: string) {
   try {
     return await apiFetch<SessionPayload>('/auth/login', {
       method: 'POST',
-      body: JSON.stringify({ email, password }),
+      body: JSON.stringify({ identifier, password }),
     });
   } catch (error) {
-    const demoAccount = demoSessions[email];
+    const normalizedIdentifier = identifier.trim().toLowerCase();
+    const demoAccount = demoSessions[normalizedIdentifier];
 
     if (
       DEMO_FALLBACK_ENABLED &&
@@ -486,8 +493,48 @@ export async function loginRequest(email: string, password: string) {
   }
 }
 
+export async function requestLoginOtpRequest(identifier: string) {
+  return apiFetch<LoginOtpRequestResult>('/auth/login-otp/request', {
+    method: 'POST',
+    body: JSON.stringify({ phone: identifier }),
+  });
+}
+
+export async function verifyLoginOtpRequest(
+  identifier: string,
+  otpCode: string,
+  requestId: string,
+) {
+  return apiFetch<SessionPayload>('/auth/login-otp/verify', {
+    method: 'POST',
+    body: JSON.stringify({ phone: identifier, otpCode, requestId }),
+  });
+}
+
+export async function requestRegisterOtpRequest(payload: {
+  fullName: string;
+  phone: string;
+  email?: string;
+}) {
+  return apiFetch<LoginOtpRequestResult>('/auth/register-otp/request', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function verifyRegisterOtpRequest(payload: {
+  phone: string;
+  otpCode: string;
+  requestId: string;
+}) {
+  return apiFetch<SessionPayload>('/auth/register-otp/verify', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function registerRequest(payload: {
-  email: string;
+  email?: string;
   password: string;
   fullName: string;
   phone?: string;
@@ -503,10 +550,12 @@ export async function registerRequest(payload: {
       refreshToken: 'demo-register-refresh',
       user: {
         id: 'demo-self-register',
-        email: payload.email,
+        email: payload.email || null,
+        phone: payload.phone || null,
         fullName: payload.fullName,
         role: 'CUSTOMER' as UserRole,
         customerId: 'demo-customer-self',
+        secondFactorReady: false,
       },
     }));
   }
@@ -1903,6 +1952,35 @@ export async function syncLuxPowerConnectionRequest(
   return apiFetch<LuxPowerSyncResponse>(`/luxpower-connections/${id}/sync`, {
     method: 'POST',
     body: JSON.stringify(payload || {}),
+  });
+}
+
+export async function previewLuxPowerSystemRequest(
+  systemId: string,
+  payload: {
+    connectionId: string;
+    plantId?: string;
+    inverterSerial?: string;
+  },
+) {
+  return apiFetch<LuxPowerSystemPreviewResponse>(`/systems/${systemId}/luxpower-preview`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function syncLuxPowerSystemRequest(
+  systemId: string,
+  payload: {
+    connectionId: string;
+    plantId?: string;
+    inverterSerial?: string;
+    forceRelogin?: boolean;
+  },
+) {
+  return apiFetch<LuxPowerSystemSyncResponse>(`/systems/${systemId}/luxpower-sync`, {
+    method: 'POST',
+    body: JSON.stringify(payload),
   });
 }
 
@@ -3657,6 +3735,7 @@ export async function updateZaloNotificationsSettingsRequest(payload: {
   templateInvoiceId?: string;
   templateReminderId?: string;
   templatePaidId?: string;
+  templateOtpId?: string;
 }) {
   return apiFetch<ZaloSettingsRecord>('/zalo-notifications/settings', {
     method: 'PATCH',

@@ -6,7 +6,7 @@ import { decryptSecret, encryptSecret, maskSecret } from '../common/helpers/secr
 import { PrismaService } from '../prisma/prisma.service';
 import { UpdateZaloSettingsDto } from './dto/update-zalo-settings.dto';
 
-export type ZaloTemplateType = 'INVOICE' | 'REMINDER' | 'PAID';
+export type ZaloTemplateType = 'INVOICE' | 'REMINDER' | 'PAID' | 'OTP';
 export type ZaloConfigSource = 'database' | 'env' | 'default' | 'missing';
 export type ZaloTokenState = 'MISSING' | 'AVAILABLE' | 'EXPIRED' | 'REJECTED';
 export type ZaloAutoRefreshPersistMode = 'database' | 'env-only' | 'disabled';
@@ -21,7 +21,8 @@ type ZaloResolvedFieldKey =
   | 'oauthBaseUrl'
   | 'templateInvoiceId'
   | 'templateReminderId'
-  | 'templatePaidId';
+  | 'templatePaidId'
+  | 'templateOtpId';
 
 type ZaloResolvedField = {
   value: string | null;
@@ -104,6 +105,7 @@ export class ZaloSettingsService {
       templateInvoiceId: resolved.templateIds.INVOICE,
       templateReminderId: resolved.templateIds.REMINDER,
       templatePaidId: resolved.templateIds.PAID,
+      templateOtpId: resolved.templateIds.OTP,
       hasAppSecret: Boolean(resolved.appSecret),
       appSecretPreview: resolved.appSecretPreview,
       hasAccessToken: Boolean(resolved.accessToken),
@@ -154,6 +156,11 @@ export class ZaloSettingsService {
           idPreview: maskSecret(resolved.templateIds.PAID, 2, 2),
           source: resolved.fieldSources.templatePaidId,
         },
+        OTP: {
+          configured: Boolean(resolved.templateIds.OTP),
+          idPreview: maskSecret(resolved.templateIds.OTP, 2, 2),
+          source: resolved.fieldSources.templateOtpId,
+        },
       },
     };
   }
@@ -181,6 +188,10 @@ export class ZaloSettingsService {
       dto.templatePaidId,
       current?.templatePaidId || null,
     );
+    const templateOtpId = this.normalizeOptional(
+      dto.templateOtpId,
+      current?.templateOtpId || null,
+    );
 
     const appSecretEncrypted = dto.appSecret?.trim()
       ? encryptSecret(dto.appSecret.trim(), this.getEncryptionSecret())
@@ -199,6 +210,7 @@ export class ZaloSettingsService {
       !templateInvoiceId &&
       !templateReminderId &&
       !templatePaidId &&
+      !templateOtpId &&
       !appSecretEncrypted &&
       !accessTokenEncrypted &&
       !refreshTokenEncrypted
@@ -222,6 +234,7 @@ export class ZaloSettingsService {
         templateInvoiceId,
         templateReminderId,
         templatePaidId,
+        templateOtpId,
         accessTokenExpiresAt: null,
         lastTokenCheckedAt: tokenUpdated ? new Date() : null,
         lastTokenStatus: tokenUpdated ? 'AVAILABLE' : null,
@@ -240,6 +253,7 @@ export class ZaloSettingsService {
         templateInvoiceId,
         templateReminderId,
         templatePaidId,
+        templateOtpId,
         accessTokenExpiresAt: tokenUpdated ? null : current?.accessTokenExpiresAt || null,
         lastTokenCheckedAt: tokenUpdated || refreshTokenUpdated ? new Date() : undefined,
         lastTokenStatus: tokenUpdated ? 'AVAILABLE' : undefined,
@@ -268,6 +282,7 @@ export class ZaloSettingsService {
         templateInvoiceId,
         templateReminderId,
         templatePaidId,
+        templateOtpId,
       },
     });
 
@@ -316,6 +331,10 @@ export class ZaloSettingsService {
       record?.templatePaidId || null,
       'ZALO_TEMPLATE_PAID_ID',
     );
+    const templateOtpField = this.resolveField(
+      record?.templateOtpId || null,
+      'ZALO_TEMPLATE_OTP_ID',
+    );
 
     const fieldSources = {
       appId: appIdField.source,
@@ -328,6 +347,7 @@ export class ZaloSettingsService {
       templateInvoiceId: templateInvoiceField.source,
       templateReminderId: templateReminderField.source,
       templatePaidId: templatePaidField.source,
+      templateOtpId: templateOtpField.source,
     } satisfies Record<ZaloResolvedFieldKey, ZaloConfigSource>;
 
     const envFallbackInUse = (Object.entries(fieldSources) as Array<
@@ -378,6 +398,7 @@ export class ZaloSettingsService {
       !appSecretField.value ? 'ZALO_APP_SECRET' : null,
       !templateReminderField.value ? 'ZALO_TEMPLATE_REMINDER_ID' : null,
       !templatePaidField.value ? 'ZALO_TEMPLATE_PAID_ID' : null,
+      !templateOtpField.value ? 'ZALO_TEMPLATE_OTP_ID' : null,
       !oauthBaseUrlField.value ? 'ZALO_OAUTH_BASE_URL' : null,
     ].filter((value): value is string => Boolean(value));
 
@@ -407,6 +428,7 @@ export class ZaloSettingsService {
         INVOICE: templateInvoiceField.value,
         REMINDER: templateReminderField.value,
         PAID: templatePaidField.value,
+        OTP: templateOtpField.value,
       },
       missingRequired,
       missingRecommended,

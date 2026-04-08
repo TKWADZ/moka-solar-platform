@@ -141,6 +141,25 @@ enum LuxPowerSnapshotType {
   NORMALIZED_TOTAL
 }
 
+enum LoginOtpPurpose {
+  CUSTOMER_LOGIN
+}
+
+enum OtpRequestPurpose {
+  CUSTOMER_LOGIN
+  CUSTOMER_REGISTER
+}
+
+enum OtpRequestStatus {
+  PENDING
+  SENT
+  DRY_RUN
+  FAILED
+  BLOCKED
+  VERIFIED
+  EXPIRED
+}
+
 model Role {
     id        String   @id @default(cuid())
     code      String   @unique
@@ -153,10 +172,11 @@ model Role {
 
 model User {
   id           String      @id @default(cuid())
-  email        String      @unique
+  email        String?     @unique
   passwordHash String
   fullName     String
-  phone        String?
+  phone        String?     @unique
+  phoneVerifiedAt DateTime?
   refreshToken String?
   roleId       String
   role         Role        @relation(fields: [roleId], references: [id])
@@ -182,6 +202,8 @@ model User {
     handledContactInquiries ContactInquiry[]
     updatedAiProviderConfigs AiProviderConfig[]
   updatedZaloProviderConfigs ZaloProviderConfig[] @relation("ZaloProviderConfigUpdatedBy")
+  loginOtpChallenges LoginOtpChallenge[]
+  otpRequests   OtpRequest[]
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
   deletedAt    DateTime?
@@ -205,6 +227,65 @@ model AiProviderConfig {
   @@index([deletedAt])
 }
 
+model LoginOtpChallenge {
+  id             String          @id @default(cuid())
+  userId         String
+  user           User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  purpose        LoginOtpPurpose
+  phone          String
+  codeHash       String
+  expiresAt      DateTime
+  consumedAt     DateTime?
+  attemptCount   Int             @default(0)
+  maxAttempts    Int             @default(5)
+  lastAttemptAt  DateTime?
+  deliveryMode   String?
+  requestedIp    String?
+  requestedUserAgent String?
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+
+  @@index([userId, purpose])
+  @@index([phone, purpose, expiresAt])
+  @@index([createdAt])
+}
+
+model OtpRequest {
+  id                String            @id @default(cuid())
+  userId            String?
+  user              User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  purpose           OtpRequestPurpose
+  provider          String
+  phone             String
+  emailSnapshot     String?
+  fullNameSnapshot  String?
+  codeHash          String
+  expiresAt         DateTime
+  resendAvailableAt DateTime
+  consumedAt        DateTime?
+  verifiedAt        DateTime?
+  attemptCount      Int               @default(0)
+  maxAttempts       Int               @default(5)
+  lastAttemptAt     DateTime?
+  requestedIp       String?
+  requestedUserAgent String?
+  sendStatus        OtpRequestStatus  @default(PENDING)
+  providerCode      String?
+  providerMessage   String?
+  requestPayload    Json?
+  responsePayload   Json?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  deletedAt         DateTime?
+
+  @@index([userId, purpose, createdAt])
+  @@index([phone, purpose, createdAt])
+  @@index([requestedIp, createdAt])
+  @@index([sendStatus, createdAt])
+  @@index([deletedAt])
+  @@map("otp_requests")
+}
+
 model ZaloProviderConfig {
   id                   String   @id @default(cuid())
   provider             String   @unique
@@ -218,6 +299,7 @@ model ZaloProviderConfig {
   templateInvoiceId    String?
   templateReminderId   String?
   templatePaidId       String?
+  templateOtpId        String?
   updatedByUserId      String?
   updatedByUser        User?    @relation("ZaloProviderConfigUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
   lastTestedAt         DateTime?

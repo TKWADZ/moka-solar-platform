@@ -3,6 +3,10 @@ import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+import { RequestLoginOtpDto } from './dto/request-login-otp.dto';
+import { VerifyLoginOtpDto } from './dto/verify-login-otp.dto';
+import { RequestRegisterOtpDto } from './dto/request-register-otp.dto';
+import { VerifyRegisterOtpDto } from './dto/verify-register-otp.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
@@ -19,6 +23,26 @@ export class AuthController {
   @Post('login')
   login(@Body() dto: LoginDto) {
     return this.authService.login(dto);
+  }
+
+  @Post('login-otp/request')
+  requestLoginOtp(@Body() dto: RequestLoginOtpDto) {
+    return this.authService.requestLoginOtp(dto);
+  }
+
+  @Post('login-otp/verify')
+  verifyLoginOtp(@Body() dto: VerifyLoginOtpDto) {
+    return this.authService.verifyLoginOtp(dto);
+  }
+
+  @Post('register-otp/request')
+  requestRegisterOtp(@Body() dto: RequestRegisterOtpDto) {
+    return this.authService.requestRegisterOtp(dto);
+  }
+
+  @Post('register-otp/verify')
+  verifyRegisterOtp(@Body() dto: VerifyRegisterOtpDto) {
+    return this.authService.verifyRegisterOtp(dto);
   }
 
   @Post('refresh')

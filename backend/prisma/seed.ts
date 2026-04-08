@@ -2,21 +2,33 @@ import { ContractType, Prisma, PrismaClient, TicketPriority } from '@prisma/clie
 import * as bcrypt from 'bcrypt';
 import { buildDefaultFeaturePlugins } from '../src/feature-plugins/default-feature-plugins';
 import { buildDefaultMarketingPages } from '../src/marketing-pages/default-marketing-pages';
+import {
+  normalizeEmail,
+  normalizeVietnamPhone,
+} from '../src/common/helpers/identity.helper';
 
 const prisma = new PrismaClient();
 const defaultSeedPassword = process.env.SEED_DEFAULT_PASSWORD?.trim() || '123456';
 const bootstrapSuperAdminEmail =
-  process.env.BOOTSTRAP_SUPERADMIN_EMAIL?.trim().toLowerCase() || 'superadmin@example.com';
+  normalizeEmail(process.env.BOOTSTRAP_SUPERADMIN_EMAIL?.trim()) || 'superadmin@example.com';
+const bootstrapSuperAdminPhone = normalizeVietnamPhone(process.env.BOOTSTRAP_SUPERADMIN_PHONE?.trim());
 const bootstrapSuperAdminName =
   process.env.BOOTSTRAP_SUPERADMIN_NAME?.trim() || 'Moka Super Admin';
 const bootstrapSuperAdminPassword =
   process.env.BOOTSTRAP_SUPERADMIN_PASSWORD?.trim() || defaultSeedPassword;
 const bootstrapAdminEmail =
-  process.env.BOOTSTRAP_ADMIN_EMAIL?.trim().toLowerCase() || 'admin@mokasolar.com';
+  normalizeEmail(process.env.BOOTSTRAP_ADMIN_EMAIL?.trim()) || 'admin@mokasolar.com';
+const bootstrapAdminPhone = normalizeVietnamPhone(process.env.BOOTSTRAP_ADMIN_PHONE?.trim());
 const bootstrapAdminName =
   process.env.BOOTSTRAP_ADMIN_NAME?.trim() || 'Moka Operations Admin';
 const bootstrapAdminPassword =
   process.env.BOOTSTRAP_ADMIN_PASSWORD?.trim() || defaultSeedPassword;
+const bootstrapManagerEmail = normalizeEmail(process.env.BOOTSTRAP_MANAGER_EMAIL?.trim());
+const bootstrapManagerPhone = normalizeVietnamPhone(process.env.BOOTSTRAP_MANAGER_PHONE?.trim());
+const bootstrapManagerName =
+  process.env.BOOTSTRAP_MANAGER_NAME?.trim() || 'Moka Operations Manager';
+const bootstrapManagerPassword =
+  process.env.BOOTSTRAP_MANAGER_PASSWORD?.trim() || defaultSeedPassword;
 
 function fixed(value: number) {
   return Number(value.toFixed(2));
@@ -225,7 +237,7 @@ async function main() {
     })),
   });
 
-  const [superAdminRole, adminRole, customerRole] = await Promise.all([
+  const [superAdminRole, adminRole, managerRole, , customerRole] = await Promise.all([
     prisma.role.upsert({
       where: { code: 'SUPER_ADMIN' },
       update: {},
@@ -237,6 +249,16 @@ async function main() {
       create: { code: 'ADMIN', name: 'Admin' },
     }),
     prisma.role.upsert({
+      where: { code: 'MANAGER' },
+      update: {},
+      create: { code: 'MANAGER', name: 'Manager' },
+    }),
+    prisma.role.upsert({
+      where: { code: 'STAFF' },
+      update: {},
+      create: { code: 'STAFF', name: 'Staff' },
+    }),
+    prisma.role.upsert({
       where: { code: 'CUSTOMER' },
       update: {},
       create: { code: 'CUSTOMER', name: 'Customer' },
@@ -245,10 +267,13 @@ async function main() {
 
   const superAdminPasswordHash = await bcrypt.hash(bootstrapSuperAdminPassword, 10);
   const adminPasswordHash = await bcrypt.hash(bootstrapAdminPassword, 10);
+  const managerPasswordHash = await bcrypt.hash(bootstrapManagerPassword, 10);
 
   const superAdmin = await prisma.user.create({
     data: {
       email: bootstrapSuperAdminEmail,
+      phone: bootstrapSuperAdminPhone,
+      phoneVerifiedAt: bootstrapSuperAdminPhone ? new Date() : null,
       fullName: bootstrapSuperAdminName,
       passwordHash: superAdminPasswordHash,
       roleId: superAdminRole.id,
@@ -258,11 +283,26 @@ async function main() {
   const admin = await prisma.user.create({
     data: {
       email: bootstrapAdminEmail,
+      phone: bootstrapAdminPhone,
+      phoneVerifiedAt: bootstrapAdminPhone ? new Date() : null,
       fullName: bootstrapAdminName,
       passwordHash: adminPasswordHash,
       roleId: adminRole.id,
     },
   });
+
+  if (bootstrapManagerEmail) {
+    await prisma.user.create({
+      data: {
+        email: bootstrapManagerEmail,
+        phone: bootstrapManagerPhone,
+        phoneVerifiedAt: bootstrapManagerPhone ? new Date() : null,
+        fullName: bootstrapManagerName,
+        passwordHash: managerPasswordHash,
+        roleId: managerRole.id,
+      },
+    });
+  }
 
   await prisma.contactInquiry.createMany({
     data: [
@@ -562,11 +602,12 @@ async function main() {
   for (const [customerIndex, account] of portfolio.entries()) {
     const user = await prisma.user.create({
       data: {
-        email: account.email,
-        fullName: account.fullName,
-        phone: account.phone,
-        passwordHash: adminPasswordHash,
-        roleId: customerRole.id,
+      email: normalizeEmail(account.email),
+      fullName: account.fullName,
+      phone: normalizeVietnamPhone(account.phone),
+      phoneVerifiedAt: normalizeVietnamPhone(account.phone) ? new Date() : null,
+      passwordHash: adminPasswordHash,
+      roleId: customerRole.id,
       },
     });
 

@@ -45,4 +45,9 @@ export class UpdateZaloSettingsDto {
   @IsString()
   @MaxLength(120)
   templatePaidId?: string;
+
+  @IsOptional()
+  @IsString()
+  @MaxLength(120)
+  templateOtpId?: string;
 }

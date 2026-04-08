@@ -115,6 +115,7 @@ export default function AdminZaloPage() {
   const [templateInvoiceId, setTemplateInvoiceId] = useState('');
   const [templateReminderId, setTemplateReminderId] = useState('');
   const [templatePaidId, setTemplatePaidId] = useState('');
+  const [templateOtpId, setTemplateOtpId] = useState('');
   const [testPhone, setTestPhone] = useState('');
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -138,6 +139,7 @@ export default function AdminZaloPage() {
     setTemplateInvoiceId(nextSettings.templateInvoiceId || '');
     setTemplateReminderId(nextSettings.templateReminderId || '');
     setTemplatePaidId(nextSettings.templatePaidId || '');
+    setTemplateOtpId(nextSettings.templateOtpId || '');
   }
 
   useEffect(() => {
@@ -170,6 +172,7 @@ export default function AdminZaloPage() {
         templateInvoiceId,
         templateReminderId,
         templatePaidId,
+        templateOtpId,
       });
 
       setSettings(nextSettings);
@@ -364,6 +367,18 @@ export default function AdminZaloPage() {
                     onChange={(event) => setTemplatePaidId(event.target.value)}
                     className="portal-field"
                     placeholder="Template da thanh toan"
+                  />
+                </label>
+
+                <label className="grid gap-2 md:col-span-2">
+                  <span className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
+                    Template ID OTP
+                  </span>
+                  <input
+                    value={templateOtpId}
+                    onChange={(event) => setTemplateOtpId(event.target.value)}
+                    className="portal-field"
+                    placeholder="Template OTP dang nhap khach hang"
                   />
                 </label>
               </div>

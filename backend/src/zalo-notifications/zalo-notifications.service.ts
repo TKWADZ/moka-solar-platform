@@ -244,6 +244,88 @@ export class ZaloNotificationsService {
     return result;
   }
 
+  async sendOtpTemplate(options: {
+    actorId?: string;
+    phone: string;
+    otpCode: string;
+    requestId: string;
+    purpose: 'CUSTOMER_LOGIN' | 'CUSTOMER_REGISTER';
+    customerName?: string | null;
+    expiresInMinutes?: number;
+    dryRun?: boolean;
+  }) {
+    const config = await this.zaloSettingsService.resolveConfig();
+    const recipientPhone = this.normalizePhoneNumber(options.phone || '');
+    const templateId = config.templateIds.OTP;
+    const expiresInMinutes = Math.max(1, Number(options.expiresInMinutes || 5));
+    const shouldUseDevelopmentMode = Boolean(options.dryRun || config.dryRun);
+    const requestPayload = {
+      phone: recipientPhone,
+      template_id: templateId,
+      template_data: this.buildOtpTemplatePayload({
+        otpCode: options.otpCode,
+        expiresInMinutes,
+        customerName: options.customerName || 'Quy khach',
+        purpose: options.purpose,
+      }),
+      tracking_id: options.requestId,
+      ...(shouldUseDevelopmentMode ? { mode: 'development' } : {}),
+    };
+
+    if (!recipientPhone) {
+      return this.logAndReturnResult({
+        actorId: options.actorId,
+        customerId: null,
+        customerName: options.customerName || 'Quy khach',
+        templateType: 'OTP',
+        templateId,
+        recipientPhone: '',
+        dryRun: true,
+        requestPayload,
+        sendStatus: 'BLOCKED',
+        providerCode: 'MISSING_PHONE',
+        providerMessage: 'Can co so dien thoai de gui ma OTP qua Zalo.',
+        missingRequired: config.missingRequired,
+        missingRecommended: config.missingRecommended,
+      });
+    }
+
+    if (!templateId) {
+      return this.logAndReturnResult({
+        actorId: options.actorId,
+        customerId: null,
+        customerName: options.customerName || 'Quy khach',
+        templateType: 'OTP',
+        templateId,
+        recipientPhone,
+        dryRun: true,
+        requestPayload,
+        sendStatus: 'BLOCKED',
+        providerCode: 'MISSING_TEMPLATE_OTP',
+        providerMessage: 'Chua cau hinh ZALO_TEMPLATE_OTP_ID cho luong OTP.',
+        missingRequired: config.missingRequired,
+        missingRecommended: [
+          ...(config.missingRecommended || []),
+          'ZALO_TEMPLATE_OTP_ID',
+        ],
+      });
+    }
+
+    return this.sendTemplatePayload({
+      actorId: options.actorId,
+      customerId: null,
+      customerName: options.customerName || 'Quy khach',
+      templateType: 'OTP',
+      templateId,
+      recipientPhone,
+      requestPayload,
+      config,
+      forceDryRun: options.dryRun,
+      dryRunMissingMessage:
+        'Dry-run: OTP Zalo dang duoc test an toan tren moi truong hien tai.',
+    });
+  }
+
   async sendInvoiceNotification(options: {
     invoiceId: string;
     actorId?: string;
@@ -443,7 +525,7 @@ export class ZaloNotificationsService {
 
   private async getValidZaloAccessToken(params: {
     actorId?: string;
-    purpose: 'TEST' | 'INVOICE' | 'DIAGNOSTICS';
+    purpose: 'TEST' | 'INVOICE' | 'DIAGNOSTICS' | 'OTP';
     allowRefresh: boolean;
     config?: ResolvedZaloConfig;
     invalidTokenFingerprint?: string | null;
@@ -1333,6 +1415,8 @@ export class ZaloNotificationsService {
       action:
         params.templateType === 'TEST'
           ? 'ZALO_TEST_CONNECTION_SENT'
+          : params.templateType === 'OTP'
+            ? 'ZALO_OTP_SENT'
           : 'ZALO_INVOICE_NOTIFICATION_SENT',
       entityType: 'ZaloMessageLog',
       entityId: log.id,
@@ -1364,6 +1448,8 @@ export class ZaloNotificationsService {
       invalidTemplateFields: params.invalidTemplateFields || [],
       logId: log.id,
       sentAt: log.createdAt.toISOString(),
+      requestPayload: params.requestPayload || null,
+      responsePayload: responsePayloadWithValidation || null,
       debug: params.debug || null,
     };
   }
@@ -1515,6 +1601,21 @@ export class ZaloNotificationsService {
       due_date: params.dueDate || '',
       payment_link: params.paymentLink || '',
       hotline: params.hotline || '',
+    } satisfies Record<string, string>;
+  }
+
+  private buildOtpTemplatePayload(params: {
+    otpCode: string;
+    expiresInMinutes: number;
+    customerName: string;
+    purpose: 'CUSTOMER_LOGIN' | 'CUSTOMER_REGISTER';
+  }) {
+    return {
+      otp_code: params.otpCode,
+      otp: params.otpCode,
+      customer_name: params.customerName,
+      expires_in_minutes: String(params.expiresInMinutes),
+      purpose: params.purpose === 'CUSTOMER_REGISTER' ? 'register' : 'login',
     } satisfies Record<string, string>;
   }
 

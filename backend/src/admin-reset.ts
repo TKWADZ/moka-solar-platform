@@ -1,6 +1,10 @@
 import './common/helpers/bootstrap-env';
 import * as bcrypt from 'bcrypt';
 import { PrismaClient } from '@prisma/client';
+import {
+  normalizeEmail,
+  normalizeVietnamPhone,
+} from './common/helpers/identity.helper';
 
 const prisma = new PrismaClient();
 
@@ -9,7 +13,8 @@ function readEnv(name: string) {
 }
 
 async function main() {
-  const email = (readEnv('BOOTSTRAP_ADMIN_EMAIL') || 'admin@mokasolar.com').toLowerCase();
+  const email = normalizeEmail(readEnv('BOOTSTRAP_ADMIN_EMAIL') || 'admin@mokasolar.com');
+  const phone = normalizeVietnamPhone(readEnv('BOOTSTRAP_ADMIN_PHONE'));
   const password = readEnv('BOOTSTRAP_ADMIN_PASSWORD') || '123456';
   const fullName = readEnv('BOOTSTRAP_ADMIN_NAME') || 'Moka Operations Admin';
 
@@ -21,29 +26,53 @@ async function main() {
 
   const passwordHash = await bcrypt.hash(password, 10);
 
-  const user = await prisma.user.upsert({
-    where: { email },
-    update: {
-      fullName,
-      passwordHash,
-      roleId: adminRole.id,
-      deletedAt: null,
-    },
-    create: {
-      email,
-      fullName,
-      passwordHash,
-      roleId: adminRole.id,
-    },
-    include: {
-      role: true,
-    },
-  });
+  const existingUser =
+    (email
+      ? await prisma.user.findUnique({
+          where: { email },
+        })
+      : null) ||
+    (phone
+      ? await prisma.user.findUnique({
+          where: { phone },
+        })
+      : null);
+
+  const user = existingUser
+    ? await prisma.user.update({
+        where: { id: existingUser.id },
+        data: {
+          email,
+          phone,
+          phoneVerifiedAt: phone ? new Date() : null,
+          fullName,
+          passwordHash,
+          roleId: adminRole.id,
+          deletedAt: null,
+        },
+        include: {
+          role: true,
+        },
+      })
+    : await prisma.user.create({
+        data: {
+          email,
+          phone,
+          phoneVerifiedAt: phone ? new Date() : null,
+          fullName,
+          passwordHash,
+          roleId: adminRole.id,
+        },
+        include: {
+          role: true,
+        },
+      });
 
   console.log(
     JSON.stringify(
       {
         email: user.email,
+        phone: user.phone,
         fullName: user.fullName,
         role: user.role.code,
         reset: true,

@@ -8,6 +8,11 @@ import {
   generateCode,
 } from '../common/helpers/domain.helper';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
+import {
+  isValidEmail,
+  normalizeEmail,
+  normalizeVietnamPhone,
+} from '../common/helpers/identity.helper';
 import { normalizePercentRate } from '../common/helpers/billing.helper';
 
 const safeRoleSelect = {
@@ -84,6 +89,9 @@ export class CustomersService {
   }
 
   async create(dto: CreateCustomerDto, actorId?: string) {
+    const email = this.normalizeOptionalEmail(dto.email);
+    const phone = this.normalizeOptionalPhone(dto.phone);
+    this.ensureCustomerIdentity({ email, phone });
     const normalizedVatRate =
       dto.defaultVatRate !== undefined
         ? normalizePercentRate(dto.defaultVatRate)
@@ -91,13 +99,7 @@ export class CustomersService {
           ? normalizePercentRate(dto.defaultTaxAmount)
           : null;
 
-    const existingUser = await this.prisma.user.findUnique({
-      where: { email: dto.email },
-    });
-
-    if (existingUser) {
-      throw new BadRequestException('Email already exists');
-    }
+    await this.ensureIdentityIsAvailable({ email, phone });
 
     const role = await this.prisma.role.findFirst({
       where: { code: 'CUSTOMER' },
@@ -136,9 +138,9 @@ export class CustomersService {
           : {}),
         user: {
           create: {
-            email: dto.email,
-            fullName: dto.fullName,
-            phone: dto.phone,
+            email,
+            fullName: dto.fullName.trim(),
+            phone,
             passwordHash,
             roleId: role.id,
           },
@@ -157,7 +159,8 @@ export class CustomersService {
       entityType: 'Customer',
       entityId: customer.id,
       payload: {
-        email: dto.email,
+        email,
+        phone,
         companyName: dto.companyName,
       },
       afterState: this.serializeCustomerAuditState(customer),
@@ -184,24 +187,27 @@ export class CustomersService {
   }
 
   async update(id: string, dto: UpdateCustomerDto, actorId?: string) {
+    const customer = await this.findOne(id);
+    const email =
+      dto.email === undefined
+        ? customer.user.email || null
+        : this.normalizeOptionalEmail(dto.email);
+    const phone =
+      dto.phone === undefined
+        ? customer.user.phone || null
+        : this.normalizeOptionalPhone(dto.phone);
+    this.ensureCustomerIdentity({ email, phone });
+    await this.ensureIdentityIsAvailable({
+      email,
+      phone,
+      excludeUserId: customer.userId,
+    });
     const normalizedVatRate =
       dto.defaultVatRate !== undefined
         ? normalizePercentRate(dto.defaultVatRate)
         : dto.defaultTaxAmount !== undefined
           ? normalizePercentRate(dto.defaultTaxAmount)
           : undefined;
-
-    const customer = await this.findOne(id);
-
-    if (dto.email && dto.email !== customer.user.email) {
-      const existingUser = await this.prisma.user.findUnique({
-        where: { email: dto.email },
-      });
-
-      if (existingUser) {
-        throw new BadRequestException('Email already exists');
-      }
-    }
 
     if (dto.ownerUserId) {
       await this.ensureOwnerExists(dto.ownerUserId);
@@ -237,9 +243,9 @@ export class CustomersService {
               }),
         user: {
           update: {
-            email: dto.email,
-            fullName: dto.fullName,
-            phone: dto.phone,
+            email,
+            fullName: dto.fullName?.trim(),
+            phone,
             ...(passwordHash ? { passwordHash } : {}),
           },
         },
@@ -339,7 +345,65 @@ export class CustomersService {
       installationAddress: customer.installationAddress || null,
       billingAddress: customer.billingAddress || null,
       email: customer.user?.email || null,
+      phone: customer.user?.phone || null,
       fullName: customer.user?.fullName || null,
     };
+  }
+
+  private normalizeOptionalEmail(value?: string | null) {
+    if (value === undefined || value === null || String(value).trim() === '') {
+      return null;
+    }
+
+    if (!isValidEmail(value)) {
+      throw new BadRequestException('Email is invalid');
+    }
+
+    return normalizeEmail(value);
+  }
+
+  private normalizeOptionalPhone(value?: string | null) {
+    if (value === undefined || value === null || String(value).trim() === '') {
+      return null;
+    }
+
+    const phone = normalizeVietnamPhone(value);
+    if (!phone) {
+      throw new BadRequestException('Vietnamese phone number is invalid');
+    }
+
+    return phone;
+  }
+
+  private ensureCustomerIdentity(params: { email: string | null; phone: string | null }) {
+    if (!params.email && !params.phone) {
+      throw new BadRequestException('Customer must have at least an email or phone number');
+    }
+  }
+
+  private async ensureIdentityIsAvailable(params: {
+    email: string | null;
+    phone: string | null;
+    excludeUserId?: string;
+  }) {
+    if (params.email) {
+      const existingByEmail = await this.prisma.user.findUnique({
+        where: { email: params.email },
+      });
+
+      if (existingByEmail && existingByEmail.id !== params.excludeUserId) {
+        throw new BadRequestException('Email already exists');
+      }
+    }
+
+    if (params.phone) {
+      const existingByPhone = await this.prisma.user.findUnique({
+        where: { phone: params.phone },
+      });
+
+      if (existingByPhone && existingByPhone.id !== params.excludeUserId) {
+        throw new BadRequestException('Phone already exists');
+      }
+    }
   }
 }
