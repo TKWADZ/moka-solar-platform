@@ -113,6 +113,11 @@ type LinkageContext = {
   contract: any | null;
 };
 
+type SystemSyncUpdateResult = {
+  system: any;
+  warnings: string[];
+};
+
 const BILLING_SOURCE_OPTIONS: Array<{
   value: BillingMetricSource;
   label: string;
@@ -825,6 +830,7 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
       await this.upsertNormalizedMetrics(refreshedConnection, result, normalized);
 
       let updatedSystem = null;
+      let systemWarnings: string[] = [];
       let systemUpdated = false;
       let dailySynced = 0;
       let monthlySynced = 0;
@@ -832,11 +838,13 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
       let billingWarnings: string[] = [];
 
       if (refreshedConnection.solarSystemId) {
-        updatedSystem = await this.applySnapshotToSystem(
+        const systemUpdate = await this.applySnapshotToSystem(
           refreshedConnection,
           result.snapshot,
           normalized,
         );
+        updatedSystem = systemUpdate.system;
+        systemWarnings = systemUpdate.warnings;
         systemUpdated = true;
         dailySynced = await this.syncDailyEnergyRecords(refreshedConnection, normalized.daily);
         const monthlyResult = await this.syncMonthlyRecordsAndBillings(
@@ -881,11 +889,11 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
           lastError: null,
           lastProviderResponse: {
             snapshot: result.snapshot,
-            plantDetail: result.plantDetail,
-            warnings: result.warnings,
-            billingWarnings,
-          } as any,
-        },
+          plantDetail: result.plantDetail,
+          warnings: [...result.warnings, ...systemWarnings],
+          billingWarnings,
+        } as any,
+      },
         include: this.includeRelations(),
       });
 
@@ -896,7 +904,7 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
           : 'Da luu raw payload va normalized metrics. Connection chua duoc link voi system de sync billing.',
         context: {
           sessionMode: result.sessionMode,
-          warnings: [...result.warnings, ...billingWarnings],
+          warnings: [...result.warnings, ...systemWarnings, ...billingWarnings],
           plantId: result.snapshot.plantId,
           serialNumber: result.snapshot.serialNumber,
           systemUpdated,
@@ -935,7 +943,7 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
         connection: this.serializeConnection(nextConnection),
         snapshot: result.snapshot,
         plantDetail: result.plantDetail,
-        warnings: [...result.warnings, ...billingWarnings],
+        warnings: [...result.warnings, ...systemWarnings, ...billingWarnings],
         sessionMode: result.sessionMode,
         systemUpdated,
         dailySynced,
@@ -965,7 +973,7 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
     connection: LuxPowerConnectionRecord,
     snapshot: LuxPowerSnapshot,
     normalized: NormalizedBundle,
-  ) {
+  ): Promise<SystemSyncUpdateResult> {
     const system = await this.prisma.solarSystem.findFirst({
       where: {
         id: connection.solarSystemId,
@@ -1006,14 +1014,21 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
       snapshot.inverterStatus,
       snapshot.runtimeRecordedAt ? new Date(snapshot.runtimeRecordedAt) : syncTime,
     );
+    const desiredStationId = snapshot.plantId || system.stationId || null;
+    const stationBinding = await this.resolveLuxPowerSystemBinding(
+      system.id,
+      desiredStationId,
+      system.sourceSystem || null,
+      system.stationId || null,
+    );
 
-    return this.prisma.solarSystem.update({
+    const updatedSystem = await this.prisma.solarSystem.update({
       where: { id: system.id },
       data: {
         monitoringProvider: 'LUXPOWER',
         monitoringPlantId: snapshot.plantId || snapshot.serialNumber,
-        sourceSystem: 'LUXPOWER',
-        stationId: snapshot.plantId || system.stationId,
+        sourceSystem: stationBinding.sourceSystem,
+        stationId: stationBinding.stationId,
         stationName: snapshot.plantName || system.stationName || system.name,
         inverterBrand: system.inverterBrand || 'LuxPower',
         currentGenerationPowerKw:
@@ -1077,16 +1092,22 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
           connectionStatus,
           dataScopes: {
             ...existingScopes,
-            station: Boolean(snapshot.plantId || snapshot.serialNumber),
+            station: stationBinding.sourceSystem === 'LUXPOWER' && Boolean(stationBinding.stationId),
             realtime: true,
             daily: normalized.daily.length > 0,
             monthly: normalized.monthly.length > 0,
             billing: Boolean(connection.contractId && billingSourceValue),
           },
+          syncWarnings: stationBinding.warnings,
           raw: snapshot.raw,
         } as any,
       },
     });
+
+    return {
+      system: updatedSystem,
+      warnings: stationBinding.warnings,
+    };
   }
 
   private normalizeBundle(result: LuxPowerMonitoringBundle): NormalizedBundle {
@@ -2697,6 +2718,53 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
         orderBy: { createdAt: 'desc' as const },
         take: 16,
       },
+    };
+  }
+
+  private async resolveLuxPowerSystemBinding(
+    systemId: string,
+    desiredStationId: string | null,
+    currentSourceSystem: string | null,
+    currentStationId: string | null,
+  ) {
+    if (!desiredStationId) {
+      return {
+        sourceSystem: currentSourceSystem,
+        stationId: currentStationId,
+        warnings: ['LuxPower sync khong tim thay plant ID de gan vao system.'],
+      };
+    }
+
+    const conflict = await this.prisma.solarSystem.findFirst({
+      where: {
+        deletedAt: null,
+        sourceSystem: 'LUXPOWER',
+        stationId: desiredStationId,
+        NOT: {
+          id: systemId,
+        },
+      },
+      select: {
+        id: true,
+        name: true,
+        systemCode: true,
+      },
+    });
+
+    if (!conflict) {
+      return {
+        sourceSystem: 'LUXPOWER' as string | null,
+        stationId: desiredStationId,
+        warnings: [] as string[],
+      };
+    }
+
+    return {
+      sourceSystem: currentSourceSystem,
+      stationId: currentStationId,
+      warnings: [
+        `Plant ${desiredStationId} da dang duoc gan voi system ${conflict.name || conflict.systemCode || conflict.id}. Sync van tiep tuc, nhung binding sourceSystem/stationId tren system hien tai tam thoi khong duoc ghi de tranh xung dot.`,
+      ],
     };
   }
 
