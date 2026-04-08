@@ -1,4 +1,9 @@
-export type OtpProviderPurpose = 'CUSTOMER_LOGIN' | 'CUSTOMER_REGISTER';
+export type OtpProviderPurpose =
+  | 'CUSTOMER_LOGIN'
+  | 'CUSTOMER_REGISTER'
+  | 'CUSTOMER_PASSWORD_RESET'
+  | 'CUSTOMER_PHONE_VERIFICATION'
+  | 'CUSTOMER_SENSITIVE_ACTION';
 
 export type OtpSendParams = {
   requestId: string;

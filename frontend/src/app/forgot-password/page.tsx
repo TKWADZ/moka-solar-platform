@@ -2,9 +2,9 @@
 
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { ArrowLeft, CheckCircle2, ShieldCheck, Smartphone } from 'lucide-react';
+import { ArrowLeft, KeyRound, ShieldCheck, Smartphone } from 'lucide-react';
 import { LanguageSwitcher } from '@/components/language-switcher';
-import { requestRegisterOtpRequest, verifyRegisterOtpRequest } from '@/lib/api';
+import { requestPasswordResetOtpRequest, resetPasswordWithOtpRequest } from '@/lib/api';
 import { getDefaultRouteForRole, getSession, saveSession } from '@/lib/auth';
 
 function normalizeVietnamPhoneCandidate(value: string) {
@@ -49,10 +49,8 @@ function formatDateTime(value?: string | null) {
   }
 }
 
-export default function RegisterPage() {
-  const [fullName, setFullName] = useState('');
+export default function ForgotPasswordPage() {
   const [phone, setPhone] = useState('');
-  const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [otpCode, setOtpCode] = useState('');
@@ -94,18 +92,13 @@ export default function RegisterPage() {
   async function handleRequestOtp(event?: React.SyntheticEvent) {
     event?.preventDefault();
 
-    if (!fullName.trim()) {
-      setError('Vui lòng nhập họ và tên.');
-      return;
-    }
-
     if (!normalizedPhone) {
       setError('Vui lòng nhập số điện thoại Việt Nam hợp lệ.');
       return;
     }
 
     if (password.trim().length < 6) {
-      setError('Mật khẩu cần ít nhất 6 ký tự.');
+      setError('Mật khẩu mới cần ít nhất 6 ký tự.');
       return;
     }
 
@@ -119,12 +112,7 @@ export default function RegisterPage() {
     setHint('');
 
     try {
-      const result = await requestRegisterOtpRequest({
-        fullName: fullName.trim(),
-        phone: normalizedPhone,
-        email: email.trim() || undefined,
-      });
-
+      const result = await requestPasswordResetOtpRequest(normalizedPhone);
       setRequestId(result.requestId);
       setExpiresAt(result.expiresAt);
       setResendAvailableAt(result.resendAvailableAt);
@@ -145,7 +133,7 @@ export default function RegisterPage() {
     }
   }
 
-  async function handleVerifyOtp(event: React.FormEvent) {
+  async function handleResetPassword(event: React.FormEvent) {
     event.preventDefault();
 
     if (!normalizedPhone) {
@@ -154,7 +142,7 @@ export default function RegisterPage() {
     }
 
     if (!requestId) {
-      setError('Vui lòng nhận mã OTP trước khi xác thực.');
+      setError('Vui lòng yêu cầu OTP trước khi đặt lại mật khẩu.');
       return;
     }
 
@@ -168,7 +156,7 @@ export default function RegisterPage() {
     setHint('');
 
     try {
-      const session = await verifyRegisterOtpRequest({
+      const session = await resetPasswordWithOtpRequest({
         phone: normalizedPhone,
         otpCode: otpCode.trim(),
         requestId,
@@ -180,7 +168,7 @@ export default function RegisterPage() {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : 'Không thể xác thực OTP. Vui lòng thử lại.',
+          : 'Không thể đặt lại mật khẩu. Vui lòng thử lại.',
       );
     } finally {
       setLoading(false);
@@ -191,7 +179,7 @@ export default function RegisterPage() {
     <main className="shell flex min-h-screen items-center justify-center py-12">
       <div className="surface-card-strong w-full max-w-3xl p-8">
         <div className="flex items-center justify-between gap-4">
-          <p className="eyebrow text-slate-500">Đăng ký khách hàng qua Zalo OTP</p>
+          <p className="eyebrow text-slate-500">Quên mật khẩu khách hàng</p>
           <LanguageSwitcher />
         </div>
 
@@ -208,20 +196,14 @@ export default function RegisterPage() {
         <div className="mt-5 grid gap-6 lg:grid-cols-[1.1fr_0.9fr]">
           <div>
             <h1 className="text-3xl font-semibold text-slate-950">
-              Tạo tài khoản khách hàng bằng số điện thoại
+              Đặt lại mật khẩu bằng OTP Zalo
             </h1>
             <p className="mt-2 text-sm leading-6 text-slate-600">
-              Nhập thông tin cơ bản, nhận OTP qua Zalo để xác minh số điện thoại, sau đó dùng số
-              điện thoại và mật khẩu để đăng nhập hằng ngày.
+              Nhập số điện thoại khách hàng, nhận OTP qua Zalo, rồi tạo mật khẩu mới để tiếp tục sử
+              dụng customer portal hằng ngày.
             </p>
 
-            <form onSubmit={requestId ? handleVerifyOtp : handleRequestOtp} className="mt-8 grid gap-4">
-              <input
-                className="field"
-                placeholder="Họ và tên"
-                value={fullName}
-                onChange={(event) => setFullName(event.target.value)}
-              />
+            <form onSubmit={requestId ? handleResetPassword : handleRequestOtp} className="mt-8 grid gap-4">
               <input
                 className="field"
                 placeholder="Số điện thoại"
@@ -232,14 +214,7 @@ export default function RegisterPage() {
               />
               <input
                 className="field"
-                placeholder="Email (không bắt buộc)"
-                value={email}
-                onChange={(event) => setEmail(event.target.value)}
-                autoComplete="email"
-              />
-              <input
-                className="field"
-                placeholder="Mật khẩu"
+                placeholder="Mật khẩu mới"
                 type="password"
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
@@ -247,17 +222,12 @@ export default function RegisterPage() {
               />
               <input
                 className="field"
-                placeholder="Nhập lại mật khẩu"
+                placeholder="Nhập lại mật khẩu mới"
                 type="password"
                 value={confirmPassword}
                 onChange={(event) => setConfirmPassword(event.target.value)}
                 autoComplete="new-password"
               />
-
-              <div className="rounded-[20px] border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
-                OTP có hiệu lực trong 5 phút. Mỗi số điện thoại cần chờ 60 giây mới có thể yêu cầu
-                lại mã mới.
-              </div>
 
               {requestId ? (
                 <>
@@ -287,10 +257,10 @@ export default function RegisterPage() {
                 <button className="btn-dark" disabled={loading}>
                   {loading
                     ? requestId
-                      ? 'Đang xác thực...'
+                      ? 'Đang đặt lại mật khẩu...'
                       : 'Đang gửi OTP...'
                     : requestId
-                      ? 'Xác thực và tạo tài khoản'
+                      ? 'Đặt lại mật khẩu'
                       : 'Nhận OTP qua Zalo'}
                 </button>
                 {requestId ? (
@@ -311,25 +281,25 @@ export default function RegisterPage() {
 
           <div className="rounded-[28px] border border-slate-200 bg-slate-50 p-6">
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-white text-slate-950 shadow-sm">
-              <Smartphone className="h-6 w-6" />
+              <KeyRound className="h-6 w-6" />
             </div>
-            <h2 className="mt-5 text-xl font-semibold text-slate-950">Quy trình gọn và an toàn</h2>
+            <h2 className="mt-5 text-xl font-semibold text-slate-950">Bảo mật theo đúng mục đích</h2>
             <div className="mt-5 grid gap-3">
               {[
                 {
-                  icon: CheckCircle2,
-                  title: 'Số điện thoại là định danh chính',
-                  body: 'Hệ thống chuẩn hóa số điện thoại Việt Nam trước khi lưu và trước khi tra cứu.',
+                  icon: Smartphone,
+                  title: 'OTP chỉ dùng khi cần xác minh',
+                  body: 'Đăng nhập hằng ngày vẫn là số điện thoại + mật khẩu, OTP chỉ dùng cho các bước nhạy cảm.',
                 },
                 {
                   icon: ShieldCheck,
-                  title: 'OTP chỉ để xác minh',
-                  body: 'OTP Zalo dùng để đăng ký, quên mật khẩu hoặc các bước nhạy cảm.',
+                  title: 'Mã có thời hạn và giới hạn thử',
+                  body: 'OTP có hiệu lực 5 phút, mỗi yêu cầu chỉ tối đa 5 lần nhập sai.',
                 },
                 {
-                  icon: CheckCircle2,
-                  title: 'Đăng nhập hằng ngày bằng mật khẩu',
-                  body: 'Sau khi kích hoạt, khách hàng chỉ cần số điện thoại và mật khẩu để vào portal.',
+                  icon: KeyRound,
+                  title: 'Đặt lại xong vào lại ngay',
+                  body: 'Sau khi xác minh thành công, hệ thống tạo phiên đăng nhập mới cho khách hàng.',
                 },
               ].map((item) => (
                 <div

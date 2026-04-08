@@ -6,21 +6,28 @@ This document describes the current authentication split for Moka Solar.
 
 ### Customer portal
 
-Customer login is phone-first and OTP-first.
+Customer daily login now uses phone number + password.
 
 - Login field: `Số điện thoại`
-- Channel: `Zalo OTP`
-- OTP length: `6 digits`
-- OTP TTL: `5 minutes` by default
-- Resend cooldown: `60 seconds` by default
-- Max verify attempts per OTP request: `5`
+- Daily login method: `Phone + password`
+- Zalo OTP is used only for:
+  - account registration
+  - forgot password
+  - phone verification
+  - suspicious login or sensitive actions
 
-Supported endpoints:
+Supported customer endpoints:
+
+- `POST /api/auth/login`
+- `POST /api/auth/register-otp/request`
+- `POST /api/auth/register-otp/verify`
+- `POST /api/auth/password-reset/request`
+- `POST /api/auth/password-reset/verify`
+
+Reserved OTP step-up endpoints:
 
 - `POST /api/auth/login-otp/request`
 - `POST /api/auth/login-otp/verify`
-- `POST /api/auth/register-otp/request`
-- `POST /api/auth/register-otp/verify`
 
 ### Admin / Manager / Staff / Super Admin
 
@@ -34,9 +41,46 @@ Supported endpoint:
 
 - `POST /api/auth/login`
 
-## Data model
+## Main flows
 
-### User identifiers
+### 1. Register with phone -> verify OTP -> set password
+
+1. Call `POST /api/auth/register-otp/request`
+2. Receive Zalo OTP request metadata
+3. Call `POST /api/auth/register-otp/verify` with:
+   - `phone`
+   - `requestId`
+   - `otpCode`
+   - `password`
+4. Backend creates customer account, marks `phoneVerifiedAt`, and creates session/JWT
+
+### 2. Login with phone + password
+
+1. Call `POST /api/auth/login`
+2. Send:
+   - `identifier` = normalized Vietnamese phone number or raw phone input
+   - `password`
+3. Backend detects `PHONE` automatically
+4. Backend creates tracked session and JWT
+
+### 3. Forgot password with phone -> OTP -> reset password
+
+1. Call `POST /api/auth/password-reset/request`
+2. Receive Zalo OTP request metadata
+3. Call `POST /api/auth/password-reset/verify` with:
+   - `phone`
+   - `requestId`
+   - `otpCode`
+   - `password`
+4. Backend resets password, revokes active sessions, verifies phone if needed, and creates a fresh session/JWT
+
+## Password security
+
+- Passwords are hashed with `bcrypt`
+- OTP codes are hashed with `bcrypt`
+- Raw OTP codes are never stored in plaintext in the database
+
+## User identifiers
 
 Each user can store both:
 
@@ -47,7 +91,7 @@ Rules:
 
 - `email` is unique when present
 - `phone` is unique when present
-- customer phone is normalized before lookup and before save
+- Vietnamese phone numbers are normalized before save and before lookup
 
 Examples:
 
@@ -55,22 +99,16 @@ Examples:
 - `+84912345678` -> `84912345678`
 - `84 912 345 678` -> `84912345678`
 
-### Phone verification
-
-On successful customer OTP verification:
-
-- `user.phoneVerifiedAt` is set
-- JWT session is created immediately
-
-## OTP storage
+## Customer OTP storage
 
 OTP requests are stored in `otp_requests` via Prisma model `OtpRequest`.
 
 Stored fields include:
 
 - hashed OTP (`codeHash`)
-- purpose (`CUSTOMER_LOGIN` or `CUSTOMER_REGISTER`)
+- purpose
 - phone
+- email / full name snapshot when needed
 - IP / user agent
 - resend cooldown timestamp
 - verify attempt count
@@ -78,7 +116,38 @@ Stored fields include:
 - request payload
 - provider response payload
 
-Raw OTP codes are never stored in plaintext in the database.
+## Login rate limiting and lockout
+
+Password logins are protected by:
+
+- identifier-based rate limiting
+- IP-based rate limiting
+- account lockout after repeated failed password attempts
+
+Recommended env vars:
+
+- `AUTH_LOGIN_RATE_LIMIT_WINDOW_MINUTES`
+- `AUTH_LOGIN_RATE_LIMIT_IDENTIFIER_MAX`
+- `AUTH_LOGIN_RATE_LIMIT_IP_MAX`
+- `AUTH_LOGIN_LOCKOUT_THRESHOLD`
+- `AUTH_LOGIN_LOCKOUT_MINUTES`
+
+## Device and session tracking
+
+Sessions are tracked in `AuthSession`.
+
+Tracked fields include:
+
+- auth method
+- identifier type
+- IP address
+- user agent
+- derived device label
+- refresh token hash
+- last seen time
+- revoke state
+
+Failed and successful login attempts are tracked in `AuthLoginAttempt`.
 
 ## OTP provider abstraction
 
@@ -95,7 +164,16 @@ Current provider behavior:
 
 ## Required env vars
 
-General OTP:
+General auth:
+
+- `JWT_SECRET`
+- `AUTH_LOGIN_RATE_LIMIT_WINDOW_MINUTES`
+- `AUTH_LOGIN_RATE_LIMIT_IDENTIFIER_MAX`
+- `AUTH_LOGIN_RATE_LIMIT_IP_MAX`
+- `AUTH_LOGIN_LOCKOUT_THRESHOLD`
+- `AUTH_LOGIN_LOCKOUT_MINUTES`
+
+OTP:
 
 - `AUTH_OTP_TTL_MINUTES`
 - `AUTH_OTP_MAX_ATTEMPTS`
@@ -116,13 +194,17 @@ Zalo OTP:
 - `ZALO_API_BASE_URL`
 - `ZALO_TEMPLATE_OTP_ID`
 
+Public auth UI:
+
+- `NEXT_PUBLIC_ENABLE_SELF_REGISTER=true`
+
 ## Admin configuration
 
 Zalo settings are managed in admin:
 
 - `/admin/zalo`
 
-Recommended configured fields for OTP:
+Required OTP-related settings:
 
 - `App ID`
 - `App Secret`
@@ -140,10 +222,8 @@ Recommended local-safe setup:
 
 Then verify:
 
-1. Customer login page only asks for phone + OTP.
-2. Internal login page uses email + password.
-3. `POST /api/auth/login-otp/request` returns `requestId`, `expiresAt`, `resendAvailableAt`.
-4. `POST /api/auth/login-otp/verify` creates a valid customer session.
-5. `POST /api/auth/register-otp/request` creates a register OTP request.
-6. `POST /api/auth/register-otp/verify` creates a customer account and session.
-7. Backend and frontend `npm run build` both pass.
+1. Customer login page uses `Số điện thoại + mật khẩu`
+2. Customer register page uses OTP only for verification
+3. Customer forgot password page uses OTP only for reset
+4. Internal login page uses email + password
+5. Backend and frontend `npm run build` both pass

@@ -249,7 +249,12 @@ export class ZaloNotificationsService {
     phone: string;
     otpCode: string;
     requestId: string;
-    purpose: 'CUSTOMER_LOGIN' | 'CUSTOMER_REGISTER';
+    purpose:
+      | 'CUSTOMER_LOGIN'
+      | 'CUSTOMER_REGISTER'
+      | 'CUSTOMER_PASSWORD_RESET'
+      | 'CUSTOMER_PHONE_VERIFICATION'
+      | 'CUSTOMER_SENSITIVE_ACTION';
     customerName?: string | null;
     expiresInMinutes?: number;
     dryRun?: boolean;
@@ -1608,14 +1613,30 @@ export class ZaloNotificationsService {
     otpCode: string;
     expiresInMinutes: number;
     customerName: string;
-    purpose: 'CUSTOMER_LOGIN' | 'CUSTOMER_REGISTER';
+    purpose:
+      | 'CUSTOMER_LOGIN'
+      | 'CUSTOMER_REGISTER'
+      | 'CUSTOMER_PASSWORD_RESET'
+      | 'CUSTOMER_PHONE_VERIFICATION'
+      | 'CUSTOMER_SENSITIVE_ACTION';
   }) {
+    const purposeLabel =
+      params.purpose === 'CUSTOMER_REGISTER'
+        ? 'register'
+        : params.purpose === 'CUSTOMER_PASSWORD_RESET'
+          ? 'password_reset'
+          : params.purpose === 'CUSTOMER_PHONE_VERIFICATION'
+            ? 'phone_verification'
+            : params.purpose === 'CUSTOMER_SENSITIVE_ACTION'
+              ? 'step_up'
+              : 'login';
+
     return {
       otp_code: params.otpCode,
       otp: params.otpCode,
       customer_name: params.customerName,
       expires_in_minutes: String(params.expiresInMinutes),
-      purpose: params.purpose === 'CUSTOMER_REGISTER' ? 'register' : 'login',
+      purpose: purposeLabel,
     } satisfies Record<string, string>;
   }
 

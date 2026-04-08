@@ -148,6 +148,9 @@ enum LoginOtpPurpose {
 enum OtpRequestPurpose {
   CUSTOMER_LOGIN
   CUSTOMER_REGISTER
+  CUSTOMER_PASSWORD_RESET
+  CUSTOMER_PHONE_VERIFICATION
+  CUSTOMER_SENSITIVE_ACTION
 }
 
 enum OtpRequestStatus {
@@ -178,6 +181,11 @@ model User {
   phone        String?     @unique
   phoneVerifiedAt DateTime?
   refreshToken String?
+  failedPasswordLoginCount Int @default(0)
+  lockedUntil DateTime?
+  lastLoginAt DateTime?
+  lastLoginIp String?
+  lastLoginUserAgent String?
   roleId       String
   role         Role        @relation(fields: [roleId], references: [id])
   customer     Customer?   @relation("CustomerAccount")
@@ -204,6 +212,8 @@ model User {
   updatedZaloProviderConfigs ZaloProviderConfig[] @relation("ZaloProviderConfigUpdatedBy")
   loginOtpChallenges LoginOtpChallenge[]
   otpRequests   OtpRequest[]
+  authSessions  AuthSession[]
+  authLoginAttempts AuthLoginAttempt[]
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
   deletedAt    DateTime?
@@ -1203,8 +1213,49 @@ model AuditLog {
     @@index([userId])
     @@index([entityType])
     @@index([moduleKey])
-    @@index([createdAt])
-  }
+  @@index([createdAt])
+}
+
+model AuthSession {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  authMethod       String
+  identifierType   String?
+  identifierValue  String?
+  ipAddress        String?
+  userAgent        String?
+  deviceLabel      String?
+  refreshTokenHash String
+  lastSeenAt       DateTime @default(now())
+  expiresAt        DateTime
+  revokedAt        DateTime?
+  revokedReason    String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+}
+
+model AuthLoginAttempt {
+  id              String   @id @default(cuid())
+  userId          String?
+  user            User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  authMethod      String
+  identifierType  String
+  identifierValue String?
+  ipAddress       String?
+  userAgent       String?
+  success         Boolean
+  outcome         String
+  failureReason   String?
+  createdAt       DateTime @default(now())
+
+  @@index([identifierType, identifierValue, createdAt])
+  @@index([ipAddress, createdAt])
+  @@index([userId, createdAt])
+}
 
 model InternalNote {
     id              String   @id @default(cuid())

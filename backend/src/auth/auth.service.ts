@@ -1,9 +1,9 @@
 import {
   BadRequestException,
-  Inject,
-  Injectable,
   HttpException,
   HttpStatus,
+  Inject,
+  Injectable,
   ServiceUnavailableException,
   UnauthorizedException,
 } from '@nestjs/common';
@@ -11,7 +11,7 @@ import { JwtService } from '@nestjs/jwt';
 import { OtpRequestPurpose, OtpRequestStatus, Prisma } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
 import * as bcrypt from 'bcrypt';
-import { resolvePermissionsForRole } from '../common/auth/permissions';
+import { AppRoleCode, resolvePermissionsForRole } from '../common/auth/permissions';
 import {
   detectLoginIdentifierKind,
   isValidEmail,
@@ -22,6 +22,7 @@ import {
 } from '../common/helpers/identity.helper';
 import { generateCode } from '../common/helpers/domain.helper';
 import { RequestContextService } from '../common/request-context/request-context.service';
+import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { RegisterDto } from './dto/register.dto';
@@ -30,6 +31,42 @@ import { VerifyLoginOtpDto } from './dto/verify-login-otp.dto';
 import { OTP_PROVIDER, OtpProvider } from './otp/otp-provider.interface';
 import { RequestRegisterOtpDto } from './dto/request-register-otp.dto';
 import { VerifyRegisterOtpDto } from './dto/verify-register-otp.dto';
+import { RequestPasswordResetOtpDto } from './dto/request-password-reset-otp.dto';
+import { ResetPasswordWithOtpDto } from './dto/reset-password-with-otp.dto';
+
+type AuthUser = Prisma.UserGetPayload<{
+  include: {
+    role: true;
+    customer: true;
+  };
+}>;
+
+type ResolvedIdentifier =
+  | {
+      kind: 'EMAIL';
+      value: string;
+      email: string;
+      phone: null;
+      legacyPhone: null;
+    }
+  | {
+      kind: 'PHONE';
+      value: string;
+      email: null;
+      phone: string;
+      legacyPhone: string | null;
+    };
+
+type OtpSendResult = {
+  provider: string;
+  channel: 'ZALO';
+  sendStatus: 'SENT' | 'DRY_RUN' | 'FAILED' | 'BLOCKED';
+  providerCode?: string | null;
+  providerMessage: string;
+  requestPayload?: Record<string, unknown> | null;
+  responsePayload?: Record<string, unknown> | null;
+  debugCode?: string | null;
+};
 
 @Injectable()
 export class AuthService {
@@ -53,21 +90,16 @@ export class AuthService {
 
     await this.ensureIdentityIsAvailable({ email, phone });
 
-    const customerRole = await this.prisma.role.findFirst({
-      where: { code: 'CUSTOMER' },
-    });
-
-    if (!customerRole) {
-      throw new BadRequestException('Customer role not found');
-    }
-
+    const customerRole = await this.findRoleOrThrow('CUSTOMER');
     const passwordHash = await bcrypt.hash(dto.password, 10);
+
     const user = await this.prisma.user.create({
       data: {
         email,
         passwordHash,
         fullName: dto.fullName.trim(),
         phone,
+        phoneVerifiedAt: phone ? new Date() : null,
         roleId: customerRole.id,
         customer: {
           create: {
@@ -81,32 +113,53 @@ export class AuthService {
       },
     });
 
-    return this.buildAuthResponse(user);
+    return this.buildAuthResponse(user, {
+      authMethod: phone ? 'PHONE_PASSWORD' : 'EMAIL_PASSWORD',
+      identifierType: phone ? 'PHONE' : 'EMAIL',
+      identifierValue: phone || email,
+    });
   }
 
   async login(dto: LoginDto) {
     const identity = this.resolveIdentifier(dto.identifier);
-
-    if (identity.kind !== 'EMAIL' || !identity.email) {
-      throw new UnauthorizedException('Internal accounts must sign in with email');
-    }
+    await this.assertPasswordLoginAllowed(identity);
 
     const user = await this.findUserForIdentifier(identity);
+    const authMethod = identity.kind === 'PHONE' ? 'PHONE_PASSWORD' : 'EMAIL_PASSWORD';
 
     if (!user || user.deletedAt) {
+      await this.recordLoginAttempt({
+        userId: null,
+        authMethod,
+        identifierType: identity.kind,
+        identifierValue: identity.value,
+        success: false,
+        outcome: 'INVALID_CREDENTIALS',
+        failureReason: 'User not found',
+      });
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    if (user.role.code === 'CUSTOMER') {
-      throw new UnauthorizedException('Customers sign in with phone OTP');
-    }
+    this.assertUserCanUsePasswordLogin(user, identity.kind);
+    this.assertUserIsNotLocked(user);
 
     const matched = await bcrypt.compare(dto.password, user.passwordHash);
     if (!matched) {
+      await this.recordFailedPasswordLogin({
+        user,
+        authMethod,
+        identifierType: identity.kind,
+        identifierValue: identity.value,
+        failureReason: 'Invalid password',
+      });
       throw new UnauthorizedException('Invalid credentials');
     }
 
-    return this.buildAuthResponse(user);
+    return this.buildAuthResponse(user, {
+      authMethod,
+      identifierType: identity.kind,
+      identifierValue: identity.value,
+    });
   }
 
   async requestLoginOtp(dto: RequestLoginOtpDto) {
@@ -117,57 +170,14 @@ export class AuthService {
       throw new BadRequestException('Customer account for this phone number was not found');
     }
 
-    await this.ensureOtpRequestAllowed({ phone });
-    await this.expireActiveOtpRequests({
+    return this.createAndSendOtpRequest({
+      userId: user.id,
+      purpose: OtpRequestPurpose.CUSTOMER_SENSITIVE_ACTION,
       phone,
-      purpose: OtpRequestPurpose.CUSTOMER_LOGIN,
+      emailSnapshot: user.email,
+      fullNameSnapshot: user.fullName,
+      providerPurpose: 'CUSTOMER_SENSITIVE_ACTION',
     });
-
-    const otpCode = this.generateOtpCode();
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + this.getOtpTtlMinutes() * 60 * 1000);
-    const resendAvailableAt = new Date(
-      now.getTime() + this.getOtpResendCooldownSeconds() * 1000,
-    );
-    const requestContext = this.requestContextService.get();
-
-    const otpRequest = await this.prisma.otpRequest.create({
-      data: {
-        userId: user.id,
-        purpose: OtpRequestPurpose.CUSTOMER_LOGIN,
-        provider: this.otpProvider.name,
-        phone,
-        emailSnapshot: user.email,
-        fullNameSnapshot: user.fullName,
-        codeHash: await bcrypt.hash(otpCode, 10),
-        expiresAt,
-        resendAvailableAt,
-        maxAttempts: this.getOtpMaxAttempts(),
-        requestedIp: requestContext?.ipAddress || null,
-        requestedUserAgent: requestContext?.userAgent || null,
-        sendStatus: OtpRequestStatus.PENDING,
-      },
-    });
-
-    const sendResult = await this.otpProvider.sendOtp({
-      requestId: otpRequest.id,
-      phone,
-      otpCode,
-      expiresInMinutes: this.getOtpTtlMinutes(),
-      purpose: 'CUSTOMER_LOGIN',
-      fullName: user.fullName,
-      ipAddress: requestContext?.ipAddress || null,
-      userAgent: requestContext?.userAgent || null,
-    });
-
-    const updatedRequest = await this.prisma.otpRequest.update({
-      where: { id: otpRequest.id },
-      data: this.buildOtpSendUpdate(sendResult),
-    });
-
-    this.ensureOtpSendSucceeded(sendResult);
-
-    return this.buildOtpRequestResponse(updatedRequest, sendResult);
   }
 
   async verifyLoginOtp(dto: VerifyLoginOtpDto) {
@@ -175,7 +185,7 @@ export class AuthService {
     const otpRequest = await this.findOtpRequestForVerification({
       requestId: dto.requestId,
       phone,
-      purpose: OtpRequestPurpose.CUSTOMER_LOGIN,
+      purpose: OtpRequestPurpose.CUSTOMER_SENSITIVE_ACTION,
     });
 
     const user = otpRequest.user;
@@ -186,23 +196,21 @@ export class AuthService {
     await this.assertOtpCodeOrThrow(otpRequest, dto.otpCode);
     await this.markOtpRequestVerified({ requestId: otpRequest.id });
 
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: {
-        phoneVerifiedAt: user.phoneVerifiedAt || new Date(),
-      },
-    });
-
-    const nextUser = await this.prisma.user.findUnique({
-      where: { id: user.id },
-      include: { role: true, customer: true },
-    });
-
-    if (!nextUser) {
-      throw new UnauthorizedException('User not found');
+    if (!user.phoneVerifiedAt) {
+      await this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          phoneVerifiedAt: new Date(),
+        },
+      });
     }
 
-    return this.buildAuthResponse(nextUser);
+    const nextUser = await this.findUserByIdOrThrow(user.id);
+    return this.buildAuthResponse(nextUser, {
+      authMethod: 'PHONE_OTP',
+      identifierType: 'PHONE',
+      identifierValue: phone,
+    });
   }
 
   async requestRegisterOtp(dto: RequestRegisterOtpDto) {
@@ -215,56 +223,14 @@ export class AuthService {
     }
 
     await this.ensureIdentityIsAvailable({ email, phone });
-    await this.ensureOtpRequestAllowed({ phone });
-    await this.expireActiveOtpRequests({
-      phone,
+
+    return this.createAndSendOtpRequest({
       purpose: OtpRequestPurpose.CUSTOMER_REGISTER,
-    });
-
-    const otpCode = this.generateOtpCode();
-    const now = new Date();
-    const expiresAt = new Date(now.getTime() + this.getOtpTtlMinutes() * 60 * 1000);
-    const resendAvailableAt = new Date(
-      now.getTime() + this.getOtpResendCooldownSeconds() * 1000,
-    );
-    const requestContext = this.requestContextService.get();
-
-    const otpRequest = await this.prisma.otpRequest.create({
-      data: {
-        purpose: OtpRequestPurpose.CUSTOMER_REGISTER,
-        provider: this.otpProvider.name,
-        phone,
-        emailSnapshot: email,
-        fullNameSnapshot: fullName,
-        codeHash: await bcrypt.hash(otpCode, 10),
-        expiresAt,
-        resendAvailableAt,
-        maxAttempts: this.getOtpMaxAttempts(),
-        requestedIp: requestContext?.ipAddress || null,
-        requestedUserAgent: requestContext?.userAgent || null,
-        sendStatus: OtpRequestStatus.PENDING,
-      },
-    });
-
-    const sendResult = await this.otpProvider.sendOtp({
-      requestId: otpRequest.id,
       phone,
-      otpCode,
-      expiresInMinutes: this.getOtpTtlMinutes(),
-      purpose: 'CUSTOMER_REGISTER',
-      fullName,
-      ipAddress: requestContext?.ipAddress || null,
-      userAgent: requestContext?.userAgent || null,
+      emailSnapshot: email,
+      fullNameSnapshot: fullName,
+      providerPurpose: 'CUSTOMER_REGISTER',
     });
-
-    const updatedRequest = await this.prisma.otpRequest.update({
-      where: { id: otpRequest.id },
-      data: this.buildOtpSendUpdate(sendResult),
-    });
-
-    this.ensureOtpSendSucceeded(sendResult);
-
-    return this.buildOtpRequestResponse(updatedRequest, sendResult);
   }
 
   async verifyRegisterOtp(dto: VerifyRegisterOtpDto) {
@@ -284,13 +250,8 @@ export class AuthService {
     await this.ensureIdentityIsAvailable({ email, phone });
     await this.assertOtpCodeOrThrow(otpRequest, dto.otpCode);
 
-    const customerRole = await this.prisma.role.findFirst({
-      where: { code: 'CUSTOMER' },
-    });
-
-    if (!customerRole) {
-      throw new BadRequestException('Customer role not found');
-    }
+    const customerRole = await this.findRoleOrThrow('CUSTOMER');
+    const passwordHash = await bcrypt.hash(dto.password, 10);
 
     const user = await this.prisma.user.create({
       data: {
@@ -298,7 +259,7 @@ export class AuthService {
         phone,
         phoneVerifiedAt: new Date(),
         fullName,
-        passwordHash: await bcrypt.hash(randomBytes(24).toString('hex'), 10),
+        passwordHash,
         roleId: customerRole.id,
         customer: {
           create: {
@@ -317,11 +278,91 @@ export class AuthService {
       userId: user.id,
     });
 
-    return this.buildAuthResponse(user);
+    return this.buildAuthResponse(user, {
+      authMethod: 'PHONE_OTP_REGISTER',
+      identifierType: 'PHONE',
+      identifierValue: phone,
+    });
+  }
+
+  async requestPasswordResetOtp(dto: RequestPasswordResetOtpDto) {
+    const phone = this.requireVietnamPhone(dto.phone);
+    const user = await this.findCustomerByPhone(phone);
+
+    if (!user || user.deletedAt) {
+      throw new BadRequestException('Customer account for this phone number was not found');
+    }
+
+    return this.createAndSendOtpRequest({
+      userId: user.id,
+      purpose: OtpRequestPurpose.CUSTOMER_PASSWORD_RESET,
+      phone,
+      emailSnapshot: user.email,
+      fullNameSnapshot: user.fullName,
+      providerPurpose: 'CUSTOMER_PASSWORD_RESET',
+    });
+  }
+
+  async resetPasswordWithOtp(dto: ResetPasswordWithOtpDto) {
+    const phone = this.requireVietnamPhone(dto.phone);
+    const otpRequest = await this.findOtpRequestForVerification({
+      requestId: dto.requestId,
+      phone,
+      purpose: OtpRequestPurpose.CUSTOMER_PASSWORD_RESET,
+    });
+
+    const user = otpRequest.user;
+    if (!user || user.deletedAt || user.role.code !== 'CUSTOMER') {
+      throw new UnauthorizedException('Customer account for this OTP request is no longer available');
+    }
+
+    await this.assertOtpCodeOrThrow(otpRequest, dto.otpCode);
+
+    const passwordHash = await bcrypt.hash(dto.password, 10);
+    const now = new Date();
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          passwordHash,
+          phoneVerifiedAt: user.phoneVerifiedAt || now,
+          failedPasswordLoginCount: 0,
+          lockedUntil: null,
+          refreshToken: null,
+        },
+      }),
+      this.prisma.authSession.updateMany({
+        where: {
+          userId: user.id,
+          revokedAt: null,
+        },
+        data: {
+          revokedAt: now,
+          revokedReason: 'PASSWORD_RESET',
+        },
+      }),
+      this.prisma.otpRequest.update({
+        where: { id: otpRequest.id },
+        data: {
+          verifiedAt: now,
+          consumedAt: now,
+          sendStatus: OtpRequestStatus.VERIFIED,
+          lastAttemptAt: now,
+        },
+      }),
+    ]);
+
+    const nextUser = await this.findUserByIdOrThrow(user.id);
+    return this.buildAuthResponse(nextUser, {
+      authMethod: 'PHONE_OTP_PASSWORD_RESET',
+      identifierType: 'PHONE',
+      identifierValue: phone,
+    });
   }
 
   async refresh(refreshToken: string) {
-    let payload: Record<string, any>;
+    let payload: AuthenticatedUser & Record<string, any>;
 
     try {
       payload = await this.jwtService.verifyAsync(refreshToken, {
@@ -331,12 +372,32 @@ export class AuthService {
       throw new UnauthorizedException('Invalid refresh token');
     }
 
-    const user = await this.prisma.user.findUnique({
-      where: { id: payload.sub },
-      include: { role: true, customer: true },
-    });
+    const user = await this.findUserByIdOrThrow(payload.sub);
+    const sessionId = String(payload.sid || '').trim() || null;
 
-    if (!user?.refreshToken) {
+    if (sessionId) {
+      const authSession = await this.prisma.authSession.findUnique({
+        where: { id: sessionId },
+      });
+
+      if (
+        !authSession ||
+        authSession.userId !== user.id ||
+        authSession.revokedAt ||
+        authSession.expiresAt.getTime() <= Date.now()
+      ) {
+        throw new UnauthorizedException('Refresh session is no longer valid');
+      }
+
+      const validRefreshToken = await bcrypt.compare(refreshToken, authSession.refreshTokenHash);
+      if (!validRefreshToken) {
+        throw new UnauthorizedException('Refresh token mismatch');
+      }
+
+      return this.rotateSessionTokens(user, authSession.id);
+    }
+
+    if (!user.refreshToken) {
       throw new UnauthorizedException('Refresh token not found');
     }
 
@@ -345,33 +406,144 @@ export class AuthService {
       throw new UnauthorizedException('Refresh token mismatch');
     }
 
-    return this.buildAuthResponse(user);
+    return this.buildAuthResponse(user, {
+      authMethod: user.role.code === 'CUSTOMER' ? 'PHONE_PASSWORD' : 'EMAIL_PASSWORD',
+      identifierType: user.role.code === 'CUSTOMER' ? 'PHONE' : 'EMAIL',
+      identifierValue: user.role.code === 'CUSTOMER' ? user.phone : user.email,
+    });
   }
 
-  async logout(userId: string) {
-    await this.prisma.user.update({
-      where: { id: userId },
-      data: { refreshToken: null },
-    });
+  async logout(userId: string, sessionId?: string | null) {
+    const now = new Date();
+
+    await this.prisma.$transaction([
+      this.prisma.user.update({
+        where: { id: userId },
+        data: { refreshToken: null },
+      }),
+      sessionId
+        ? this.prisma.authSession.updateMany({
+            where: {
+              id: sessionId,
+              userId,
+              revokedAt: null,
+            },
+            data: {
+              revokedAt: now,
+              revokedReason: 'LOGOUT',
+            },
+          })
+        : this.prisma.authSession.updateMany({
+            where: {
+              userId,
+              revokedAt: null,
+            },
+            data: {
+              revokedAt: now,
+              revokedReason: 'LOGOUT_ALL',
+            },
+          }),
+    ]);
 
     return { success: true };
   }
 
   async me(userId: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      include: { role: true, customer: true },
-    });
-
-    if (!user) {
-      throw new UnauthorizedException('User not found');
-    }
-
+    const user = await this.findUserByIdOrThrow(userId);
     return this.mapUser(user);
   }
 
-  private async buildAuthResponse(user: any) {
-    const permissions = resolvePermissionsForRole(user.role.code, user.role.permissions);
+  private async buildAuthResponse(
+    user: AuthUser,
+    params: {
+      authMethod: string;
+      identifierType: 'EMAIL' | 'PHONE';
+      identifierValue?: string | null;
+    },
+  ) {
+    const permissions = resolvePermissionsForRole(
+      user.role.code as AppRoleCode,
+      user.role.permissions,
+    );
+    const requestContext = this.requestContextService.get();
+    const sessionId = randomBytes(18).toString('hex');
+    const tokenPayload = {
+      sub: user.id,
+      email: user.email,
+      phone: user.phone,
+      role: user.role.code,
+      roleId: user.role.id,
+      permissions,
+      customerId: user.customer?.id || null,
+      sid: sessionId,
+    };
+
+    const accessToken = await this.jwtService.signAsync(tokenPayload, {
+      expiresIn: '15m',
+      secret: process.env.JWT_SECRET || 'super_secret_key',
+    });
+
+    const refreshToken = await this.jwtService.signAsync(tokenPayload, {
+      expiresIn: '7d',
+      secret: process.env.JWT_SECRET || 'super_secret_key',
+    });
+
+    const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
+    const now = new Date();
+
+    await this.prisma.$transaction([
+      this.prisma.authSession.create({
+        data: {
+          id: sessionId,
+          userId: user.id,
+          authMethod: params.authMethod,
+          identifierType: params.identifierType,
+          identifierValue: params.identifierValue || null,
+          ipAddress: requestContext?.ipAddress || null,
+          userAgent: requestContext?.userAgent || null,
+          deviceLabel: this.buildDeviceLabel(requestContext?.userAgent),
+          refreshTokenHash,
+          lastSeenAt: now,
+          expiresAt: this.buildRefreshExpiryAt(),
+        },
+      }),
+      this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          refreshToken: refreshTokenHash,
+          failedPasswordLoginCount: 0,
+          lockedUntil: null,
+          lastLoginAt: now,
+          lastLoginIp: requestContext?.ipAddress || null,
+          lastLoginUserAgent: requestContext?.userAgent || null,
+        },
+      }),
+      this.prisma.authLoginAttempt.create({
+        data: {
+          userId: user.id,
+          authMethod: params.authMethod,
+          identifierType: params.identifierType,
+          identifierValue: params.identifierValue || null,
+          ipAddress: requestContext?.ipAddress || null,
+          userAgent: requestContext?.userAgent || null,
+          success: true,
+          outcome: 'SUCCESS',
+        },
+      }),
+    ]);
+
+    return {
+      accessToken,
+      refreshToken,
+      user: this.mapUser(user),
+    };
+  }
+
+  private async rotateSessionTokens(user: AuthUser, sessionId: string) {
+    const permissions = resolvePermissionsForRole(
+      user.role.code as AppRoleCode,
+      user.role.permissions,
+    );
     const payload = {
       sub: user.id,
       email: user.email,
@@ -380,6 +552,7 @@ export class AuthService {
       roleId: user.role.id,
       permissions,
       customerId: user.customer?.id || null,
+      sid: sessionId,
     };
 
     const accessToken = await this.jwtService.signAsync(payload, {
@@ -394,10 +567,22 @@ export class AuthService {
 
     const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
 
-    await this.prisma.user.update({
-      where: { id: user.id },
-      data: { refreshToken: refreshTokenHash },
-    });
+    await this.prisma.$transaction([
+      this.prisma.authSession.update({
+        where: { id: sessionId },
+        data: {
+          refreshTokenHash,
+          lastSeenAt: new Date(),
+          expiresAt: this.buildRefreshExpiryAt(),
+        },
+      }),
+      this.prisma.user.update({
+        where: { id: user.id },
+        data: {
+          refreshToken: refreshTokenHash,
+        },
+      }),
+    ]);
 
     return {
       accessToken,
@@ -406,7 +591,7 @@ export class AuthService {
     };
   }
 
-  private mapUser(user: any) {
+  private mapUser(user: AuthUser) {
     return {
       id: user.id,
       email: user.email,
@@ -414,65 +599,85 @@ export class AuthService {
       phone: user.phone,
       phoneVerifiedAt: user.phoneVerifiedAt?.toISOString?.() || null,
       role: user.role.code,
-      permissions: resolvePermissionsForRole(user.role.code, user.role.permissions),
+      permissions: resolvePermissionsForRole(
+        user.role.code as AppRoleCode,
+        user.role.permissions,
+      ),
       customerId: user.customer?.id || null,
       secondFactorReady: user.role.code !== 'CUSTOMER',
     };
   }
 
-  private resolveIdentifier(identifier: string) {
+  private resolveIdentifier(identifier: string): ResolvedIdentifier {
     const normalizedInput = String(identifier || '').trim();
     const kind = detectLoginIdentifierKind(normalizedInput);
 
     if (kind === 'EMAIL') {
+      const email = normalizeEmail(normalizedInput);
+      if (!email) {
+        throw new BadRequestException('Please enter a valid email or Vietnamese phone number');
+      }
+
       return {
         kind,
-        email: normalizeEmail(normalizedInput),
+        value: email,
+        email,
         phone: null,
-      } as const;
+        legacyPhone: null,
+      };
     }
 
     if (kind === 'PHONE') {
+      const phone = normalizeVietnamPhone(normalizedInput);
+      if (!phone) {
+        throw new BadRequestException('Please enter a valid email or Vietnamese phone number');
+      }
+
       return {
         kind,
+        value: phone,
         email: null,
-        phone: normalizeVietnamPhone(normalizedInput),
+        phone,
         legacyPhone: toLegacyVietnamPhone(normalizedInput),
-      } as const;
+      };
     }
 
     throw new BadRequestException('Please enter a valid email or Vietnamese phone number');
   }
 
-  private async findUserForIdentifier(identifier: {
-    kind: 'EMAIL' | 'PHONE' | 'UNKNOWN';
-    email: string | null;
-    phone: string | null;
-    legacyPhone?: string | null;
-  }) {
-    if (identifier.kind === 'EMAIL' && identifier.email) {
+  private async findUserForIdentifier(identifier: ResolvedIdentifier) {
+    if (identifier.kind === 'EMAIL') {
       return this.prisma.user.findUnique({
         where: { email: identifier.email },
         include: { role: true, customer: true },
       });
     }
 
-    if (identifier.kind === 'PHONE' && identifier.phone) {
-      return this.prisma.user.findFirst({
-        where: {
-          deletedAt: null,
-          OR: [
-            { phone: identifier.phone },
-            ...(identifier.legacyPhone && identifier.legacyPhone !== identifier.phone
-              ? [{ phone: identifier.legacyPhone }]
-              : []),
-          ],
-        },
-        include: { role: true, customer: true },
-      });
+    return this.prisma.user.findFirst({
+      where: {
+        deletedAt: null,
+        OR: [
+          { phone: identifier.phone },
+          ...(identifier.legacyPhone && identifier.legacyPhone !== identifier.phone
+            ? [{ phone: identifier.legacyPhone }]
+            : []),
+        ],
+      },
+      include: { role: true, customer: true },
+    });
+  }
+
+  private async findUserByIdOrThrow(userId: string) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: { role: true, customer: true },
+    });
+
+    if (!user) {
+      throw new UnauthorizedException('User not found');
     }
 
-    return null;
+    return user;
   }
 
   private async findCustomerByPhone(phone: string) {
@@ -496,6 +701,212 @@ export class AuthService {
         customer: true,
       },
     });
+  }
+
+  private async findRoleOrThrow(code: string) {
+    const role = await this.prisma.role.findFirst({
+      where: { code },
+    });
+
+    if (!role) {
+      throw new BadRequestException(`${code} role not found`);
+    }
+
+    return role;
+  }
+
+  private assertUserCanUsePasswordLogin(user: AuthUser, identifierKind: 'EMAIL' | 'PHONE') {
+    if (identifierKind === 'EMAIL' && user.role.code === 'CUSTOMER') {
+      throw new UnauthorizedException('Customers sign in with phone number and password');
+    }
+
+    if (identifierKind === 'PHONE' && user.role.code !== 'CUSTOMER') {
+      throw new UnauthorizedException('Internal accounts must sign in with email');
+    }
+  }
+
+  private assertUserIsNotLocked(user: AuthUser) {
+    if (user.lockedUntil && user.lockedUntil.getTime() > Date.now()) {
+      throw new HttpException(
+        'This account is temporarily locked. Please try again later.',
+        423,
+      );
+    }
+  }
+
+  private async assertPasswordLoginAllowed(identifier: ResolvedIdentifier) {
+    const requestContext = this.requestContextService.get();
+    const recentWindow = new Date(
+      Date.now() - this.getPasswordLoginRateLimitWindowMinutes() * 60 * 1000,
+    );
+
+    const [recentIdentifierAttempts, recentIpAttempts] = await Promise.all([
+      this.prisma.authLoginAttempt.count({
+        where: {
+          identifierType: identifier.kind,
+          identifierValue: identifier.value,
+          success: false,
+          createdAt: {
+            gte: recentWindow,
+          },
+        },
+      }),
+      requestContext?.ipAddress
+        ? this.prisma.authLoginAttempt.count({
+            where: {
+              ipAddress: requestContext.ipAddress,
+              success: false,
+              createdAt: {
+                gte: recentWindow,
+              },
+            },
+          })
+        : Promise.resolve(0),
+    ]);
+
+    if (recentIdentifierAttempts >= this.getPasswordLoginRateLimitIdentifierMax()) {
+      throw new HttpException(
+        'Too many failed login attempts for this account. Please try again later.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+
+    if (recentIpAttempts >= this.getPasswordLoginRateLimitIpMax()) {
+      throw new HttpException(
+        'Too many failed login attempts from this IP address. Please try again later.',
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
+    }
+  }
+
+  private async recordFailedPasswordLogin(params: {
+    user: AuthUser;
+    authMethod: string;
+    identifierType: 'EMAIL' | 'PHONE';
+    identifierValue?: string | null;
+    failureReason: string;
+  }) {
+    const requestContext = this.requestContextService.get();
+    const nextFailedCount = (params.user.failedPasswordLoginCount || 0) + 1;
+    const lockThreshold = this.getPasswordLoginLockoutThreshold();
+    const shouldLock = nextFailedCount >= lockThreshold;
+
+    await this.prisma.$transaction([
+      this.prisma.authLoginAttempt.create({
+        data: {
+          userId: params.user.id,
+          authMethod: params.authMethod,
+          identifierType: params.identifierType,
+          identifierValue: params.identifierValue || null,
+          ipAddress: requestContext?.ipAddress || null,
+          userAgent: requestContext?.userAgent || null,
+          success: false,
+          outcome: shouldLock ? 'LOCKED' : 'FAILED',
+          failureReason: params.failureReason,
+        },
+      }),
+      this.prisma.user.update({
+        where: { id: params.user.id },
+        data: {
+          failedPasswordLoginCount: nextFailedCount,
+          lockedUntil: shouldLock ? this.buildAccountLockExpiryAt() : params.user.lockedUntil,
+          lastLoginIp: requestContext?.ipAddress || null,
+          lastLoginUserAgent: requestContext?.userAgent || null,
+        },
+      }),
+    ]);
+  }
+
+  private async recordLoginAttempt(params: {
+    userId: string | null;
+    authMethod: string;
+    identifierType: 'EMAIL' | 'PHONE';
+    identifierValue?: string | null;
+    success: boolean;
+    outcome: string;
+    failureReason?: string | null;
+  }) {
+    const requestContext = this.requestContextService.get();
+
+    await this.prisma.authLoginAttempt.create({
+      data: {
+        userId: params.userId,
+        authMethod: params.authMethod,
+        identifierType: params.identifierType,
+        identifierValue: params.identifierValue || null,
+        ipAddress: requestContext?.ipAddress || null,
+        userAgent: requestContext?.userAgent || null,
+        success: params.success,
+        outcome: params.outcome,
+        failureReason: params.failureReason || null,
+      },
+    });
+  }
+
+  private async createAndSendOtpRequest(params: {
+    userId?: string | null;
+    purpose: OtpRequestPurpose;
+    phone: string;
+    emailSnapshot?: string | null;
+    fullNameSnapshot?: string | null;
+    providerPurpose:
+      | 'CUSTOMER_LOGIN'
+      | 'CUSTOMER_REGISTER'
+      | 'CUSTOMER_PASSWORD_RESET'
+      | 'CUSTOMER_PHONE_VERIFICATION'
+      | 'CUSTOMER_SENSITIVE_ACTION';
+  }) {
+    await this.ensureOtpRequestAllowed({ phone: params.phone });
+    await this.expireActiveOtpRequests({
+      phone: params.phone,
+      purpose: params.purpose,
+    });
+
+    const otpCode = this.generateOtpCode();
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + this.getOtpTtlMinutes() * 60 * 1000);
+    const resendAvailableAt = new Date(
+      now.getTime() + this.getOtpResendCooldownSeconds() * 1000,
+    );
+    const requestContext = this.requestContextService.get();
+
+    const otpRequest = await this.prisma.otpRequest.create({
+      data: {
+        userId: params.userId || null,
+        purpose: params.purpose,
+        provider: this.otpProvider.name,
+        phone: params.phone,
+        emailSnapshot: params.emailSnapshot || null,
+        fullNameSnapshot: params.fullNameSnapshot || null,
+        codeHash: await bcrypt.hash(otpCode, 10),
+        expiresAt,
+        resendAvailableAt,
+        maxAttempts: this.getOtpMaxAttempts(),
+        requestedIp: requestContext?.ipAddress || null,
+        requestedUserAgent: requestContext?.userAgent || null,
+        sendStatus: OtpRequestStatus.PENDING,
+      },
+    });
+
+    const sendResult = await this.otpProvider.sendOtp({
+      requestId: otpRequest.id,
+      phone: params.phone,
+      otpCode,
+      expiresInMinutes: this.getOtpTtlMinutes(),
+      purpose: params.providerPurpose,
+      fullName: params.fullNameSnapshot || null,
+      ipAddress: requestContext?.ipAddress || null,
+      userAgent: requestContext?.userAgent || null,
+    });
+
+    const updatedRequest = await this.prisma.otpRequest.update({
+      where: { id: otpRequest.id },
+      data: this.buildOtpSendUpdate(sendResult),
+    });
+
+    this.ensureOtpSendSucceeded(sendResult);
+
+    return this.buildOtpRequestResponse(updatedRequest, sendResult);
   }
 
   private async findOtpRequestForVerification(params: {
@@ -553,12 +964,15 @@ export class AuthService {
     return otpRequest;
   }
 
-  private async assertOtpCodeOrThrow(otpRequest: {
-    id: string;
-    codeHash: string;
-    attemptCount: number;
-    maxAttempts: number;
-  }, otpCode: string) {
+  private async assertOtpCodeOrThrow(
+    otpRequest: {
+      id: string;
+      codeHash: string;
+      attemptCount: number;
+      maxAttempts: number;
+    },
+    otpCode: string,
+  ) {
     const matched = await bcrypt.compare(String(otpCode || '').trim(), otpRequest.codeHash);
 
     if (!matched) {
@@ -686,13 +1100,7 @@ export class AuthService {
     }
   }
 
-  private buildOtpSendUpdate(sendResult: {
-    sendStatus: 'SENT' | 'DRY_RUN' | 'FAILED' | 'BLOCKED';
-    providerCode?: string | null;
-    providerMessage: string;
-    requestPayload?: Record<string, unknown> | null;
-    responsePayload?: Record<string, unknown> | null;
-  }) {
+  private buildOtpSendUpdate(sendResult: OtpSendResult) {
     return {
       sendStatus: this.mapOtpRequestStatus(sendResult.sendStatus),
       providerCode: sendResult.providerCode || null,
@@ -713,13 +1121,7 @@ export class AuthService {
       expiresAt: Date;
       resendAvailableAt: Date;
     },
-    sendResult: {
-      provider: string;
-      channel: 'ZALO';
-      sendStatus: 'SENT' | 'DRY_RUN' | 'FAILED' | 'BLOCKED';
-      providerMessage: string;
-      debugCode?: string | null;
-    },
+    sendResult: OtpSendResult,
   ) {
     return {
       success: true,
@@ -740,10 +1142,7 @@ export class AuthService {
     };
   }
 
-  private ensureOtpSendSucceeded(sendResult: {
-    sendStatus: 'SENT' | 'DRY_RUN' | 'FAILED' | 'BLOCKED';
-    providerMessage: string;
-  }) {
+  private ensureOtpSendSucceeded(sendResult: OtpSendResult) {
     if (sendResult.sendStatus === 'BLOCKED') {
       throw new BadRequestException(sendResult.providerMessage);
     }
@@ -828,11 +1227,12 @@ export class AuthService {
     }
 
     if (params.phone) {
+      const legacyPhone = toLegacyVietnamPhone(params.phone);
       const existingByPhone = await this.prisma.user.findFirst({
         where: {
           OR: [
             { phone: params.phone },
-            ...(toLegacyVietnamPhone(params.phone) ? [{ phone: toLegacyVietnamPhone(params.phone)! }] : []),
+            ...(legacyPhone ? [{ phone: legacyPhone }] : []),
           ],
         },
       });
@@ -845,6 +1245,47 @@ export class AuthService {
 
   private generateOtpCode() {
     return `${Math.floor(100000 + Math.random() * 900000)}`;
+  }
+
+  private buildDeviceLabel(userAgent?: string | null) {
+    const value = String(userAgent || '').toLowerCase();
+    if (!value) {
+      return 'Unknown device';
+    }
+
+    if (value.includes('iphone')) {
+      return 'iPhone';
+    }
+
+    if (value.includes('ipad')) {
+      return 'iPad';
+    }
+
+    if (value.includes('android')) {
+      return 'Android device';
+    }
+
+    if (value.includes('windows')) {
+      return 'Windows browser';
+    }
+
+    if (value.includes('macintosh') || value.includes('mac os')) {
+      return 'Mac browser';
+    }
+
+    if (value.includes('linux')) {
+      return 'Linux browser';
+    }
+
+    return 'Browser session';
+  }
+
+  private buildRefreshExpiryAt() {
+    return new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  }
+
+  private buildAccountLockExpiryAt() {
+    return new Date(Date.now() + this.getPasswordLoginLockoutMinutes() * 60 * 1000);
   }
 
   private getOtpTtlMinutes() {
@@ -880,5 +1321,30 @@ export class AuthService {
   private getOtpIpRateLimitMax() {
     const max = Number(process.env.AUTH_OTP_RATE_LIMIT_IP_MAX || 20);
     return Number.isFinite(max) && max > 0 ? max : 20;
+  }
+
+  private getPasswordLoginRateLimitWindowMinutes() {
+    const minutes = Number(process.env.AUTH_LOGIN_RATE_LIMIT_WINDOW_MINUTES || 15);
+    return Number.isFinite(minutes) && minutes > 0 ? minutes : 15;
+  }
+
+  private getPasswordLoginRateLimitIdentifierMax() {
+    const max = Number(process.env.AUTH_LOGIN_RATE_LIMIT_IDENTIFIER_MAX || 10);
+    return Number.isFinite(max) && max > 0 ? max : 10;
+  }
+
+  private getPasswordLoginRateLimitIpMax() {
+    const max = Number(process.env.AUTH_LOGIN_RATE_LIMIT_IP_MAX || 30);
+    return Number.isFinite(max) && max > 0 ? max : 30;
+  }
+
+  private getPasswordLoginLockoutThreshold() {
+    const max = Number(process.env.AUTH_LOGIN_LOCKOUT_THRESHOLD || 5);
+    return Number.isFinite(max) && max > 0 ? max : 5;
+  }
+
+  private getPasswordLoginLockoutMinutes() {
+    const minutes = Number(process.env.AUTH_LOGIN_LOCKOUT_MINUTES || 15);
+    return Number.isFinite(minutes) && minutes > 0 ? minutes : 15;
   }
 }

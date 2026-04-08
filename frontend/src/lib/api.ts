@@ -526,8 +526,28 @@ export async function verifyRegisterOtpRequest(payload: {
   phone: string;
   otpCode: string;
   requestId: string;
+  password: string;
 }) {
   return apiFetch<SessionPayload>('/auth/register-otp/verify', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function requestPasswordResetOtpRequest(phone: string) {
+  return apiFetch<LoginOtpRequestResult>('/auth/password-reset/request', {
+    method: 'POST',
+    body: JSON.stringify({ phone }),
+  });
+}
+
+export async function resetPasswordWithOtpRequest(payload: {
+  phone: string;
+  otpCode: string;
+  requestId: string;
+  password: string;
+}) {
+  return apiFetch<SessionPayload>('/auth/password-reset/verify', {
     method: 'POST',
     body: JSON.stringify(payload),
   });

@@ -7,6 +7,8 @@ import { RequestLoginOtpDto } from './dto/request-login-otp.dto';
 import { VerifyLoginOtpDto } from './dto/verify-login-otp.dto';
 import { RequestRegisterOtpDto } from './dto/request-register-otp.dto';
 import { VerifyRegisterOtpDto } from './dto/verify-register-otp.dto';
+import { RequestPasswordResetOtpDto } from './dto/request-password-reset-otp.dto';
+import { ResetPasswordWithOtpDto } from './dto/reset-password-with-otp.dto';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
@@ -45,6 +47,16 @@ export class AuthController {
     return this.authService.verifyRegisterOtp(dto);
   }
 
+  @Post('password-reset/request')
+  requestPasswordResetOtp(@Body() dto: RequestPasswordResetOtpDto) {
+    return this.authService.requestPasswordResetOtp(dto);
+  }
+
+  @Post('password-reset/verify')
+  resetPasswordWithOtp(@Body() dto: ResetPasswordWithOtpDto) {
+    return this.authService.resetPasswordWithOtp(dto);
+  }
+
   @Post('refresh')
   refresh(@Body() dto: RefreshTokenDto) {
     return this.authService.refresh(dto.refreshToken);
@@ -53,7 +65,7 @@ export class AuthController {
   @Post('logout')
   @UseGuards(JwtAuthGuard)
   logout(@CurrentUser() user: AuthenticatedUser) {
-    return this.authService.logout(user.sub);
+    return this.authService.logout(user.sub, user.sid);
   }
 
   @Get('me')

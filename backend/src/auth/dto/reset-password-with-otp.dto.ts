@@ -1,6 +1,6 @@
 import { IsString, Length, MinLength } from 'class-validator';
 
-export class VerifyRegisterOtpDto {
+export class ResetPasswordWithOtpDto {
   @IsString()
   phone: string;
 
