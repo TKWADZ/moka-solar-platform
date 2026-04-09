@@ -85,12 +85,20 @@ function outstandingInvoiceAmount(record: MonthlyPvBillingRecord) {
   );
 }
 
+function isFinalizedInvoiceStatus(status?: InvoiceRecord['status']) {
+  return status === 'ISSUED' || status === 'PAID' || status === 'PARTIAL' || status === 'OVERDUE';
+}
+
 function canSendZaloForBillingRecord(record: MonthlyPvBillingRecord) {
-  return (
-    Boolean(record.invoice) &&
-    record.dataQualityStatus === 'OK' &&
-    record.invoice?.status !== 'PENDING_REVIEW'
-  );
+  if (!record.invoice) {
+    return false;
+  }
+
+  if (isFinalizedInvoiceStatus(record.invoice.status)) {
+    return true;
+  }
+
+  return record.dataQualityStatus === 'OK' && record.invoice.status !== 'PENDING_REVIEW';
 }
 
 function generateInvoiceButtonLabel(record: MonthlyPvBillingRecord) {
@@ -123,10 +131,6 @@ function invoiceGenerateMessage(record: MonthlyPvBillingRecord, invoice: Invoice
 
 function invoiceAlreadyIssuedMessage(record: MonthlyPvBillingRecord, invoice: InvoiceRecord) {
   return `Ky ${formatMonthPeriod(record.month, record.year)} da co hoa don ${invoice.invoiceNumber}, khong tao trung nua.`;
-}
-
-function isFinalizedInvoiceStatus(status?: InvoiceRecord['status']) {
-  return status === 'ISSUED' || status === 'PAID' || status === 'PARTIAL' || status === 'OVERDUE';
 }
 
 function isZaloTemplateConfigured(
