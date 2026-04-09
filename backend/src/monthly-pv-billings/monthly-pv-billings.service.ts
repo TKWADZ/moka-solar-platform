@@ -496,11 +496,12 @@ export class MonthlyPvBillingsService {
     if (
       record.invoiceId &&
       record.invoice &&
-      !MUTABLE_INVOICE_STATUSES.has(record.invoice.status)
+      this.isFinalizedInvoiceStatus(record.invoice.status)
     ) {
       return {
         record: this.serialize(record),
         invoice: record.invoice,
+        alreadyIssued: true,
       };
     }
 
@@ -524,7 +525,9 @@ export class MonthlyPvBillingsService {
     }
 
     const draftInvoice = await this.createOrUpdateInvoiceDraft(latestRecord, contract);
-    const targetInvoiceStatus = this.resolveInvoiceTargetStatus(latestRecord);
+    const targetInvoiceStatus = this.resolveInvoiceTargetStatus(latestRecord, {
+      manualAction: Boolean(actorId),
+    });
     const invoice = await this.transitionInvoiceToTargetStatus(
       draftInvoice.id,
       latestRecord,
@@ -558,6 +561,7 @@ export class MonthlyPvBillingsService {
     return {
       record: await this.findOne(id),
       invoice,
+      alreadyIssued: false,
     };
   }
 
@@ -1231,6 +1235,15 @@ export class MonthlyPvBillingsService {
     }
   }
 
+  private isFinalizedInvoiceStatus(status?: InvoiceStatus | null) {
+    return (
+      status === InvoiceStatus.ISSUED ||
+      status === InvoiceStatus.PAID ||
+      status === InvoiceStatus.PARTIAL ||
+      status === InvoiceStatus.OVERDUE
+    );
+  }
+
   private isPastBillingPeriod(year: number, month: number) {
     const formatter = new Intl.DateTimeFormat('en-CA', {
       timeZone: BILLING_TIMEZONE,
@@ -1244,7 +1257,24 @@ export class MonthlyPvBillingsService {
     return year < currentYear || (year === currentYear && month < currentMonth);
   }
 
-  private resolveInvoiceTargetStatus(record: BillingRecordWithRelations) {
+  private resolveInvoiceTargetStatus(
+    record: BillingRecordWithRelations,
+    options?: {
+      manualAction?: boolean;
+    },
+  ) {
+    const hasManualOverride =
+      record.manualOverrideKwh !== null && record.manualOverrideKwh !== undefined;
+
+    if (
+      options?.manualAction &&
+      hasManualOverride &&
+      this.isPastBillingPeriod(record.year, record.month) &&
+      Number(record.billableKwh || 0) > 0
+    ) {
+      return InvoiceStatus.ISSUED;
+    }
+
     if (
       record.dataQualityStatus === BillingDataQualityStatus.OK &&
       record.dataSourceStable

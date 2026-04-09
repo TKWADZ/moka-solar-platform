@@ -2430,6 +2430,7 @@ export async function generateMonthlyPvBillingInvoiceRequest(id: string) {
   return apiFetch<{
     record: MonthlyPvBillingRecord;
     invoice: InvoiceRecord;
+    alreadyIssued?: boolean;
   }>(`/monthly-pv-billings/${id}/generate-invoice`, {
     method: 'POST',
   });

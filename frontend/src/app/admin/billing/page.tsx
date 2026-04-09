@@ -98,6 +98,10 @@ function generateInvoiceButtonLabel(record: MonthlyPvBillingRecord) {
     return 'Cho cuoi thang';
   }
 
+  if (record.dataQualityStatus === 'MANUAL_OVERRIDE') {
+    return 'Phat hanh thu cong';
+  }
+
   if (record.dataQualityStatus === 'OK') {
     return 'Chot hoa don';
   }
@@ -115,6 +119,14 @@ function invoiceGenerateMessage(record: MonthlyPvBillingRecord, invoice: Invoice
   }
 
   return `Da phat hanh hoa don ${invoice.invoiceNumber} cho ky ${formatMonthPeriod(record.month, record.year)}.`;
+}
+
+function invoiceAlreadyIssuedMessage(record: MonthlyPvBillingRecord, invoice: InvoiceRecord) {
+  return `Ky ${formatMonthPeriod(record.month, record.year)} da co hoa don ${invoice.invoiceNumber}, khong tao trung nua.`;
+}
+
+function isFinalizedInvoiceStatus(status?: InvoiceRecord['status']) {
+  return status === 'ISSUED' || status === 'PAID' || status === 'PARTIAL' || status === 'OVERDUE';
 }
 
 function isZaloTemplateConfigured(
@@ -392,7 +404,11 @@ export default function AdminBillingPage() {
     try {
       const result = await generateMonthlyPvBillingInvoiceRequest(record.id);
       await Promise.all([loadRecords(), loadPayments()]);
-      setMessage(invoiceGenerateMessage(record, result.invoice));
+      setMessage(
+        result.alreadyIssued
+          ? invoiceAlreadyIssuedMessage(record, result.invoice)
+          : invoiceGenerateMessage(record, result.invoice),
+      );
     } catch (nextError) {
       setError(
         nextError instanceof Error
@@ -903,6 +919,11 @@ export default function AdminBillingPage() {
           <div className="flex flex-wrap gap-2">
             {record.invoice ? (
               <>
+                {isFinalizedInvoiceStatus(record.invoice.status) ? (
+                  <span className="inline-flex min-h-[42px] items-center rounded-full border border-sky-300/20 bg-sky-400/10 px-3 py-2 text-xs font-semibold text-sky-100">
+                    Da xuat hoa don {formatMonthPeriod(record.month, record.year)}
+                  </span>
+                ) : null}
                 <button
                   type="button"
                   className="btn-ghost !min-h-[42px] !px-3 !py-2 text-xs"
