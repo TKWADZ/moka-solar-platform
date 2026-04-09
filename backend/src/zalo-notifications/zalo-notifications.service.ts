@@ -1801,17 +1801,7 @@ export class ZaloNotificationsService {
       return '0 kwh';
     }
 
-    const formatted =
-      Math.abs(numeric - Math.round(numeric)) < 0.001
-        ? new Intl.NumberFormat('vi-VN', {
-            maximumFractionDigits: 0,
-          }).format(Math.round(numeric))
-        : new Intl.NumberFormat('vi-VN', {
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 1,
-          }).format(numeric);
-
-    return `${formatted} kwh`;
+    return `${this.formatDecimalForPayload(numeric)} kwh`;
   }
 
   private formatDisplayAmountForBillingTemplate(value: unknown) {
@@ -1855,7 +1845,11 @@ export class ZaloNotificationsService {
 
   private formatDecimalForPayload(value: unknown) {
     const numeric = Number(value || 0);
-    return Number.isFinite(numeric) ? numeric.toFixed(2).replace(/\.00$/, '') : '0';
+    if (!Number.isFinite(numeric)) {
+      return '0';
+    }
+
+    return numeric.toFixed(2).replace(/(\.\d*?[1-9])0+$/, '$1').replace(/\.00$/, '');
   }
 
   private formatCurrencyForPayload(value: number) {
