@@ -111,6 +111,14 @@ function extractTemplateData(payload?: Record<string, unknown> | null) {
   return templateData as Record<string, unknown>;
 }
 
+function extractStringTemplateField(
+  templateData: Record<string, unknown> | null,
+  field: string,
+) {
+  const value = templateData?.[field];
+  return typeof value === 'string' && value.trim().length > 0 ? value.trim() : null;
+}
+
 function stringifyJsonPreview(value: unknown) {
   if (!value) {
     return null;
@@ -149,6 +157,10 @@ export default function AdminZaloPage() {
     (log) => log.templateType === 'INVOICE' || log.templateType === 'TEST',
   );
   const latestBillingTemplatePayload = extractTemplateData(latestBillingLog?.requestPayload);
+  const latestSanitizedBankTransferNote = extractStringTemplateField(
+    latestBillingTemplatePayload,
+    'bank_transfer_note',
+  );
   const latestBillingTemplatePayloadPreview = stringifyJsonPreview(latestBillingTemplatePayload);
   const latestBillingResponsePreview = stringifyJsonPreview(latestBillingLog?.responsePayload);
 
@@ -802,8 +814,20 @@ export default function AdminZaloPage() {
                 <p>`san_luong_kwh`: vi du `500 kwh`</p>
                 <p>`so_tien`: so tien hien thi cho tin nhan, vi du `1.749.600 đ`</p>
                 <p>`transfer_amount`: so nguyen de gan nut chuyen khoan, vi du `1749600`</p>
-                <p>`bank_transfer_note`: noi dung chuyen khoan sach, khong them bien cu</p>
+                <p>`bank_transfer_note`: bo dau, viet hoa, bo khoang trang, bo dau gach va ky tu dac biet, chi giu `A-Z` va `0-9`, toi da 40 ky tu</p>
               </div>
+            </div>
+
+            <div className="rounded-[20px] border border-white/8 bg-white/[0.04] px-4 py-4 text-sm leading-6 text-slate-300">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
+                Bank transfer note sau khi sanitize
+              </p>
+              <p className="mt-2 break-all text-base font-semibold text-white">
+                {latestSanitizedBankTransferNote || 'Chua co preview. Hay bam Test ket noi Zalo hoac gui dry-run.'}
+              </p>
+              <p className="mt-2 text-xs leading-5 text-slate-500">
+                Preview/test send se hien dung gia tri nay truoc khi goi Zalo.
+              </p>
             </div>
           </div>
 

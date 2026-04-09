@@ -107,6 +107,8 @@ type TemplatePayloadValidationResult = {
   validationMessage: string | null;
 };
 
+const ZALO_BANK_TRANSFER_NOTE_MAX_LENGTH = 40;
+
 type BillingTemplatePayloadParams = {
   transferAmount: string;
   bankTransferNote: string;
@@ -191,7 +193,7 @@ export class ZaloNotificationsService {
       template_id: templateId,
       template_data: this.buildApprovedBillingTemplatePayload({
         transferAmount: this.formatCurrencyForPayload(1749600),
-        bankTransferNote: 'MOKA INV-TEST CUS-TEST',
+        bankTransferNote: this.sanitizeBankTransferNote('MOKA 04/2026 MKSL-TEST-001'),
         billingMonthLabel: '04/2026',
         customerName: 'Khach hang test',
         systemName: 'He thong rooftop test',
@@ -1717,6 +1719,7 @@ export class ZaloNotificationsService {
       case 'transfer_amount':
         return /^\d+$/.test(normalized);
       case 'bank_transfer_note':
+        return /^[A-Z0-9]+$/.test(normalized) && normalized.length <= ZALO_BANK_TRANSFER_NOTE_MAX_LENGTH;
       case 'ten_khach_hang':
       case 'ten_he_thong':
       case 'ma_hop_dong':
@@ -1740,51 +1743,16 @@ export class ZaloNotificationsService {
     billingMonth?: number | null;
     billingYear?: number | null;
   }) {
-    const defaultTemplate = 'MOKA {{invoiceNumber}} {{customerCode}}';
-    let noteTemplate = defaultTemplate;
+    const month = params.billingMonth ? String(params.billingMonth).padStart(2, '0') : '';
+    const year = params.billingYear ? String(params.billingYear) : '';
+    const contractOrReference =
+      params.contractNumber?.trim() ||
+      params.customerCode?.trim() ||
+      params.invoiceNumber?.trim() ||
+      params.customerName?.trim() ||
+      'MOKA';
 
-    try {
-      const setting = await this.websiteSettingsService.findPublicSite();
-      const content = (setting.content || {}) as Record<string, any>;
-      const rails = Array.isArray(content?.payments?.manual?.rails)
-        ? (content.payments.manual.rails as Array<Record<string, unknown>>)
-        : [];
-      const preferredRail =
-        rails.find(
-          (rail) =>
-            String(rail?.key || '').trim() === 'BANK_TRANSFER' &&
-            rail?.isEnabled !== false,
-        ) ||
-        rails.find((rail) => rail?.isDefault === true && rail?.isEnabled !== false) ||
-        rails.find((rail) => rail?.isEnabled !== false);
-
-      const configuredTemplate =
-        preferredRail && typeof preferredRail.noteTemplate === 'string'
-          ? preferredRail.noteTemplate.trim()
-          : '';
-
-      if (configuredTemplate) {
-        noteTemplate = configuredTemplate;
-      }
-    } catch {
-      // Ignore website settings lookup errors and fallback below.
-    }
-
-    const replacements: Record<string, string> = {
-      invoiceNumber: params.invoiceNumber?.trim() || '',
-      customerCode: params.customerCode?.trim() || '',
-      contractNumber: params.contractNumber?.trim() || '',
-      customerName: params.customerName?.trim() || '',
-      month: params.billingMonth ? String(params.billingMonth).padStart(2, '0') : '',
-      year: params.billingYear ? String(params.billingYear) : '',
-    };
-
-    const rendered = noteTemplate.replace(/\{\{\s*(\w+)\s*\}\}/g, (_match, token) => {
-      const replacement = replacements[token] || '';
-      return replacement;
-    });
-
-    return rendered.replace(/\s+/g, ' ').trim();
+    return this.sanitizeBankTransferNote(`MOKA${month}${year}${contractOrReference}`);
   }
 
   private formatBillingMonthLabel(month?: number | null, year?: number | null) {
@@ -1841,6 +1809,17 @@ export class ZaloNotificationsService {
   private normalizePhoneNumberForZns(value: string) {
     const normalized = this.normalizePhoneNumber(value);
     return normalized.replace(/^\+/, '');
+  }
+
+  private sanitizeBankTransferNote(value: string) {
+    const withoutAccents = value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/Đ/g, 'D')
+      .replace(/đ/g, 'd');
+
+    const sanitized = withoutAccents.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    return sanitized.slice(0, ZALO_BANK_TRANSFER_NOTE_MAX_LENGTH);
   }
 
   private formatDecimalForPayload(value: unknown) {
