@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PrismaClient } from '@prisma/client';
+import { Prisma, PrismaClient } from '@prisma/client';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { decryptSecret, encryptSecret, maskSecret } from '../common/helpers/secret.helper';
 import { PrismaService } from '../prisma/prisma.service';
@@ -10,6 +10,12 @@ export type ZaloTemplateType = 'INVOICE' | 'REMINDER' | 'PAID' | 'OTP';
 export type ZaloConfigSource = 'database' | 'env' | 'default' | 'missing';
 export type ZaloTokenState = 'MISSING' | 'AVAILABLE' | 'EXPIRED' | 'REJECTED';
 export type ZaloAutoRefreshPersistMode = 'database' | 'env-only' | 'disabled';
+export type ZaloTemplateSchema = {
+  code: 'BILLING_APPROVED' | 'OTP_DEFAULT';
+  templateType: 'INVOICE' | 'OTP';
+  label: string;
+  params: string[];
+};
 
 type ZaloResolvedFieldKey =
   | 'appId'
@@ -42,6 +48,10 @@ export type ResolvedZaloConfig = {
   oauthBaseUrl: string;
   dryRun: boolean;
   templateIds: Record<ZaloTemplateType, string | null>;
+  templateSchemas: {
+    INVOICE: ZaloTemplateSchema;
+    OTP: ZaloTemplateSchema;
+  };
   missingRequired: string[];
   missingRecommended: string[];
   hasStoredAppSecret: boolean;
@@ -77,6 +87,28 @@ export type ResolvedZaloConfig = {
 const ZALO_PROVIDER = 'ZALO_OA';
 const DEFAULT_ZALO_API_BASE_URL = 'https://openapi.zalo.me/v3.0/oa';
 const DEFAULT_ZALO_OAUTH_BASE_URL = 'https://oauth.zaloapp.com/v4/oa';
+export const APPROVED_BILLING_TEMPLATE_PARAMS = [
+  'transfer_amount',
+  'bank_transfer_note',
+  'thang',
+  'ten_khach_hang',
+  'ten_he_thong',
+  'san_luong_kwh',
+  'so_tien',
+  'ma_hop_dong',
+] as const;
+export const DEFAULT_BILLING_TEMPLATE_SCHEMA: ZaloTemplateSchema = {
+  code: 'BILLING_APPROVED',
+  templateType: 'INVOICE',
+  label: 'Billing template da duyet',
+  params: [...APPROVED_BILLING_TEMPLATE_PARAMS],
+};
+export const DEFAULT_OTP_TEMPLATE_SCHEMA: ZaloTemplateSchema = {
+  code: 'OTP_DEFAULT',
+  templateType: 'OTP',
+  label: 'OTP template',
+  params: ['otp_code', 'otp', 'customer_name', 'expires_in_minutes', 'purpose'],
+};
 
 @Injectable()
 export class ZaloSettingsService {
@@ -103,9 +135,11 @@ export class ZaloSettingsService {
       apiBaseUrl: resolved.apiBaseUrl,
       oauthBaseUrl: resolved.oauthBaseUrl,
       templateInvoiceId: resolved.templateIds.INVOICE,
+      templateInvoiceSchema: resolved.templateSchemas.INVOICE,
       templateReminderId: resolved.templateIds.REMINDER,
       templatePaidId: resolved.templateIds.PAID,
       templateOtpId: resolved.templateIds.OTP,
+      templateOtpSchema: resolved.templateSchemas.OTP,
       hasAppSecret: Boolean(resolved.appSecret),
       appSecretPreview: resolved.appSecretPreview,
       hasAccessToken: Boolean(resolved.accessToken),
@@ -192,6 +226,14 @@ export class ZaloSettingsService {
       dto.templateOtpId,
       current?.templateOtpId || null,
     );
+    const templateInvoiceSchema = this.normalizeTemplateSchema(
+      current?.templateInvoiceSchema,
+      DEFAULT_BILLING_TEMPLATE_SCHEMA,
+    );
+    const templateOtpSchema = this.normalizeTemplateSchema(
+      current?.templateOtpSchema,
+      DEFAULT_OTP_TEMPLATE_SCHEMA,
+    );
 
     const appSecretEncrypted = dto.appSecret?.trim()
       ? encryptSecret(dto.appSecret.trim(), this.getEncryptionSecret())
@@ -232,9 +274,11 @@ export class ZaloSettingsService {
         refreshTokenEncrypted,
         apiBaseUrl,
         templateInvoiceId,
+        templateInvoiceSchema: templateInvoiceSchema as Prisma.InputJsonValue,
         templateReminderId,
         templatePaidId,
         templateOtpId,
+        templateOtpSchema: templateOtpSchema as Prisma.InputJsonValue,
         accessTokenExpiresAt: null,
         lastTokenCheckedAt: tokenUpdated ? new Date() : null,
         lastTokenStatus: tokenUpdated ? 'AVAILABLE' : null,
@@ -251,9 +295,11 @@ export class ZaloSettingsService {
         refreshTokenEncrypted,
         apiBaseUrl,
         templateInvoiceId,
+        templateInvoiceSchema: templateInvoiceSchema as Prisma.InputJsonValue,
         templateReminderId,
         templatePaidId,
         templateOtpId,
+        templateOtpSchema: templateOtpSchema as Prisma.InputJsonValue,
         accessTokenExpiresAt: tokenUpdated ? null : current?.accessTokenExpiresAt || null,
         lastTokenCheckedAt: tokenUpdated || refreshTokenUpdated ? new Date() : undefined,
         lastTokenStatus: tokenUpdated ? 'AVAILABLE' : undefined,
@@ -280,9 +326,11 @@ export class ZaloSettingsService {
         hasAppId: Boolean(appId),
         hasOaId: Boolean(oaId),
         templateInvoiceId,
+        templateInvoiceSchema,
         templateReminderId,
         templatePaidId,
         templateOtpId,
+        templateOtpSchema,
       },
     });
 
@@ -334,6 +382,14 @@ export class ZaloSettingsService {
     const templateOtpField = this.resolveField(
       record?.templateOtpId || null,
       'ZALO_TEMPLATE_OTP_ID',
+    );
+    const templateInvoiceSchema = this.normalizeTemplateSchema(
+      record?.templateInvoiceSchema,
+      DEFAULT_BILLING_TEMPLATE_SCHEMA,
+    );
+    const templateOtpSchema = this.normalizeTemplateSchema(
+      record?.templateOtpSchema,
+      DEFAULT_OTP_TEMPLATE_SCHEMA,
     );
 
     const fieldSources = {
@@ -429,6 +485,10 @@ export class ZaloSettingsService {
         REMINDER: templateReminderField.value,
         PAID: templatePaidField.value,
         OTP: templateOtpField.value,
+      },
+      templateSchemas: {
+        INVOICE: templateInvoiceSchema,
+        OTP: templateOtpSchema,
       },
       missingRequired,
       missingRecommended,
@@ -653,6 +713,35 @@ export class ZaloSettingsService {
       source: 'missing',
       hasDbValue: false,
       hasEnvValue: false,
+    };
+  }
+
+  private normalizeTemplateSchema(
+    rawValue: Prisma.JsonValue | null | undefined,
+    fallback: ZaloTemplateSchema,
+  ): ZaloTemplateSchema {
+    if (!rawValue || typeof rawValue !== 'object' || Array.isArray(rawValue)) {
+      return { ...fallback, params: [...fallback.params] };
+    }
+
+    const source = rawValue as Record<string, unknown>;
+    const params = Array.isArray(source.params)
+      ? source.params.filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      : [];
+
+    return {
+      code:
+        source.code === 'OTP_DEFAULT' || source.code === 'BILLING_APPROVED'
+          ? source.code
+          : fallback.code,
+      templateType:
+        source.templateType === 'OTP' || source.templateType === 'INVOICE'
+          ? source.templateType
+          : fallback.templateType,
+      label: typeof source.label === 'string' && source.label.trim().length > 0
+        ? source.label.trim()
+        : fallback.label,
+      params: params.length ? params : [...fallback.params],
     };
   }
 

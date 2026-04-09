@@ -329,20 +329,22 @@ model OtpRequest {
 }
 
 model ZaloProviderConfig {
-  id                   String   @id @default(cuid())
-  provider             String   @unique
-  appId                String?
-  appSecretEncrypted   String?
+    id                   String   @id @default(cuid())
+    provider             String   @unique
+    appId                String?
+    appSecretEncrypted   String?
   oaId                 String?
   accessTokenEncrypted String?
   refreshTokenEncrypted String?
   accessTokenExpiresAt DateTime?
-  apiBaseUrl           String?
-  templateInvoiceId    String?
-  templateReminderId   String?
-  templatePaidId       String?
-  templateOtpId        String?
-  updatedByUserId      String?
+    apiBaseUrl           String?
+    templateInvoiceId    String?
+    templateInvoiceSchema Json?
+    templateReminderId   String?
+    templatePaidId       String?
+    templateOtpId        String?
+    templateOtpSchema    Json?
+    updatedByUserId      String?
   updatedByUser        User?    @relation("ZaloProviderConfigUpdatedBy", fields: [updatedByUserId], references: [id], onDelete: SetNull)
   lastTestedAt         DateTime?
   lastTestStatus       String?

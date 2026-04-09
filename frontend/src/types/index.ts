@@ -606,6 +606,13 @@ export type ZaloTemplateStatus = {
   source?: 'database' | 'env' | 'default' | 'missing';
 };
 
+export type ZaloTemplateSchema = {
+  code: 'BILLING_APPROVED' | 'OTP_DEFAULT' | string;
+  templateType: 'INVOICE' | 'OTP' | string;
+  label: string;
+  params: string[];
+};
+
 export type ZaloNotificationStatus = {
   configuredForSend: boolean;
   dryRun: boolean;
@@ -626,6 +633,8 @@ export type ZaloNotificationStatus = {
     PAID: ZaloTemplateStatus;
     OTP: ZaloTemplateStatus;
   };
+  templateInvoiceSchema?: ZaloTemplateSchema | null;
+  templateOtpSchema?: ZaloTemplateSchema | null;
   missingRequired: string[];
   missingRecommended: string[];
   accessTokenSource?: 'database' | 'env' | 'default' | 'missing';
@@ -719,6 +728,8 @@ export type ZaloMessageLogRecord = {
   providerMessage?: string | null;
   dryRun: boolean;
   createdAt: string;
+  requestPayload?: Record<string, unknown> | null;
+  responsePayload?: Record<string, unknown> | null;
   debug?: {
     tokenSource?: string | null;
     configRecordId?: string | null;
@@ -751,6 +762,8 @@ export type ZaloSendResult = {
   invalidTemplateFields?: string[];
   logId: string;
   sentAt: string;
+  requestPayload?: Record<string, unknown> | null;
+  responsePayload?: Record<string, unknown> | null;
   debug?: Record<string, unknown> | null;
 };
 
@@ -770,6 +783,8 @@ export type ZaloTestResult = {
   invalidTemplateFields?: string[];
   logId: string;
   sentAt: string;
+  requestPayload?: Record<string, unknown> | null;
+  responsePayload?: Record<string, unknown> | null;
   debug?: Record<string, unknown> | null;
 };
 

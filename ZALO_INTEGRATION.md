@@ -10,8 +10,9 @@
 - save App ID, App Secret, OA ID, Access Token
 - save Refresh Token
 - save API Base URL
-- save template IDs for invoice, reminder, paid
+- save template IDs for invoice, reminder, paid, otp
 - test connection with a phone number
+- review the active billing template schema and latest payload preview
 - review token diagnostics and auto-refresh status
 - review recent send logs
 
@@ -71,17 +72,32 @@ Notes:
 
 ## What the backend sends
 
-Current invoice template payload supports:
+Approved billing template payload now uses these exact params:
 
-- `customer_name`
-- `billing_month`
-- `consumption_kwh`
-- `amount_due`
-- `due_date`
-- `payment_link`
-- `hotline`
+- `transfer_amount`
+- `bank_transfer_note`
+- `thang`
+- `ten_khach_hang`
+- `ten_he_thong`
+- `san_luong_kwh`
+- `so_tien`
+- `ma_hop_dong`
 
-Safe fallbacks are used when any field is missing so the action does not crash.
+Billing formatting rules:
+
+- `thang` follows the billing UI label, currently `MM/YYYY`
+- `san_luong_kwh` is sent as display text, for example `500 kwh`
+- `so_tien` is display amount text, for example `1.749.600 đ`
+- `transfer_amount` is numeric-only for the transfer button, for example `1749600`
+- `bank_transfer_note` is a clean transfer note built from invoice/customer/contract references
+
+OTP template stays completely separate from billing template and uses `templateOtpId` plus `templateOtpSchema`.
+
+If any required billing param is missing or invalid, backend blocks the send before calling Zalo and returns an explicit message such as:
+
+- `thieu bank_transfer_note`
+- `thieu san_luong_kwh`
+- `thieu thang`
 
 ## Local testing
 
@@ -101,10 +117,11 @@ Local testing is meant to stay safe by default.
 3. Open `/admin/zalo`.
 4. Save settings if needed.
 5. Enter a test phone number and click `Test ket noi Zalo`.
-6. Open `/admin/billing`.
-7. Click `Gui Zalo` on an invoice.
-8. Review recent logs on `/admin/zalo` or in the billing page Zalo panel.
-9. If provider reports token invalid, check token diagnostics and `Lan refresh gan nhat` on `/admin/zalo`.
+6. Review `Billing template hien hanh` to confirm the payload preview matches the approved template.
+7. Open `/admin/billing`.
+8. Click `Gui Zalo` on an invoice.
+9. Review recent logs on `/admin/zalo` or in the billing page Zalo panel.
+10. If provider reports token invalid, check token diagnostics and `Lan refresh gan nhat` on `/admin/zalo`.
 
 ## Switching from test to real send
 
@@ -136,6 +153,8 @@ Each send attempt writes a `ZaloMessageLog` record with:
 - customer name
 - recipient phone
 - template id
+- request payload
+- provider response payload
 - status
 - provider response code/message
 - timestamp

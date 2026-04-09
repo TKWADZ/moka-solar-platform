@@ -14,8 +14,12 @@ import { WebsiteSettingsService } from '../website-settings/website-settings.ser
 import { TestZaloConnectionDto } from './dto/test-zalo-connection.dto';
 import { UpdateZaloSettingsDto } from './dto/update-zalo-settings.dto';
 import {
+  APPROVED_BILLING_TEMPLATE_PARAMS,
+  DEFAULT_BILLING_TEMPLATE_SCHEMA,
+  DEFAULT_OTP_TEMPLATE_SCHEMA,
   ResolvedZaloConfig,
   ZaloSettingsService,
+  ZaloTemplateSchema,
   ZaloTemplateType,
 } from './zalo-settings.service';
 
@@ -103,6 +107,17 @@ type TemplatePayloadValidationResult = {
   validationMessage: string | null;
 };
 
+type BillingTemplatePayloadParams = {
+  transferAmount: string;
+  bankTransferNote: string;
+  billingMonthLabel: string;
+  customerName: string;
+  systemName: string;
+  energyKwhLabel: string;
+  displayAmount: string;
+  contractNumber: string;
+};
+
 @Injectable()
 export class ZaloNotificationsService {
   constructor(
@@ -146,10 +161,10 @@ export class ZaloNotificationsService {
       take: Math.min(filters?.limit || 20, 100),
     });
 
-    return logs.map((log) => ({
-      ...(this.extractLatestLogDiagnostics(log.responsePayload)
-        ? { debug: this.extractLatestLogDiagnostics(log.responsePayload) }
-        : {}),
+      return logs.map((log) => ({
+        ...(this.extractLatestLogDiagnostics(log.responsePayload)
+          ? { debug: this.extractLatestLogDiagnostics(log.responsePayload) }
+          : {}),
       id: log.id,
       invoiceId: log.invoiceId,
       invoiceNumber: log.invoice?.invoiceNumber || null,
@@ -158,35 +173,31 @@ export class ZaloNotificationsService {
       templateType: log.templateType,
       templateId: log.templateId,
       sendStatus: log.sendStatus,
-      providerCode: log.providerCode,
-      providerMessage: log.providerMessage,
-      dryRun: log.dryRun,
-      createdAt: log.createdAt.toISOString(),
-    }));
-  }
+        providerCode: log.providerCode,
+        providerMessage: log.providerMessage,
+        dryRun: log.dryRun,
+        requestPayload: log.requestPayload || null,
+        responsePayload: log.responsePayload || null,
+        createdAt: log.createdAt.toISOString(),
+      }));
+    }
 
   async testConnection(dto: TestZaloConnectionDto, actorId?: string) {
     const config = await this.zaloSettingsService.resolveConfig();
     const recipientPhone = this.normalizePhoneNumber(dto.phone || '');
     const templateId = config.templateIds.INVOICE;
-    const now = new Date();
-    const approvedTemplateDateValue = this.formatApprovedTemplate560202DateParam({
-      year: now.getFullYear(),
-      month: now.getMonth() + 1,
-    });
     const requestPayload = {
       phone: recipientPhone,
       template_id: templateId,
-      template_data: this.buildInvoiceTemplatePayloadForTemplate({
-        templateId,
-        customerName: 'Hu\u1ef3nh Anh T\u00fa',
-        contractNumber: 'MKSL002',
+      template_data: this.buildApprovedBillingTemplatePayload({
         transferAmount: this.formatCurrencyForPayload(1749600),
-        bankTransferNote: 'Ti\u1ec1n \u0111i\u1ec7n test th\u00e1ng 2',
-        year: approvedTemplateDateValue,
-        month: approvedTemplateDateValue,
-        price: this.formatCurrencyForPayload(1749600),
-        kwh: this.formatKwhForApprovedTemplate(720),
+        bankTransferNote: 'MOKA INV-TEST CUS-TEST',
+        billingMonthLabel: '04/2026',
+        customerName: 'Khach hang test',
+        systemName: 'He thong rooftop test',
+        energyKwhLabel: this.formatKwhLabelForBillingTemplate(500),
+        displayAmount: this.formatDisplayAmountForBillingTemplate(1749600),
+        contractNumber: 'MKSL-TEST-001',
       }),
       tracking_id: `TEST-${Date.now()}`,
       mode: 'development',
@@ -208,6 +219,9 @@ export class ZaloNotificationsService {
           'Can nhap so dien thoai test de kiem tra ket noi Zalo.',
         missingRequired: config.missingRequired,
         missingRecommended: config.missingRecommended,
+        debug: {
+          templateSchema: config.templateSchemas.INVOICE,
+        },
       });
 
       await this.zaloSettingsService.recordTestResult({
@@ -367,7 +381,6 @@ export class ZaloNotificationsService {
     const recipientPhone = this.normalizePhoneNumber(
       options.recipientPhone || invoice.customer?.user?.phone || '',
     );
-    const hotline = await this.resolveHotline();
     const templateId = config.templateIds[templateType];
     const billableConsumption =
       Number(invoice.monthlyPvBilling?.billableKwh || 0) ||
@@ -376,37 +389,45 @@ export class ZaloNotificationsService {
       Number(invoice.totalAmount || 0) - Number(invoice.paidAmount || 0),
       0,
     );
-    const bankTransferNote = this.buildApprovedTemplate560202TransferNote({
-      templateId,
-      customerName:
-        invoice.customer?.companyName?.trim() ||
-        invoice.customer?.user?.fullName?.trim() ||
-        null,
-      systemName: invoice.contract?.solarSystem?.name?.trim() || null,
-      month: invoice.billingMonth,
+    const hotline = await this.resolveHotline();
+    const customerName =
+      invoice.customer?.companyName?.trim() ||
+      invoice.customer?.user?.fullName?.trim() ||
+      'Quy khach';
+    const systemName = invoice.contract?.solarSystem?.name?.trim() || 'He thong dien mat troi';
+    const billingMonthLabel = this.formatBillingMonthLabel(
+      invoice.billingMonth,
+      invoice.billingYear,
+    );
+    const bankTransferNote = await this.resolveBankTransferNote({
+      invoiceNumber: invoice.invoiceNumber,
+      customerCode: invoice.customer?.customerCode || null,
+      contractNumber: invoice.contract?.contractNumber || null,
+      customerName,
+      billingMonth: invoice.billingMonth,
+      billingYear: invoice.billingYear,
     });
-    const approvedTemplateDateValue = this.formatApprovedTemplate560202DateParam({
-      year: invoice.billingYear,
-      month: invoice.billingMonth,
-    });
-    const payloadVariables = this.buildInvoiceTemplatePayloadForTemplate({
-      templateId,
-      customerName:
-        invoice.customer?.companyName?.trim() ||
-        invoice.customer?.user?.fullName?.trim() ||
-        'Quy khach',
-      contractNumber: invoice.contract?.contractNumber || '',
-      transferAmount: this.formatCurrencyForPayload(outstandingAmount),
-      bankTransferNote,
-      year: approvedTemplateDateValue,
-      month: approvedTemplateDateValue,
-      price: this.formatCurrencyForPayload(outstandingAmount),
-      kwh: this.formatKwhForApprovedTemplate(billableConsumption),
-      paymentLink: this.buildPaymentLink(invoice.id),
-      hotline,
-      dueDate: invoice.dueDate ? invoice.dueDate.toISOString().slice(0, 10) : '',
-      billingMonthLabel: `${String(invoice.billingMonth).padStart(2, '0')}/${invoice.billingYear}`,
-    });
+    const payloadVariables =
+      templateType === 'INVOICE'
+        ? this.buildApprovedBillingTemplatePayload({
+            transferAmount: this.formatCurrencyForPayload(outstandingAmount),
+            bankTransferNote,
+            billingMonthLabel,
+            customerName,
+            systemName,
+            energyKwhLabel: this.formatKwhLabelForBillingTemplate(billableConsumption),
+            displayAmount: this.formatDisplayAmountForBillingTemplate(outstandingAmount),
+            contractNumber: invoice.contract?.contractNumber || '',
+          })
+        : this.buildLegacyBillingTemplatePayload({
+            customerName,
+            billingMonthLabel,
+            kwh: this.formatDecimalForPayload(billableConsumption),
+            amountDue: this.formatCurrencyForPayload(outstandingAmount),
+            paymentLink: this.buildPaymentLink(invoice.id),
+            hotline,
+            dueDate: invoice.dueDate ? invoice.dueDate.toISOString().slice(0, 10) : '',
+          });
 
     const requestPayload = {
       phone: recipientPhone,
@@ -434,6 +455,12 @@ export class ZaloNotificationsService {
         providerMessage: 'Khach hang chua co so dien thoai de gui thong bao Zalo.',
         missingRequired: config.missingRequired,
         missingRecommended: config.missingRecommended,
+        debug: {
+          templateSchema:
+            templateType === 'INVOICE'
+              ? config.templateSchemas.INVOICE
+              : null,
+        },
       });
     }
 
@@ -804,6 +831,7 @@ export class ZaloNotificationsService {
       recipientPhone: params.recipientPhone,
     });
     const templateValidation = this.validateTemplatePayload({
+      templateType: params.templateType,
       templateId: params.templateId,
       templateData:
         this.extractObjectValue(params.requestPayload, ['template_data', 'templateData']) || {},
@@ -1570,39 +1598,33 @@ export class ZaloNotificationsService {
     return String(templateId || '').trim() === '560202';
   }
 
-  private buildInvoiceTemplatePayloadForTemplate(params: {
-    templateId?: string | null;
+  private buildApprovedBillingTemplatePayload(params: BillingTemplatePayloadParams) {
+    return {
+      transfer_amount: params.transferAmount,
+      bank_transfer_note: params.bankTransferNote,
+      thang: params.billingMonthLabel,
+      ten_khach_hang: params.customerName,
+      ten_he_thong: params.systemName,
+      san_luong_kwh: params.energyKwhLabel,
+      so_tien: params.displayAmount,
+      ma_hop_dong: params.contractNumber,
+    } satisfies Record<(typeof APPROVED_BILLING_TEMPLATE_PARAMS)[number], string>;
+  }
+
+  private buildLegacyBillingTemplatePayload(params: {
     customerName: string;
-    contractNumber: string;
-    transferAmount: string;
-    bankTransferNote: string;
-    year: string;
-    month: string;
-    price: string;
+    billingMonthLabel: string;
     kwh: string;
+    amountDue: string;
     paymentLink?: string;
     hotline?: string;
     dueDate?: string;
-    billingMonthLabel?: string;
   }) {
-    if (this.isApprovedInvoiceTemplate560202(params.templateId)) {
-      return {
-        customer_name: params.customerName,
-        contract_number: params.contractNumber,
-        transfer_amount: params.transferAmount,
-        bank_transfer_note: params.bankTransferNote,
-        year: params.year,
-        month: params.month,
-        price: params.price,
-        kwh: params.kwh,
-      } satisfies Record<string, string>;
-    }
-
     return {
       customer_name: params.customerName,
-      billing_month: params.billingMonthLabel || `${params.month}/${params.year}`,
+      billing_month: params.billingMonthLabel,
       consumption_kwh: params.kwh,
-      amount_due: params.transferAmount,
+      amount_due: params.amountDue,
       due_date: params.dueDate || '',
       payment_link: params.paymentLink || '',
       hotline: params.hotline || '',
@@ -1641,10 +1663,11 @@ export class ZaloNotificationsService {
   }
 
   private validateTemplatePayload(params: {
+    templateType: ZaloTemplateType | 'TEST';
     templateId: string | null;
     templateData: Record<string, unknown>;
   }): TemplatePayloadValidationResult {
-    if (!this.isApprovedInvoiceTemplate560202(params.templateId)) {
+    if (params.templateType !== 'INVOICE' && params.templateType !== 'TEST') {
       return {
         missingTemplateFields: [],
         invalidTemplateFields: [],
@@ -1652,16 +1675,7 @@ export class ZaloNotificationsService {
       };
     }
 
-    const requiredFields = [
-      'customer_name',
-      'contract_number',
-      'transfer_amount',
-      'bank_transfer_note',
-      'year',
-      'month',
-      'price',
-      'kwh',
-    ] as const;
+    const requiredFields = APPROVED_BILLING_TEMPLATE_PARAMS;
 
     const missingTemplateFields = requiredFields.filter((field) =>
       this.isMissingTemplateField(params.templateData[field]),
@@ -1680,7 +1694,7 @@ export class ZaloNotificationsService {
       missingTemplateFields,
       invalidTemplateFields,
       validationMessage: problems.length
-        ? `Khong the gui template 560202: ${problems.join(', ')}.`
+        ? `Khong the gui billing template ${params.templateId || ''}: ${problems.join(', ')}.`
         : null,
     };
   }
@@ -1701,77 +1715,21 @@ export class ZaloNotificationsService {
 
     switch (field) {
       case 'transfer_amount':
-      case 'price':
         return /^\d+$/.test(normalized);
-      case 'year':
-      case 'month':
-        return this.isValidApprovedTemplate560202DateParam(normalized);
-      case 'kwh':
-        return /^\d+(?:\.\d+)?$/.test(normalized);
+      case 'bank_transfer_note':
+      case 'ten_khach_hang':
+      case 'ten_he_thong':
+      case 'ma_hop_dong':
+        return normalized.length > 0;
+      case 'thang':
+        return /^(0[1-9]|1[0-2])\/\d{4}$/.test(normalized) || /^Thang\s+\d{1,2}$/i.test(normalized);
+      case 'san_luong_kwh':
+        return /^\d+(?:[.,]\d+)?\s*kwh$/i.test(normalized);
+      case 'so_tien':
+        return /\d/.test(normalized);
       default:
         return true;
     }
-  }
-
-  private formatApprovedTemplate560202DateParam(params: {
-    year?: number | string | null;
-    month?: number | string | null;
-    day?: number | string | null;
-  }) {
-    const year = Number(params.year);
-    const month = Number(params.month);
-    const day = Number(params.day ?? 1);
-
-    if (!Number.isInteger(year) || year < 2000 || year > 9999) {
-      return '';
-    }
-
-    if (!Number.isInteger(month) || month < 1 || month > 12) {
-      return '';
-    }
-
-    if (!Number.isInteger(day) || day < 1 || day > 31) {
-      return '';
-    }
-
-    return `${String(day).padStart(2, '0')}/${String(month).padStart(2, '0')}/${String(year)}`;
-  }
-
-  private isValidApprovedTemplate560202DateParam(value: string) {
-    return /^(0[1-9]|[12]\d|3[01])\/(0[1-9]|1[0-2])\/\d{4}$/.test(value);
-  }
-
-  private formatKwhForApprovedTemplate(value: unknown) {
-    const numeric = Number(value || 0);
-    if (!Number.isFinite(numeric)) {
-      return '0';
-    }
-
-    if (Math.abs(numeric - Math.round(numeric)) < 0.001) {
-      return String(Math.round(numeric));
-    }
-
-    return numeric.toFixed(2).replace(/\.00$/, '');
-  }
-
-  private buildApprovedTemplate560202TransferNote(params: {
-    templateId?: string | null;
-    customerName?: string | null;
-    systemName?: string | null;
-    month?: number | null;
-  }) {
-    if (!this.isApprovedInvoiceTemplate560202(params.templateId)) {
-      return '';
-    }
-
-    const scopeLabel = params.systemName?.trim() || params.customerName?.trim() || '';
-    const monthLabel =
-      params.month && Number.isFinite(params.month) ? String(params.month) : '';
-    const base = scopeLabel
-      ? `Ti\u1ec1n \u0111i\u1ec7n ${scopeLabel}`
-      : 'Ti\u1ec1n \u0111i\u1ec7n';
-
-    return `${base}${monthLabel ? ` th\u00e1ng ${monthLabel}` : ''}`.trim();
   }
 
   private async resolveBankTransferNote(params: {
@@ -1827,6 +1785,44 @@ export class ZaloNotificationsService {
     });
 
     return rendered.replace(/\s+/g, ' ').trim();
+  }
+
+  private formatBillingMonthLabel(month?: number | null, year?: number | null) {
+    if (!month || !year) {
+      return '';
+    }
+
+    return `${String(month).padStart(2, '0')}/${year}`;
+  }
+
+  private formatKwhLabelForBillingTemplate(value: unknown) {
+    const numeric = Number(value || 0);
+    if (!Number.isFinite(numeric)) {
+      return '0 kwh';
+    }
+
+    const formatted =
+      Math.abs(numeric - Math.round(numeric)) < 0.001
+        ? new Intl.NumberFormat('vi-VN', {
+            maximumFractionDigits: 0,
+          }).format(Math.round(numeric))
+        : new Intl.NumberFormat('vi-VN', {
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 1,
+          }).format(numeric);
+
+    return `${formatted} kwh`;
+  }
+
+  private formatDisplayAmountForBillingTemplate(value: unknown) {
+    const numeric = Number(value || 0);
+    if (!Number.isFinite(numeric)) {
+      return '0 đ';
+    }
+
+    return `${new Intl.NumberFormat('vi-VN', {
+      maximumFractionDigits: 0,
+    }).format(Math.round(numeric))} đ`;
   }
 
   private normalizePhoneNumber(value: string) {

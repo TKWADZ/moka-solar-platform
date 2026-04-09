@@ -102,6 +102,27 @@ function buildZaloValidationMessage(
   return result.providerMessage || 'Khong the gui Zalo.';
 }
 
+function extractTemplateData(payload?: Record<string, unknown> | null) {
+  const templateData = payload?.template_data;
+  if (!templateData || typeof templateData !== 'object' || Array.isArray(templateData)) {
+    return null;
+  }
+
+  return templateData as Record<string, unknown>;
+}
+
+function stringifyJsonPreview(value: unknown) {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return null;
+  }
+}
+
 export default function AdminZaloPage() {
   const [session, setSession] = useState<SessionPayload | null>(null);
   const [settings, setSettings] = useState<ZaloSettingsRecord | null>(null);
@@ -124,6 +145,12 @@ export default function AdminZaloPage() {
   const [error, setError] = useState('');
   const canManageSecretSettings = hasPermission(session, 'integration.secrets.manage');
   const canExecuteIntegration = hasPermission(session, 'integrations.execute');
+  const latestBillingLog = logs.find(
+    (log) => log.templateType === 'INVOICE' || log.templateType === 'TEST',
+  );
+  const latestBillingTemplatePayload = extractTemplateData(latestBillingLog?.requestPayload);
+  const latestBillingTemplatePayloadPreview = stringifyJsonPreview(latestBillingTemplatePayload);
+  const latestBillingResponsePreview = stringifyJsonPreview(latestBillingLog?.responsePayload);
 
   async function loadPage() {
     const [nextSettings, nextLogs] = await Promise.all([
@@ -737,6 +764,87 @@ export default function AdminZaloPage() {
         </div>
       ) : null}
 
+      <SectionCard
+        title="Billing template hien hanh"
+        eyebrow="Preview/test/send billing deu dung chung schema nay"
+        dark
+      >
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
+          <div className="space-y-4">
+            <div className="rounded-[20px] border border-white/8 bg-white/[0.04] px-4 py-4">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
+                Template dang dung
+              </p>
+              <p className="mt-2 text-base font-semibold text-white">
+                {settings?.templateInvoiceId || 'Chua cau hinh'}
+              </p>
+              <p className="mt-1 text-sm leading-6 text-slate-400">
+                {settings?.templateInvoiceSchema?.label || 'Billing template da duyet'}
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                {(settings?.templateInvoiceSchema?.params || []).map((param) => (
+                  <span
+                    key={param}
+                    className="rounded-full border border-white/10 bg-white/[0.05] px-3 py-1 text-xs text-slate-200"
+                  >
+                    {param}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div className="rounded-[20px] border border-white/8 bg-white/[0.04] px-4 py-4 text-sm leading-6 text-slate-300">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
+                Quy tac format
+              </p>
+              <div className="mt-3 grid gap-2">
+                <p>`thang`: hien thi theo ky billing UI, hien tai la `MM/YYYY`</p>
+                <p>`san_luong_kwh`: vi du `500 kwh`</p>
+                <p>`so_tien`: so tien hien thi cho tin nhan, vi du `1.749.600 đ`</p>
+                <p>`transfer_amount`: so nguyen de gan nut chuyen khoan, vi du `1749600`</p>
+                <p>`bank_transfer_note`: noi dung chuyen khoan sach, khong them bien cu</p>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-4">
+            <div className="rounded-[20px] border border-white/8 bg-white/[0.04] px-4 py-4">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
+                Payload preview gan nhat
+              </p>
+              <p className="mt-2 text-sm leading-6 text-slate-400">
+                Lay tu lan test/gui billing moi nhat de doi chieu voi template da duyet.
+              </p>
+              {latestBillingTemplatePayloadPreview ? (
+                <pre className="mt-4 overflow-x-auto rounded-[16px] border border-white/8 bg-black/20 px-4 py-4 text-xs leading-6 text-slate-200">
+                  {latestBillingTemplatePayloadPreview}
+                </pre>
+              ) : (
+                <p className="mt-4 text-sm leading-6 text-slate-300">
+                  Chua co payload preview. Hay bam `Test ket noi Zalo` hoac gui mot invoice dry-run
+                  de xem du lieu mau moi nhat.
+                </p>
+              )}
+            </div>
+
+            <div className="rounded-[20px] border border-white/8 bg-white/[0.04] px-4 py-4">
+              <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
+                Provider response gan nhat
+              </p>
+              {latestBillingResponsePreview ? (
+                <pre className="mt-4 overflow-x-auto rounded-[16px] border border-white/8 bg-black/20 px-4 py-4 text-xs leading-6 text-slate-200">
+                  {latestBillingResponsePreview}
+                </pre>
+              ) : (
+                <p className="mt-4 text-sm leading-6 text-slate-300">
+                  Chua co response preview tu provider.
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </SectionCard>
+
       <SectionCard title="Nhat ky gui Zalo" eyebrow="Moi lan test hoac gui hoa don deu duoc luu lai" dark>
         <div className="grid gap-3">
           {logs.length ? (
@@ -780,6 +888,33 @@ export default function AdminZaloPage() {
                     ) : null}
                   </div>
                 ) : null}
+                {log.requestPayload || log.responsePayload ? (
+                  <details className="mt-3 rounded-[16px] border border-white/8 bg-black/10 px-3 py-3 text-xs text-slate-300">
+                    <summary className="cursor-pointer select-none text-slate-200">
+                      Xem payload va response
+                    </summary>
+                    {log.requestPayload ? (
+                      <div className="mt-3">
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                          Payload gui di
+                        </p>
+                        <pre className="mt-2 overflow-x-auto rounded-[12px] border border-white/8 bg-black/20 px-3 py-3 leading-6 text-slate-200">
+                          {stringifyJsonPreview(log.requestPayload)}
+                        </pre>
+                      </div>
+                    ) : null}
+                    {log.responsePayload ? (
+                      <div className="mt-3">
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                          Response tu Zalo
+                        </p>
+                        <pre className="mt-2 overflow-x-auto rounded-[12px] border border-white/8 bg-black/20 px-3 py-3 leading-6 text-slate-200">
+                          {stringifyJsonPreview(log.responsePayload)}
+                        </pre>
+                      </div>
+                    ) : null}
+                  </details>
+                ) : null}
               </div>
             ))
           ) : (
@@ -795,8 +930,8 @@ export default function AdminZaloPage() {
         <div className="grid gap-3 md:grid-cols-3">
           {[
             '1. Luu App ID, secret, OA ID, token va template IDs tai day.',
-            '2. Bam "Test ket noi Zalo" de kiem tra missing config va dry-run.',
-            '3. Qua /admin/billing de bam "Gui Zalo" cho tung hoa don khi can.',
+            '2. Bam "Test ket noi Zalo" de xem preview payload theo dung template billing dang active.',
+            '3. Qua /admin/billing de bam "Gui Zalo"; he thong se dung cung schema va validation nay.',
           ].map((item) => (
             <div key={item} className="rounded-[20px] border border-white/8 bg-white/[0.04] px-4 py-4 text-sm leading-6 text-slate-300">
               <div className="flex items-start gap-3">
