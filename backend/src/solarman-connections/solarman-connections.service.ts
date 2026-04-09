@@ -48,6 +48,13 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
   ) {}
 
   async onModuleInit() {
+    const schedulerEnabled =
+      String(this.configService.get('MONITOR_SYNC_SCHEDULER_ENABLED') ?? 'true').toLowerCase() !==
+      'false';
+    if (schedulerEnabled) {
+      return;
+    }
+
     const minutes = Number(this.configService.get('SOLARMAN_SYNC_INTERVAL_MINUTES') || 0);
     if (minutes > 0) {
       this.syncInterval = setInterval(() => {

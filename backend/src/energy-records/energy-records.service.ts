@@ -1,4 +1,5 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { createDecipheriv, createHash } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateEnergyRecordDto } from './dto/create-energy-record.dto';
@@ -198,15 +199,26 @@ export class EnergyRecordsService {
       throw new NotFoundException('Solar system not found');
     }
 
-    const snapshot = await this.semsPortalService.fetchMonitorSnapshot(dto);
-    const normalized = this.normalizeSnapshotForRecord(systemId, snapshot, dto);
+    const resolvedDto = {
+      ...dto,
+      plantId: dto.plantId || system.monitoringPlantId || system.stationId || undefined,
+    };
+
+    if (!resolvedDto.plantId) {
+      throw new BadRequestException(
+        'SEMS plant ID is required. Set monitoringPlantId on the system or provide plantId in the request.',
+      );
+    }
+
+    const snapshot = await this.semsPortalService.fetchMonitorSnapshot(resolvedDto);
+    const normalized = this.normalizeSnapshotForRecord(systemId, snapshot, resolvedDto);
     const record = await this.upsertRecord(normalized);
 
     await this.prisma.solarSystem.update({
       where: { id: systemId },
       data: {
         monitoringProvider: snapshot.provider,
-        monitoringPlantId: dto.plantId,
+        monitoringPlantId: resolvedDto.plantId,
         latestMonitorSnapshot: snapshot as unknown as Prisma.InputJsonValue,
         latestMonitorAt: new Date(snapshot.fetchedAt),
       },
@@ -219,7 +231,7 @@ export class EnergyRecordsService {
       entityId: systemId,
       payload: {
         provider: snapshot.provider,
-        plantId: dto.plantId,
+        plantId: resolvedDto.plantId,
         plantName: snapshot.plantName,
         recordDate: normalized.recordDate,
       },
@@ -245,21 +257,25 @@ export class EnergyRecordsService {
   async syncFromSolarman(systemId: string, dto: SolarmanSyncDto, actorId?: string) {
     const system = await this.prisma.solarSystem.findFirst({
       where: { id: systemId, deletedAt: null },
+      include: {
+        solarmanConnection: true,
+      },
     });
 
     if (!system) {
       throw new NotFoundException('Solar system not found');
     }
 
-    const snapshot = await this.solarmanService.fetchMonitorSnapshot(dto);
-    const normalized = this.normalizeSnapshotForRecord(systemId, snapshot, dto);
+    const resolvedDto = this.resolveSolarmanSyncDto(system, dto);
+    const snapshot = await this.solarmanService.fetchMonitorSnapshot(resolvedDto);
+    const normalized = this.normalizeSnapshotForRecord(systemId, snapshot, resolvedDto);
     const record = await this.upsertRecord(normalized);
 
     await this.prisma.solarSystem.update({
       where: { id: systemId },
       data: {
         monitoringProvider: snapshot.provider,
-        monitoringPlantId: dto.stationId,
+        monitoringPlantId: resolvedDto.stationId,
         latestMonitorSnapshot: snapshot as unknown as Prisma.InputJsonValue,
         latestMonitorAt: new Date(snapshot.fetchedAt),
       },
@@ -272,7 +288,7 @@ export class EnergyRecordsService {
       entityId: systemId,
       payload: {
         provider: snapshot.provider,
-        plantId: dto.stationId,
+        plantId: resolvedDto.stationId,
         plantName: snapshot.plantName,
         recordDate: normalized.recordDate,
       },
@@ -368,5 +384,60 @@ export class EnergyRecordsService {
     const date = new Date();
     date.setUTCHours(0, 0, 0, 0);
     return date;
+  }
+
+  private resolveSolarmanSyncDto(system: any, dto: SolarmanSyncDto): SolarmanSyncDto {
+    const stationId = dto.stationId || system.monitoringPlantId || system.stationId || undefined;
+    if (!stationId) {
+      throw new BadRequestException(
+        'SOLARMAN station ID is required. Set monitoringPlantId on the system or provide stationId in the request.',
+      );
+    }
+
+    const decryptedPassword = system.solarmanConnection?.passwordEncrypted
+      ? this.decryptSolarmanPassword(system.solarmanConnection.passwordEncrypted)
+      : null;
+
+    return {
+      ...dto,
+      stationId,
+      username: dto.username || system.solarmanConnection?.usernameOrEmail || undefined,
+      password: dto.password || decryptedPassword || undefined,
+    };
+  }
+
+  private decryptSolarmanPassword(value: string) {
+    try {
+      const [ivBase64, authTagBase64, payloadBase64] = value.split(':');
+      if (!ivBase64 || !authTagBase64 || !payloadBase64) {
+        return null;
+      }
+
+      const decipher = createDecipheriv(
+        'aes-256-gcm',
+        this.getSolarmanEncryptionKey(),
+        Buffer.from(ivBase64, 'base64'),
+      );
+      decipher.setAuthTag(Buffer.from(authTagBase64, 'base64'));
+
+      const decrypted = Buffer.concat([
+        decipher.update(Buffer.from(payloadBase64, 'base64')),
+        decipher.final(),
+      ]);
+
+      return decrypted.toString('utf8');
+    } catch {
+      return null;
+    }
+  }
+
+  private getSolarmanEncryptionKey() {
+    const secret =
+      process.env.SOLARMAN_SETTINGS_SECRET ||
+      process.env.AI_SETTINGS_SECRET ||
+      process.env.JWT_SECRET ||
+      'moka-solar-solarman-settings';
+
+    return createHash('sha256').update(secret).digest();
   }
 }

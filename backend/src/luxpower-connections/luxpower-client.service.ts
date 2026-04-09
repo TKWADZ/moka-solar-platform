@@ -143,7 +143,20 @@ export class LuxPowerClientService {
     }
 
     return this.withSessionRetry(connection, async (session) => {
-      return this.fetchMonitoringBundle(session, connection);
+      return this.fetchMonitoringBundle(session, connection, { includeHistoryWindows: true });
+    });
+  }
+
+  async fetchRealtimeSnapshot(
+    connection: LuxPowerConnectionConfig,
+    options?: { forceRelogin?: boolean },
+  ) {
+    if (options?.forceRelogin) {
+      this.clearSession(connection.id);
+    }
+
+    return this.withSessionRetry(connection, async (session) => {
+      return this.fetchMonitoringBundle(session, connection, { includeHistoryWindows: false });
     });
   }
 
@@ -415,6 +428,9 @@ export class LuxPowerClientService {
   private async fetchMonitoringBundle(
     session: LuxPowerSession,
     connection: LuxPowerConnectionConfig,
+    options?: {
+      includeHistoryWindows?: boolean;
+    },
   ): Promise<LuxPowerMonitoringBundle> {
     const resolvedTarget = await this.resolveTarget(session, connection);
     const serialNumber = resolvedTarget.inverter?.serialNumber;
@@ -479,18 +495,23 @@ export class LuxPowerClientService {
       warnings.push(lifetimeAggregateResult.warning);
     }
 
-    const dailyAggregateWindows = await this.fetchDailyAggregateHistoryPayloads({
-      session,
-      referer,
-      serialNumber,
-      referenceDate: now,
-    });
-    const monthlyAggregateWindows = await this.fetchMonthlyAggregateHistoryPayloads({
-      session,
-      referer,
-      serialNumber,
-      currentYear,
-    });
+    const includeHistoryWindows = options?.includeHistoryWindows !== false;
+    const dailyAggregateWindows = includeHistoryWindows
+      ? await this.fetchDailyAggregateHistoryPayloads({
+          session,
+          referer,
+          serialNumber,
+          referenceDate: now,
+        })
+      : [];
+    const monthlyAggregateWindows = includeHistoryWindows
+      ? await this.fetchMonthlyAggregateHistoryPayloads({
+          session,
+          referer,
+          serialNumber,
+          currentYear,
+        })
+      : [];
 
     for (const item of dailyAggregateWindows) {
       if (item.warning) {

@@ -862,6 +862,22 @@ export type MonitorSnapshot = {
   raw?: Record<string, unknown> | null;
 };
 
+export type SystemMonitorSyncLogRecord = {
+  id: string;
+  provider: string;
+  syncScope: 'REALTIME' | 'HISTORY' | 'DAY_CLOSE' | string;
+  scheduleTier?: 'ACTIVE_VIEW' | 'ONLINE' | 'IDLE' | 'BACKOFF' | string | null;
+  status: string;
+  message?: string | null;
+  errorStatus?: string | null;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  startedAt: string;
+  finishedAt?: string | null;
+  createdAt: string;
+  context?: Record<string, unknown> | null;
+};
+
 export type CustomerSystemMonitor = {
   id: string;
   name: string;
@@ -883,6 +899,16 @@ export type CustomerSystemMonitor = {
   lastHourlySyncAt?: string | null;
   lastMonthlySyncAt?: string | null;
   lastBillingSyncAt?: string | null;
+  lastSyncAttemptAt?: string | null;
+  lastSuccessfulSyncAt?: string | null;
+  lastSyncStatus?: string | null;
+  lastSyncErrorStatus?: string | null;
+  lastSyncErrorMessage?: string | null;
+  lastSyncErrorAt?: string | null;
+  nextRealtimeSyncAt?: string | null;
+  nextHistorySyncAt?: string | null;
+  monitorBindingReady?: boolean;
+  monitorBindingMessage?: string | null;
   latestMonthlySyncTime?: string | null;
   latestMonthlyGenerationKwh?: number | null;
   latestMonthlyBillingAmount?: number | null;
@@ -914,6 +940,7 @@ export type CustomerSystemMonitor = {
   hasDailyData?: boolean;
   hasMonthlyData?: boolean;
   hasBillingData?: boolean;
+  monitorSyncLogs?: SystemMonitorSyncLogRecord[];
   devices?: DeviceRecord[];
   telemetryRecords?: DeyeTelemetryRecord[];
   dailyRecords?: DeyeDailyRecord[];
@@ -1045,6 +1072,22 @@ export type AdminSystemRecord = {
   solarmanConnectionId?: string | null;
   latestMonitorSnapshot?: MonitorSnapshot | Record<string, unknown> | null;
   latestMonitorAt?: string | null;
+  lastStationSyncAt?: string | null;
+  lastRealtimeSyncAt?: string | null;
+  lastDailySyncAt?: string | null;
+  lastHourlySyncAt?: string | null;
+  lastMonthlySyncAt?: string | null;
+  lastBillingSyncAt?: string | null;
+  lastSyncAttemptAt?: string | null;
+  lastSuccessfulSyncAt?: string | null;
+  lastSyncStatus?: string | null;
+  lastSyncErrorStatus?: string | null;
+  lastSyncErrorMessage?: string | null;
+  lastSyncErrorAt?: string | null;
+  nextRealtimeSyncAt?: string | null;
+  nextHistorySyncAt?: string | null;
+  monitorBindingReady?: boolean;
+  monitorBindingMessage?: string | null;
   location?: string | null;
   installDate?: string | null;
   panelBrand?: string | null;
@@ -1065,6 +1108,7 @@ export type AdminSystemRecord = {
   } | null;
   devices?: DeviceRecord[];
   monthlyEnergyRecords?: MonthlyEnergyRecordRecord[];
+  monitorSyncLogs?: SystemMonitorSyncLogRecord[];
 };
 
 export type ContentPostStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';

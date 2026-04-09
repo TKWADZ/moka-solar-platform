@@ -2,12 +2,14 @@ import { BadRequestException, Injectable, NotFoundException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSystemDto } from './dto/create-system.dto';
 import { UpdateSystemDto } from './dto/update-system.dto';
+import { ReportSystemDashboardPresenceDto } from './dto/report-system-dashboard-presence.dto';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { generateCode } from '../common/helpers/domain.helper';
 import { normalizePercentRate } from '../common/helpers/billing.helper';
 import { DeyeHistorySyncService } from '../deye-connections/deye-history-sync.service';
 import { DeyeStationSyncService } from '../deye-connections/deye-station-sync.service';
 import { DeyeTelemetrySyncService } from '../deye-connections/deye-telemetry-sync.service';
+import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { deriveSystemStatusFromMonitoring } from './system-status.util';
 
 @Injectable()
@@ -43,6 +45,17 @@ export class SystemsService {
           orderBy: [{ year: 'desc' }, { month: 'desc' }],
           take: 24,
         },
+        luxPowerConnection: {
+          select: {
+            id: true,
+            accountName: true,
+            status: true,
+          },
+        },
+        monitorSyncLogs: {
+          orderBy: [{ createdAt: 'desc' }],
+          take: 8,
+        },
       },
       orderBy: { createdAt: 'desc' },
       })
@@ -75,6 +88,17 @@ export class SystemsService {
           include: {
             servicePackage: true,
           },
+        },
+        luxPowerConnection: {
+          select: {
+            id: true,
+            accountName: true,
+            status: true,
+          },
+        },
+        monitorSyncLogs: {
+          orderBy: [{ createdAt: 'desc' }],
+          take: 8,
         },
       },
       orderBy: { createdAt: 'desc' },
@@ -110,6 +134,17 @@ export class SystemsService {
             servicePackage: true,
           },
         },
+        luxPowerConnection: {
+          select: {
+            id: true,
+            accountName: true,
+            status: true,
+          },
+        },
+        monitorSyncLogs: {
+          orderBy: [{ createdAt: 'desc' }],
+          take: 8,
+        },
       },
     });
 
@@ -118,6 +153,67 @@ export class SystemsService {
     }
 
     return this.serializeSystem(system);
+  }
+
+  async reportDashboardPresence(dto: ReportSystemDashboardPresenceDto, actor: AuthenticatedUser) {
+    if (actor.role === 'CUSTOMER' && !actor.customerId) {
+      return { accepted: 0 };
+    }
+
+    const uniqueSystemIds = [...new Set((dto.systemIds || []).map((item) => item.trim()).filter(Boolean))];
+    if (!uniqueSystemIds.length) {
+      return { accepted: 0 };
+    }
+
+    const accessibleSystems = await this.prisma.solarSystem.findMany({
+      where: {
+        id: { in: uniqueSystemIds },
+        deletedAt: null,
+        ...(actor.role === 'CUSTOMER' && actor.customerId
+          ? {
+              customerId: actor.customerId,
+            }
+          : {}),
+      },
+      select: { id: true },
+    });
+
+    const allowedIds = accessibleSystems.map((item) => item.id);
+    const now = new Date();
+    const expiresAt = new Date(now.getTime() + 75 * 1000);
+    const pageKey = dto.pageKey?.trim() || 'system-dashboard';
+
+    await Promise.all(
+      allowedIds.map((systemId) =>
+        this.prisma.systemDashboardPresence.upsert({
+          where: {
+            solarSystemId_userId_pageKey: {
+              solarSystemId: systemId,
+              userId: actor.sub,
+              pageKey,
+            },
+          },
+          update: {
+            roleCode: actor.role,
+            lastSeenAt: now,
+            expiresAt,
+          },
+          create: {
+            solarSystemId: systemId,
+            userId: actor.sub,
+            pageKey,
+            roleCode: actor.role,
+            lastSeenAt: now,
+            expiresAt,
+          },
+        }),
+      ),
+    );
+
+    return {
+      accepted: allowedIds.length,
+      expiresAt: expiresAt.toISOString(),
+    };
   }
 
   async create(dto: CreateSystemDto, actorId?: string) {
@@ -452,6 +548,8 @@ export class SystemsService {
   }
 
   private serializeSystem(system: any) {
+    const binding = this.buildMonitorBinding(system);
+
     return {
       ...system,
       capacityKwp: Number(system.capacityKwp || 0),
@@ -522,8 +620,8 @@ export class SystemsService {
               : null,
           latestTelemetryAt: system.lastRealtimeSyncAt || system.latestMonitorAt || null,
         }) || system.status,
-      monthlyEnergyRecords:
-        system.monthlyEnergyRecords?.map((record: any) => ({
+          monthlyEnergyRecords:
+            system.monthlyEnergyRecords?.map((record: any) => ({
           ...record,
           pvGenerationKwh: Number(record.pvGenerationKwh || 0),
           unitPrice: Number(record.unitPrice || 0),
@@ -552,7 +650,84 @@ export class SystemsService {
             record.gridExportedKwh !== null && record.gridExportedKwh !== undefined
               ? Number(record.gridExportedKwh)
               : null,
+            })) || [],
+      lastSyncAttemptAt: system.lastSyncAttemptAt?.toISOString?.() || system.lastSyncAttemptAt || null,
+      lastSuccessfulSyncAt:
+        system.lastSuccessfulSyncAt?.toISOString?.() || system.lastSuccessfulSyncAt || null,
+      lastSyncErrorAt: system.lastSyncErrorAt?.toISOString?.() || system.lastSyncErrorAt || null,
+      nextRealtimeSyncAt:
+        system.nextRealtimeSyncAt?.toISOString?.() || system.nextRealtimeSyncAt || null,
+      nextHistorySyncAt: system.nextHistorySyncAt?.toISOString?.() || system.nextHistorySyncAt || null,
+      monitorBindingReady: binding.ready,
+      monitorBindingMessage: binding.message,
+      monitorSyncLogs:
+        system.monitorSyncLogs?.map((log: any) => ({
+          id: log.id,
+          provider: log.provider,
+          syncScope: log.syncScope,
+          scheduleTier: log.scheduleTier,
+          status: log.status,
+          message: log.message,
+          errorStatus: log.errorStatus,
+          errorCode: log.errorCode,
+          errorMessage: log.errorMessage,
+          startedAt: log.startedAt?.toISOString?.() || log.startedAt,
+          finishedAt: log.finishedAt?.toISOString?.() || log.finishedAt || null,
+          createdAt: log.createdAt?.toISOString?.() || log.createdAt,
+          context: log.context || null,
         })) || [],
+    };
+  }
+
+  private buildMonitorBinding(system: any) {
+    const provider = String(system.sourceSystem || system.monitoringProvider || '').trim().toUpperCase();
+
+    if (!provider) {
+      return {
+        ready: false,
+        message: 'Chua cau hinh nguon monitor cho he thong nay.',
+      };
+    }
+
+    if (provider === 'SEMS_PORTAL') {
+      return system.monitoringPlantId || system.stationId
+        ? { ready: true, message: null }
+        : {
+            ready: false,
+            message: 'Can nhap plant ID SEMS truoc khi bat auto sync.',
+          };
+    }
+
+    if (provider === 'SOLARMAN') {
+      return system.solarmanConnectionId && (system.monitoringPlantId || system.stationId)
+        ? { ready: true, message: null }
+        : {
+            ready: false,
+            message: 'Can gan SOLARMAN connection va station ID truoc khi bat auto sync.',
+          };
+    }
+
+    if (provider === 'DEYE') {
+      return system.deyeConnectionId && system.stationId
+        ? { ready: true, message: null }
+        : {
+            ready: false,
+            message: 'Can gan Deye connection va station ID truoc khi bat auto sync.',
+          };
+    }
+
+    if (provider === 'LUXPOWER') {
+      return system.luxPowerConnection?.id
+        ? { ready: true, message: null }
+        : {
+            ready: false,
+            message: 'Chua cau hinh LuxPower connection cho he thong nay.',
+          };
+    }
+
+    return {
+      ready: false,
+      message: 'He thong chua co binding monitor hop le cho auto sync.',
     };
   }
 }

@@ -7,6 +7,7 @@ import { EnergyChart } from '@/components/energy-chart';
 import { InvoiceTable } from '@/components/invoice-table';
 import { SectionCard } from '@/components/section-card';
 import { StatCard } from '@/components/stat-card';
+import { useSystemDashboardPresence } from '@/hooks/use-system-dashboard-presence';
 import { customerDashboardRequest } from '@/lib/api';
 import { formatCurrency, formatDate, formatDateTime, formatNumber } from '@/lib/utils';
 import { CustomerDashboardData, InvoiceRecord, InvoiceRow, StatCardItem } from '@/types';
@@ -66,6 +67,11 @@ function formatMeterReading(value?: number | null) {
 export default function CustomerPage() {
   const [dashboard, setDashboard] = useState<CustomerDashboardData | null>(null);
   const [error, setError] = useState('');
+
+  useSystemDashboardPresence(
+    dashboard?.systems.map((system) => system.id) || [],
+    'customer-dashboard',
+  );
 
   useEffect(() => {
     customerDashboardRequest()

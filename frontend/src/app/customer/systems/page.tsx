@@ -4,12 +4,18 @@ import { useEffect, useState } from 'react';
 import { CustomerSystemCard } from '@/components/customer-system-card';
 import { EnergyChart } from '@/components/energy-chart';
 import { SectionCard } from '@/components/section-card';
+import { useSystemDashboardPresence } from '@/hooks/use-system-dashboard-presence';
 import { customerDashboardRequest } from '@/lib/api';
 import { CustomerDashboardData } from '@/types';
 
 export default function CustomerSystemsPage() {
   const [dashboard, setDashboard] = useState<CustomerDashboardData | null>(null);
   const [error, setError] = useState('');
+
+  useSystemDashboardPresence(
+    dashboard?.systems.map((system) => system.id) || [],
+    'customer-systems',
+  );
 
   useEffect(() => {
     customerDashboardRequest()

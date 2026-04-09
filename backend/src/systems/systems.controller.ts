@@ -5,6 +5,7 @@ import { RolesGuard } from '../common/guards/roles.guard';
 import { Roles } from '../common/decorators/roles.decorator';
 import { CreateSystemDto } from './dto/create-system.dto';
 import { PreviewDeyeStationsDto } from './dto/preview-deye-stations.dto';
+import { ReportSystemDashboardPresenceDto } from './dto/report-system-dashboard-presence.dto';
 import { SyncDeyeStationDto } from './dto/sync-deye-station.dto';
 import { UpdateSystemDto } from './dto/update-system.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -28,6 +29,15 @@ export class SystemsController {
   @Roles('CUSTOMER')
   findMine(@CurrentUser() user: AuthenticatedUser) {
     return this.systemsService.findMine(user.customerId!);
+  }
+
+  @Post('dashboard-presence')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF', 'CUSTOMER')
+  reportDashboardPresence(
+    @Body() dto: ReportSystemDashboardPresenceDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.systemsService.reportDashboardPresence(dto, actor);
   }
 
   @Get(':id')

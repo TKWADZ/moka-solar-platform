@@ -1521,6 +1521,16 @@ export async function listAdminSystemsRequest() {
   }
 }
 
+export async function reportSystemDashboardPresenceRequest(systemIds: string[], pageKey?: string) {
+  return apiFetch<{ accepted: number; expiresAt: string }>('/systems/dashboard-presence', {
+    method: 'POST',
+    body: JSON.stringify({
+      systemIds,
+      ...(pageKey ? { pageKey } : {}),
+    }),
+  });
+}
+
 export async function createSystemRequest(payload: {
   customerId: string;
   systemCode?: string;

@@ -431,10 +431,50 @@ export class DeyeTelemetrySyncService {
         },
       });
 
+      const solarGeneratedKwh = this.toFixedMetric(record.generationValueKwh);
+      const gridImportedKwh = this.toFixedMetric(record.purchaseValueKwh);
+      const gridExportedKwh = this.toFixedMetric(record.gridValueKwh);
+      const loadConsumedKwh = this.toFixedMetric(
+        record.consumptionValueKwh ??
+          Math.max((solarGeneratedKwh || 0) - (gridExportedKwh || 0) + (gridImportedKwh || 0), 0),
+      );
+      const selfConsumedKwh = this.toFixedMetric(
+        Math.max((solarGeneratedKwh || 0) - (gridExportedKwh || 0), 0),
+      );
+
+      await this.prisma.energyRecord.upsert({
+        where: {
+          solarSystemId_recordDate: {
+            solarSystemId: system.id,
+            recordDate: new Date(record.recordDate),
+          },
+        },
+        update: {
+          solarGeneratedKwh,
+          loadConsumedKwh,
+          gridImportedKwh,
+          gridExportedKwh,
+          selfConsumedKwh,
+        },
+        create: {
+          solarSystemId: system.id,
+          recordDate: new Date(record.recordDate),
+          solarGeneratedKwh,
+          loadConsumedKwh,
+          gridImportedKwh,
+          gridExportedKwh,
+          selfConsumedKwh,
+        },
+      });
+
       count += 1;
     }
 
     return count;
+  }
+
+  private toFixedMetric(value: number | null | undefined) {
+    return Number((value || 0).toFixed(2));
   }
 
   private async requestPowerHistory(

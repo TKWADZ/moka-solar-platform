@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Plus, ReceiptText, RefreshCw, Trash2 } from 'lucide-react';
 import { MonthlyPvBillingTable } from '@/components/monthly-pv-billing-table';
 import { SectionCard } from '@/components/section-card';
+import { useSystemDashboardPresence } from '@/hooks/use-system-dashboard-presence';
 import {
   createSystemRequest,
   deleteMonthlyPvBillingRequest,
@@ -277,8 +278,18 @@ function monitorIdLabel(provider: MonitoringProvider) {
 function sourceLabel(value?: string | null) {
   if (value === 'DEYE') return 'Deye OpenAPI';
   if (value === 'SOLARMAN') return 'EcoPower / SOLARMAN';
+  if (value === 'LUXPOWER') return 'LuxPower';
   if (value === 'SEMS_PORTAL') return 'SEMS Portal';
   return value || 'Nội bộ / thủ công';
+}
+
+function syncStatusLabel(system: AdminSystemRecord | null) {
+  if (!system) return 'Chưa cấu hình';
+  if (!system.monitorBindingReady) return 'Chưa cấu hình kết nối';
+  if (system.lastSyncStatus === 'ERROR') return 'Đang lỗi / backoff';
+  if (system.lastSyncStatus === 'RUNNING') return 'Đang đồng bộ';
+  if (system.lastSuccessfulSyncAt) return 'Đang tự động đồng bộ';
+  return 'Chờ nhịp đầu tiên';
 }
 
 function asSnapshot(value: MonitorSnapshot | Record<string, unknown> | null | undefined) {
@@ -334,6 +345,8 @@ export default function AdminSystemsPage() {
   const [error, setError] = useState('');
   const [monthlyMessage, setMonthlyMessage] = useState('');
   const [monthlyError, setMonthlyError] = useState('');
+
+  useSystemDashboardPresence(selectedId ? [selectedId] : [], 'admin-systems');
 
   const selectedSystem = useMemo(
     () => systems.find((item) => item.id === selectedId) || null,
@@ -1206,6 +1219,7 @@ export default function AdminSystemsPage() {
               </label>
 
               {selectedSystem && mode === 'edit' ? (
+                <>
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                   <div className="portal-card-soft p-4">
                     <p className="text-sm text-slate-400">Mã hệ thống</p>
@@ -1234,6 +1248,100 @@ export default function AdminSystemsPage() {
                     <p className="mt-2 text-lg font-semibold text-white">{formatNumber(selectedSystem.devices?.length || 0)}</p>
                   </div>
                 </div>
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="portal-card-soft p-4">
+                    <p className="text-sm text-slate-400">Auto sync</p>
+                    <p className="mt-2 text-lg font-semibold text-white">{syncStatusLabel(selectedSystem)}</p>
+                    <p className="mt-2 text-xs text-slate-400">
+                      {selectedSystem.monitorBindingReady
+                        ? 'Realtime 1-10 phút, history 1 giờ/lần.'
+                        : selectedSystem.monitorBindingMessage || 'Cần hoàn tất gắn monitor trước khi auto sync.'}
+                    </p>
+                  </div>
+                  <div className="portal-card-soft p-4">
+                    <p className="text-sm text-slate-400">Lần sync thành công</p>
+                    <p className="mt-2 text-lg font-semibold text-white">
+                      {selectedSystem.lastSuccessfulSyncAt
+                        ? formatDateTime(selectedSystem.lastSuccessfulSyncAt)
+                        : 'Chưa có'}
+                    </p>
+                  </div>
+                  <div className="portal-card-soft p-4">
+                    <p className="text-sm text-slate-400">Realtime kế tiếp</p>
+                    <p className="mt-2 text-lg font-semibold text-white">
+                      {selectedSystem.nextRealtimeSyncAt
+                        ? formatDateTime(selectedSystem.nextRealtimeSyncAt)
+                        : 'Chưa lên lịch'}
+                    </p>
+                  </div>
+                  <div className="portal-card-soft p-4">
+                    <p className="text-sm text-slate-400">History kế tiếp</p>
+                    <p className="mt-2 text-lg font-semibold text-white">
+                      {selectedSystem.nextHistorySyncAt
+                        ? formatDateTime(selectedSystem.nextHistorySyncAt)
+                        : 'Chưa lên lịch'}
+                    </p>
+                  </div>
+                </div>
+
+                {selectedSystem.lastSyncErrorMessage || selectedSystem.monitorBindingMessage ? (
+                  <div
+                    className={cn(
+                      'rounded-[20px] border px-4 py-4 text-sm',
+                      selectedSystem.lastSyncErrorMessage
+                        ? 'border-amber-300/20 bg-amber-400/10 text-amber-100'
+                        : 'border-white/10 bg-white/[0.03] text-slate-300',
+                    )}
+                  >
+                    <p className="font-semibold">
+                      {selectedSystem.lastSyncErrorMessage ? 'Cảnh báo auto sync' : 'Tình trạng monitor binding'}
+                    </p>
+                    <p className="mt-2 leading-6">
+                      {selectedSystem.lastSyncErrorMessage || selectedSystem.monitorBindingMessage}
+                    </p>
+                  </div>
+                ) : null}
+
+                {selectedSystem.monitorSyncLogs?.length ? (
+                  <div className="portal-card-soft p-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="text-sm text-slate-400">Nhật ký auto sync gần nhất</p>
+                        <p className="mt-1 text-sm text-slate-300">
+                          Realtime, history và closing job được gom về một lịch chung.
+                        </p>
+                      </div>
+                      <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-200">
+                        {formatNumber(selectedSystem.monitorSyncLogs.length)} bản ghi
+                      </span>
+                    </div>
+
+                    <div className="mt-4 space-y-3">
+                      {selectedSystem.monitorSyncLogs.slice(0, 5).map((log) => (
+                        <div
+                          key={log.id}
+                          className="rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-3"
+                        >
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <p className="text-sm font-semibold text-white">
+                              {log.syncScope} • {log.scheduleTier || 'MANUAL'}
+                            </p>
+                            <span className="text-xs uppercase tracking-[0.18em] text-slate-400">
+                              {log.status}
+                            </span>
+                          </div>
+                          <p className="mt-2 text-sm leading-6 text-slate-300">
+                            {log.message || 'Không có ghi chú chi tiết.'}
+                          </p>
+                          <p className="mt-2 text-xs text-slate-500">
+                            {formatDateTime(log.finishedAt || log.startedAt)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                </>
               ) : null}
 
               {message ? <div className="rounded-[20px] border border-emerald-300/15 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-100">{message}</div> : null}
@@ -1796,4 +1904,3 @@ export default function AdminSystemsPage() {
     </div>
   );
 }
-

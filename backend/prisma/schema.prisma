@@ -214,6 +214,7 @@ model User {
   otpRequests   OtpRequest[]
   authSessions  AuthSession[]
   authLoginAttempts AuthLoginAttempt[]
+  systemDashboardPresence SystemDashboardPresence[]
   createdAt    DateTime    @default(now())
   updatedAt    DateTime    @updatedAt
   deletedAt    DateTime?
@@ -418,6 +419,14 @@ model SolarSystem {
   lastHourlySyncAt    DateTime?
   lastMonthlySyncAt   DateTime?
   lastBillingSyncAt   DateTime?
+  lastSyncAttemptAt   DateTime?
+  lastSuccessfulSyncAt DateTime?
+  lastSyncStatus      String?
+  lastSyncErrorStatus String?
+  lastSyncErrorMessage String?
+  lastSyncErrorAt     DateTime?
+  nextRealtimeSyncAt  DateTime?
+  nextHistorySyncAt   DateTime?
   installDate         DateTime?
   location            String?
   notes               String?
@@ -431,6 +440,9 @@ model SolarSystem {
   energyRecords       EnergyRecord[]
   monthlyEnergyRecords MonthlyEnergyRecord[]
   monthlyPvBillings   MonthlyPvBilling[]
+  realtimeMetrics     SystemRealtimeMetric[]
+  monitorSyncLogs     SystemMonitorSyncLog[]
+  dashboardPresence   SystemDashboardPresence[]
   createdAt           DateTime       @default(now())
   updatedAt           DateTime       @updatedAt
   deletedAt           DateTime?
@@ -931,6 +943,67 @@ model EnergyRecord {
 
   @@unique([solarSystemId, recordDate])
   @@index([recordDate])
+}
+
+model SystemRealtimeMetric {
+  id             String      @id @default(cuid())
+  solarSystemId  String
+  solarSystem    SolarSystem @relation(fields: [solarSystemId], references: [id], onDelete: Cascade)
+  provider       String
+  capturedAt     DateTime
+  pvPowerKw      Decimal?    @db.Decimal(12,3)
+  loadPowerKw    Decimal?    @db.Decimal(12,3)
+  gridPowerKw    Decimal?    @db.Decimal(12,3)
+  batteryPowerKw Decimal?    @db.Decimal(12,3)
+  batterySocPct  Decimal?    @db.Decimal(5,2)
+  inverterStatus String?
+  sourceSnapshot Json?
+  createdAt      DateTime    @default(now())
+
+  @@unique([solarSystemId, capturedAt])
+  @@index([solarSystemId, capturedAt])
+  @@index([capturedAt])
+}
+
+model SystemMonitorSyncLog {
+  id            String      @id @default(cuid())
+  solarSystemId String
+  solarSystem   SolarSystem @relation(fields: [solarSystemId], references: [id], onDelete: Cascade)
+  provider      String
+  syncScope     String
+  scheduleTier  String?
+  status        String
+  startedAt     DateTime
+  finishedAt    DateTime?
+  message       String?
+  errorStatus   String?
+  errorCode     String?
+  errorMessage  String?
+  context       Json?
+  createdAt     DateTime    @default(now())
+
+  @@index([solarSystemId, createdAt])
+  @@index([provider, syncScope, createdAt])
+  @@index([status, createdAt])
+}
+
+model SystemDashboardPresence {
+  id            String      @id @default(cuid())
+  solarSystemId String
+  solarSystem   SolarSystem @relation(fields: [solarSystemId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pageKey       String
+  roleCode      String?
+  lastSeenAt    DateTime
+  expiresAt     DateTime
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  @@unique([solarSystemId, userId, pageKey])
+  @@index([solarSystemId, expiresAt])
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
 }
 
 model MonthlyPvBilling {

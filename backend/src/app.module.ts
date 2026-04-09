@@ -31,6 +31,7 @@ import { OperationalDataModule } from './operational-data/operational-data.modul
 import { PortalAutomationModule } from './portal-automation/portal-automation.module';
 import { SolarmanConnectionsModule } from './solarman-connections/solarman-connections.module';
 import { LuxPowerConnectionsModule } from './luxpower-connections/luxpower-connections.module';
+import { MonitorSyncModule } from './monitor-sync/monitor-sync.module';
 import { ZaloNotificationsModule } from './zalo-notifications/zalo-notifications.module';
 import { RequestContextMiddleware } from './common/request-context/request-context.middleware';
 
@@ -58,6 +59,7 @@ import { RequestContextMiddleware } from './common/request-context/request-conte
     PortalAutomationModule,
     SolarmanConnectionsModule,
     LuxPowerConnectionsModule,
+    MonitorSyncModule,
     ZaloNotificationsModule,
     WebsiteSettingsModule,
     MarketingPagesModule,

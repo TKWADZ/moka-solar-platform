@@ -179,6 +179,13 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
   ) {}
 
   onModuleInit() {
+    const schedulerEnabled =
+      String(this.configService.get('MONITOR_SYNC_SCHEDULER_ENABLED') ?? 'true').toLowerCase() !==
+      'false';
+    if (schedulerEnabled) {
+      return;
+    }
+
     const minutes = Number(this.configService.get('LUXPOWER_SYNC_SCAN_MINUTES') || 5);
     if (minutes > 0) {
       this.syncInterval = setInterval(() => {
@@ -518,6 +525,72 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
   async syncNow(id: string, dto: SyncLuxPowerConnectionDto, actorId?: string) {
     const connection = await this.getConnectionOrThrow(id);
     return this.syncSingleConnection(connection, dto, actorId, 'MANUAL_SYNC');
+  }
+
+  async syncRealtimeForSystem(
+    systemId: string,
+    options?: {
+      forceRelogin?: boolean;
+    },
+  ) {
+    const connection = await this.prisma.luxPowerConnection.findFirst({
+      where: {
+        solarSystemId: systemId,
+        deletedAt: null,
+      },
+      include: this.includeRelations(),
+    });
+
+    if (!connection) {
+      throw new NotFoundException('LuxPower connection not found for this system.');
+    }
+
+    const result = await this.luxPowerClientService.fetchRealtimeSnapshot(
+      this.toClientConfig(connection),
+      {
+        forceRelogin: options?.forceRelogin,
+      },
+    );
+    const normalized = this.normalizeBundle(result);
+    const systemUpdate = await this.applySnapshotToSystem(connection, result.snapshot, normalized);
+    const now = new Date();
+
+    const updatedConnection = await this.prisma.luxPowerConnection.update({
+      where: { id: connection.id },
+      data: {
+        status: 'SYNCED',
+        plantId: connection.plantId || result.snapshot.plantId || null,
+        inverterSerial: connection.inverterSerial || result.snapshot.serialNumber || null,
+        lastError: null,
+        lastLoginAt: result.sessionMode === 'LOGIN' ? now : connection.lastLoginAt,
+        authReadyAt: connection.authReadyAt || now,
+        metricsAvailableAt: this.hasAvailableMetrics(result, normalized)
+          ? connection.metricsAvailableAt || now
+          : connection.metricsAvailableAt,
+        plantLinkedAt: this.computePlantLinkedAt(
+          {
+            ...connection,
+            plantId: connection.plantId || result.snapshot.plantId,
+            inverterSerial: connection.inverterSerial || result.snapshot.serialNumber,
+          },
+          result,
+        ),
+        lastProviderResponse: {
+          mode: 'REALTIME_ONLY',
+          snapshot: result.snapshot,
+          warnings: [...result.warnings, ...systemUpdate.warnings],
+        } as any,
+      },
+      include: this.includeRelations(),
+    });
+
+    return {
+      connection: this.serializeConnection(updatedConnection),
+      sessionMode: result.sessionMode,
+      snapshot: result.snapshot,
+      warnings: [...result.warnings, ...systemUpdate.warnings],
+      system: this.serializeSystem(systemUpdate.system),
+    };
   }
 
   async previewForSystem(
