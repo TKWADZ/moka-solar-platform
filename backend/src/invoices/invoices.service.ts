@@ -38,7 +38,7 @@ export class InvoicesService {
       orderBy: [{ billingYear: 'desc' }, { billingMonth: 'desc' }],
     });
 
-    return this.attachPeriodMetrics(invoices);
+    return this.attachPeriodMetrics(this.filterCurrentPeriodInvoices(invoices));
   }
 
   async findMine(customerId: string) {
@@ -74,7 +74,7 @@ export class InvoicesService {
       orderBy: [{ billingYear: 'desc' }, { billingMonth: 'desc' }],
     });
 
-    return this.attachPeriodMetrics(invoices);
+    return this.attachPeriodMetrics(this.filterCurrentPeriodInvoices(invoices));
   }
 
   async findOne(id: string, user: AuthenticatedUser) {
@@ -330,6 +330,24 @@ export class InvoicesService {
       },
       data: { status: InvoiceStatus.OVERDUE },
     });
+  }
+
+  private filterCurrentPeriodInvoices<T extends { billingYear?: number | null; billingMonth?: number | null }>(
+    invoices: T[],
+  ) {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Saigon',
+      year: 'numeric',
+      month: '2-digit',
+    });
+    const parts = formatter.formatToParts(new Date());
+    const currentYear = Number(parts.find((part) => part.type === 'year')?.value || 0);
+    const currentMonth = Number(parts.find((part) => part.type === 'month')?.value || 0);
+
+    return invoices.filter(
+      (invoice) =>
+        !(invoice.billingYear === currentYear && invoice.billingMonth === currentMonth),
+    );
   }
 
   private serializeInvoiceAuditState(invoice: any) {
