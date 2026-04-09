@@ -30,19 +30,29 @@ export class MonthlyPvBillingsController {
   ) {}
 
   @Get()
-  @Roles('SUPER_ADMIN', 'ADMIN', 'STAFF')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')
   list(@Query() query: ListMonthlyPvBillingsDto) {
     return this.monthlyPvBillingsService.list(query);
   }
 
+  @Get('me')
+  @Roles('CUSTOMER')
+  listMine(@CurrentUser() actor: AuthenticatedUser) {
+    if (!actor.customerId) {
+      return [];
+    }
+
+    return this.monthlyPvBillingsService.listMine(actor.customerId);
+  }
+
   @Get(':id')
-  @Roles('SUPER_ADMIN', 'ADMIN', 'STAFF')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')
   findOne(@Param('id') id: string) {
     return this.monthlyPvBillingsService.findOne(id);
   }
 
   @Post('sync/:systemId')
-  @Roles('SUPER_ADMIN', 'ADMIN', 'STAFF')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')
   sync(
     @Param('systemId') systemId: string,
     @Body() dto: SyncMonthlyPvBillingDto,
@@ -52,7 +62,7 @@ export class MonthlyPvBillingsController {
   }
 
   @Patch(':id')
-  @Roles('SUPER_ADMIN', 'ADMIN', 'STAFF')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateMonthlyPvBillingDto,
@@ -62,7 +72,7 @@ export class MonthlyPvBillingsController {
   }
 
   @Post(':id/generate-invoice')
-  @Roles('SUPER_ADMIN', 'ADMIN', 'STAFF')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')
   generateInvoice(
     @Param('id') id: string,
     @CurrentUser() actor: AuthenticatedUser,

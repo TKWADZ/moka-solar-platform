@@ -503,7 +503,7 @@ export type InvoiceRow = {
   month: string;
   dueDate: string;
   amount: number;
-  status: 'Paid' | 'Issued' | 'Overdue' | 'Partial';
+  status: 'Paid' | 'Issued' | 'Overdue' | 'Partial' | 'Pending';
   customer?: string;
   model?: string;
   loadConsumedKwh?: number | null;
@@ -1251,7 +1251,14 @@ export type InvoiceRecord = {
   discountAmount: number;
   totalAmount: number;
   paidAmount: number;
-  status: 'DRAFT' | 'ISSUED' | 'PAID' | 'PARTIAL' | 'OVERDUE' | 'CANCELLED';
+  status:
+    | 'DRAFT'
+    | 'PENDING_REVIEW'
+    | 'ISSUED'
+    | 'PAID'
+    | 'PARTIAL'
+    | 'OVERDUE'
+    | 'CANCELLED';
   customerId: string;
   contractId: string;
   customer?: {
@@ -1295,6 +1302,42 @@ export type MonthlyPvBillingRecord = {
   taxAmount: number;
   discountAmount: number;
   totalAmount: number;
+  syncStatus:
+    | 'PENDING'
+    | 'SYNCED'
+    | 'RETRYING'
+    | 'ERROR'
+    | 'MANUAL_OVERRIDE';
+  dataQualityStatus:
+    | 'UNKNOWN'
+    | 'IN_PROGRESS'
+    | 'OK'
+    | 'INCOMPLETE'
+    | 'UNSTABLE_SOURCE'
+    | 'ERROR'
+    | 'MANUAL_OVERRIDE';
+  invoiceStatus:
+    | 'ESTIMATE'
+    | 'DRAFT'
+    | 'PENDING_REVIEW'
+    | 'ISSUED'
+    | 'PAID'
+    | 'PARTIAL'
+    | 'OVERDUE'
+    | 'CANCELLED';
+  expectedDayCount: number;
+  availableDayCount: number;
+  missingDayCount: number;
+  dataSourceStable: boolean;
+  autoSendEligible: boolean;
+  qualitySummary?: string | null;
+  lastAutoRetriedAt?: string | null;
+  lastQualityCheckedAt?: string | null;
+  finalizedAt?: string | null;
+  manualOverrideKwh?: number | null;
+  manualOverrideReason?: string | null;
+  manualOverrideAt?: string | null;
+  manualOverrideByUserId?: string | null;
   syncTime: string;
   source: string;
   note?: string | null;
@@ -1319,6 +1362,11 @@ export type MonthlyPvBillingRecord = {
     } | null;
   } | null;
   contract?: ContractRecord | null;
+  manualOverrideByUser?: {
+    id: string;
+    fullName?: string | null;
+    email?: string | null;
+  } | null;
   invoice?: InvoiceRecord | null;
   periodMetrics?: {
     period?: string | null;

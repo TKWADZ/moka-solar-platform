@@ -85,6 +85,38 @@ function outstandingInvoiceAmount(record: MonthlyPvBillingRecord) {
   );
 }
 
+function canSendZaloForBillingRecord(record: MonthlyPvBillingRecord) {
+  return (
+    Boolean(record.invoice) &&
+    record.dataQualityStatus === 'OK' &&
+    record.invoice?.status !== 'PENDING_REVIEW'
+  );
+}
+
+function generateInvoiceButtonLabel(record: MonthlyPvBillingRecord) {
+  if (record.invoiceStatus === 'ESTIMATE') {
+    return 'Cho cuoi thang';
+  }
+
+  if (record.dataQualityStatus === 'OK') {
+    return 'Chot hoa don';
+  }
+
+  return 'Tao ban nhap';
+}
+
+function invoiceGenerateMessage(record: MonthlyPvBillingRecord, invoice: InvoiceRecord) {
+  if (invoice.status === 'PENDING_REVIEW') {
+    return `Da tao hoa don cho ky ${formatMonthPeriod(record.month, record.year)} o trang thai pending review.`;
+  }
+
+  if (invoice.status === 'DRAFT') {
+    return `Da tao draft hoa don cho ky ${formatMonthPeriod(record.month, record.year)}.`;
+  }
+
+  return `Da phat hanh hoa don ${invoice.invoiceNumber} cho ky ${formatMonthPeriod(record.month, record.year)}.`;
+}
+
 function isZaloTemplateConfigured(
   status: ZaloNotificationStatus | null,
   templateType: 'INVOICE' | 'REMINDER' | 'PAID',
@@ -360,9 +392,7 @@ export default function AdminBillingPage() {
     try {
       const result = await generateMonthlyPvBillingInvoiceRequest(record.id);
       await Promise.all([loadRecords(), loadPayments()]);
-      setMessage(
-        `Đã phát hành hóa đơn ${result.invoice.invoiceNumber} cho kỳ ${formatMonthPeriod(record.month, record.year)}.`,
-      );
+      setMessage(invoiceGenerateMessage(record, result.invoice));
     } catch (nextError) {
       setError(
         nextError instanceof Error
@@ -884,7 +914,7 @@ export default function AdminBillingPage() {
                 <button
                   type="button"
                   className="btn-ghost !min-h-[42px] !px-3 !py-2 text-xs"
-                  disabled={zaloLoadingId === record.id}
+                  disabled={zaloLoadingId === record.id || !canSendZaloForBillingRecord(record)}
                   onClick={() => void handleSendZalo(record.invoice!.id, record.id)}
                 >
                   <Send className="h-3.5 w-3.5" />
@@ -905,11 +935,11 @@ export default function AdminBillingPage() {
               <button
                 type="button"
                 className="inline-flex min-h-[42px] items-center justify-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-2 text-xs font-semibold text-emerald-100 transition hover:bg-emerald-400/15"
-                disabled={invoiceLoadingId === record.id}
+                disabled={invoiceLoadingId === record.id || record.invoiceStatus === 'ESTIMATE'}
                 onClick={() => void handleGenerateInvoice(record)}
               >
                 <ReceiptText className="h-3.5 w-3.5" />
-                {invoiceLoadingId === record.id ? 'Đang xuất...' : 'Xuất hóa đơn'}
+                {invoiceLoadingId === record.id ? 'Dang xu ly...' : generateInvoiceButtonLabel(record)}
               </button>
             )}
             {record.invoice ? (

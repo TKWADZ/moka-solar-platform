@@ -3,7 +3,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { InvoiceStatus } from '@prisma/client';
+import {
+  BillingDataQualityStatus,
+  BillingSyncStatus,
+  BillingWorkflowStatus,
+  InvoiceStatus,
+} from '@prisma/client';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import {
   MOKA_DEFAULT_DISCOUNT_AMOUNT,
@@ -48,9 +53,17 @@ type AmountBreakdown = {
 
 const MUTABLE_INVOICE_STATUSES = new Set<InvoiceStatus>([
   InvoiceStatus.DRAFT,
+  InvoiceStatus.PENDING_REVIEW,
   InvoiceStatus.ISSUED,
   InvoiceStatus.OVERDUE,
   InvoiceStatus.CANCELLED,
+]);
+
+const BILLING_TIMEZONE = process.env.BILLING_TIMEZONE || 'Asia/Saigon';
+const STABLE_AUTO_BILLING_PROVIDERS = new Set([
+  'SEMS_PORTAL',
+  'DEYE',
+  'LUXPOWER',
 ]);
 
 @Injectable()
@@ -92,6 +105,33 @@ export class MonthlyPvBillingsService {
 
     const [serialized] = await this.attachPeriodMetrics([record]);
     return serialized;
+  }
+
+  async listMine(customerId: string) {
+    const records = await this.prisma.monthlyPvBilling.findMany({
+      where: {
+        customerId,
+        deletedAt: null,
+      },
+      include: this.includeRelations(),
+      orderBy: [{ year: 'desc' }, { month: 'desc' }, { syncTime: 'desc' }],
+      take: 12,
+    });
+
+    const currentMonthEstimate = await this.buildCurrentMonthEstimate(customerId);
+    const items = currentMonthEstimate
+      ? [
+          currentMonthEstimate,
+          ...records.filter(
+            (record) =>
+              record.month !== currentMonthEstimate.month ||
+              record.year !== currentMonthEstimate.year ||
+              record.solarSystemId !== currentMonthEstimate.solarSystemId,
+          ),
+        ]
+      : records;
+
+    return this.attachPeriodMetrics(items);
   }
 
   async sync(systemId: string, dto: SyncMonthlyPvBillingDto, actorId?: string) {
@@ -148,6 +188,10 @@ export class MonthlyPvBillingsService {
     const amounts = await this.calculateAmounts(systemId, dto, existing, contract);
     const syncTime = new Date();
     const source = dto.source?.trim() || amounts.source;
+    const manualOverrideActive = Boolean(actorId && dto.pvGenerationKwh !== undefined);
+    const manualOverrideReason = manualOverrideActive
+      ? dto.manualOverrideReason?.trim() || dto.note?.trim() || 'Manual override do loi du lieu provider.'
+      : null;
 
     const record = await this.prisma.monthlyPvBilling.upsert({
       where: {
@@ -168,6 +212,18 @@ export class MonthlyPvBillingsService {
         taxAmount: amounts.taxAmount,
         discountAmount: amounts.discountAmount,
         totalAmount: amounts.totalAmount,
+        manualOverrideKwh: manualOverrideActive
+          ? amounts.pvGenerationKwh
+          : existing?.manualOverrideKwh ?? undefined,
+        manualOverrideReason: manualOverrideActive
+          ? manualOverrideReason
+          : existing?.manualOverrideReason ?? undefined,
+        manualOverrideAt: manualOverrideActive
+          ? syncTime
+          : existing?.manualOverrideAt ?? undefined,
+        manualOverrideByUserId: manualOverrideActive
+          ? actorId
+          : existing?.manualOverrideByUserId ?? undefined,
         syncTime,
         source,
         note: dto.note?.trim() || null,
@@ -187,6 +243,10 @@ export class MonthlyPvBillingsService {
         taxAmount: amounts.taxAmount,
         discountAmount: amounts.discountAmount,
         totalAmount: amounts.totalAmount,
+        manualOverrideKwh: manualOverrideActive ? amounts.pvGenerationKwh : null,
+        manualOverrideReason: manualOverrideActive ? manualOverrideReason : null,
+        manualOverrideAt: manualOverrideActive ? syncTime : null,
+        manualOverrideByUserId: manualOverrideActive ? actorId : null,
         syncTime,
         source,
         note: dto.note?.trim() || null,
@@ -194,13 +254,23 @@ export class MonthlyPvBillingsService {
       include: this.includeRelations(),
     });
 
-    if (record.invoiceId) {
-      await this.syncLinkedInvoice(record);
+    const refreshed = await this.refreshLifecycleForRecord(record.id, {
+      actorId,
+      forceSyncStatus: manualOverrideActive
+        ? BillingSyncStatus.MANUAL_OVERRIDE
+        : BillingSyncStatus.SYNCED,
+      markAutoRetried: false,
+    });
+
+    if (refreshed.invoiceId) {
+      await this.syncLinkedInvoice(refreshed);
     }
 
     await this.auditLogsService.log({
       userId: actorId,
-      action: 'MONTHLY_PV_BILLING_SYNCED',
+      action: manualOverrideActive
+        ? 'MONTHLY_PV_BILLING_MANUAL_OVERRIDE_APPLIED'
+        : 'MONTHLY_PV_BILLING_SYNCED',
       entityType: 'MonthlyPvBilling',
       entityId: record.id,
       payload: {
@@ -209,6 +279,12 @@ export class MonthlyPvBillingsService {
         month: dto.month,
         year: dto.year,
         source,
+        ...(manualOverrideActive
+          ? {
+              manualOverrideKwh: amounts.pvGenerationKwh,
+              manualOverrideReason,
+            }
+          : {}),
       },
     });
 
@@ -269,6 +345,13 @@ export class MonthlyPvBillingsService {
         : await this.resolveContract(existing.solarSystemId, nextMonth, nextYear);
 
     const amounts = await this.calculateAmounts(existing.solarSystemId, dto, existing, contract);
+    const manualOverrideActive =
+      dto.clearManualOverride === true
+        ? false
+        : Boolean(actorId && dto.pvGenerationKwh !== undefined);
+    const manualOverrideReason = manualOverrideActive
+      ? dto.manualOverrideReason?.trim() || dto.note?.trim() || 'Manual override do doi soat du lieu.'
+      : null;
 
     const updated = await this.prisma.monthlyPvBilling.update({
       where: { id },
@@ -284,6 +367,30 @@ export class MonthlyPvBillingsService {
         taxAmount: amounts.taxAmount,
         discountAmount: amounts.discountAmount,
         totalAmount: amounts.totalAmount,
+        manualOverrideKwh:
+          dto.clearManualOverride === true
+            ? null
+            : manualOverrideActive
+              ? amounts.pvGenerationKwh
+              : existing.manualOverrideKwh,
+        manualOverrideReason:
+          dto.clearManualOverride === true
+            ? null
+            : manualOverrideActive
+              ? manualOverrideReason
+              : existing.manualOverrideReason,
+        manualOverrideAt:
+          dto.clearManualOverride === true
+            ? null
+            : manualOverrideActive
+              ? new Date()
+              : existing.manualOverrideAt,
+        manualOverrideByUserId:
+          dto.clearManualOverride === true
+            ? null
+            : manualOverrideActive
+              ? actorId || null
+              : existing.manualOverrideByUserId,
         syncTime: new Date(),
         source: dto.source?.trim() || existing.source,
         note: dto.note !== undefined ? dto.note?.trim() || null : existing.note,
@@ -291,13 +398,29 @@ export class MonthlyPvBillingsService {
       include: this.includeRelations(),
     });
 
-    if (updated.invoiceId) {
-      await this.syncLinkedInvoice(updated);
+    const refreshed = await this.refreshLifecycleForRecord(updated.id, {
+      actorId,
+      forceSyncStatus:
+        dto.clearManualOverride === true
+          ? BillingSyncStatus.SYNCED
+          : manualOverrideActive
+            ? BillingSyncStatus.MANUAL_OVERRIDE
+            : BillingSyncStatus.SYNCED,
+      markAutoRetried: false,
+    });
+
+    if (refreshed.invoiceId) {
+      await this.syncLinkedInvoice(refreshed);
     }
 
     await this.auditLogsService.log({
       userId: actorId,
-      action: 'MONTHLY_PV_BILLING_UPDATED',
+      action:
+        dto.clearManualOverride === true
+          ? 'MONTHLY_PV_BILLING_MANUAL_OVERRIDE_CLEARED'
+          : manualOverrideActive
+            ? 'MONTHLY_PV_BILLING_MANUAL_OVERRIDE_UPDATED'
+            : 'MONTHLY_PV_BILLING_UPDATED',
       entityType: 'MonthlyPvBilling',
       entityId: id,
       payload: dto as unknown as Record<string, unknown>,
@@ -344,7 +467,14 @@ export class MonthlyPvBillingsService {
     return { success: true };
   }
 
-  async generateInvoice(id: string, actorId?: string) {
+  async generateInvoice(
+    id: string,
+    actorId?: string,
+    options?: {
+      autoSend?: boolean;
+      bypassPeriodLock?: boolean;
+    },
+  ) {
     const record = await this.prisma.monthlyPvBilling.findFirst({
       where: {
         id,
@@ -357,16 +487,35 @@ export class MonthlyPvBillingsService {
       throw new NotFoundException('Monthly PV billing record not found');
     }
 
-    if (record.invoiceId && record.invoice) {
+    if (!options?.bypassPeriodLock && !this.isPastBillingPeriod(record.year, record.month)) {
+      throw new BadRequestException(
+        'Chi duoc tao hoa don chinh thuc sau khi ket thuc thang. Trong thang nay chi hien thi san luong va so tien tam tinh.',
+      );
+    }
+
+    if (
+      record.invoiceId &&
+      record.invoice &&
+      !MUTABLE_INVOICE_STATUSES.has(record.invoice.status)
+    ) {
       return {
         record: this.serialize(record),
         invoice: record.invoice,
       };
     }
 
+    const latestRecord = await this.refreshLifecycleForRecord(record.id, {
+      actorId,
+      forceSyncStatus:
+        record.manualOverrideKwh !== null && record.manualOverrideKwh !== undefined
+          ? BillingSyncStatus.MANUAL_OVERRIDE
+          : undefined,
+      markAutoRetried: false,
+    });
+
     const contract =
-      record.contract ||
-      (await this.resolveContract(record.solarSystemId, record.month, record.year));
+      latestRecord.contract ||
+      (await this.resolveContract(latestRecord.solarSystemId, latestRecord.month, latestRecord.year));
 
     if (!contract) {
       throw new BadRequestException(
@@ -374,54 +523,13 @@ export class MonthlyPvBillingsService {
       );
     }
 
-    const invoice = await this.prisma.invoice.create({
-      data: {
-        customerId: record.customerId,
-        contractId: contract.id,
-        invoiceNumber: generateCode(
-          `INV-PV-${record.year}${String(record.month).padStart(2, '0')}`,
-        ),
-        billingMonth: record.month,
-        billingYear: record.year,
-        issuedAt: new Date(),
-        dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        subtotal: record.subtotalAmount,
-        vatRate: record.vatRate,
-        vatAmount: record.taxAmount,
-        penaltyAmount: 0,
-        discountAmount: record.discountAmount,
-        totalAmount: record.totalAmount,
-        status: InvoiceStatus.ISSUED,
-        items: {
-          create: [
-            {
-              description: this.buildInvoiceDescription(record),
-              quantity: record.billableKwh,
-              unitPrice: record.unitPrice,
-              amount: record.subtotalAmount,
-            },
-          ],
-        },
-      },
-      include: {
-        items: true,
-        payments: true,
-      },
-    });
-
-    await this.prisma.monthlyPvBilling.update({
-      where: { id },
-      data: {
-        contractId: contract.id,
-        invoiceId: invoice.id,
-      },
-    });
-
-    await this.notificationsService.create({
-      userId: record.customer.userId,
-      title: 'Hoa don ky moi da san sang',
-      body: `Hoa don ${invoice.invoiceNumber} cho ky ${String(record.month).padStart(2, '0')}/${record.year} da duoc phat hanh.`,
-    });
+    const draftInvoice = await this.createOrUpdateInvoiceDraft(latestRecord, contract);
+    const targetInvoiceStatus = this.resolveInvoiceTargetStatus(latestRecord);
+    const invoice = await this.transitionInvoiceToTargetStatus(
+      draftInvoice.id,
+      latestRecord,
+      targetInvoiceStatus,
+    );
 
     await this.auditLogsService.log({
       userId: actorId,
@@ -430,8 +538,22 @@ export class MonthlyPvBillingsService {
       entityId: id,
       payload: {
         invoiceId: invoice.id,
+        invoiceStatus: invoice.status,
+        dataQualityStatus: latestRecord.dataQualityStatus,
       },
     });
+
+    if (
+      options?.autoSend &&
+      latestRecord.autoSendEligible &&
+      invoice.status === InvoiceStatus.ISSUED
+    ) {
+      await this.notificationsService.create({
+        userId: latestRecord.customer.userId,
+        title: 'Hoa don ky moi da san sang',
+        body: `Hoa don ${invoice.invoiceNumber} cho ky ${String(latestRecord.month).padStart(2, '0')}/${latestRecord.year} da duoc phat hanh.`,
+      });
+    }
 
     return {
       record: await this.findOne(id),
@@ -460,6 +582,7 @@ export class MonthlyPvBillingsService {
           servicePackage: true,
         },
       },
+      manualOverrideByUser: true,
       invoice: {
         include: {
           items: true,
@@ -620,13 +743,24 @@ export class MonthlyPvBillingsService {
       throw new BadRequestException('Thieu thang hoac nam de tinh tien.');
     }
 
+    const clearManualOverride =
+      'clearManualOverride' in dto && dto.clearManualOverride === true;
+    const persistedManualOverride =
+      clearManualOverride !== true
+        ? this.optionalNumber((existing as { manualOverrideKwh?: unknown } | null)?.manualOverrideKwh)
+        : null;
     const pvResolution =
       dto.pvGenerationKwh !== undefined
         ? {
             value: dto.pvGenerationKwh,
             source: 'MANUAL',
           }
-        : await this.resolvePvGeneration(systemId, month, year);
+        : persistedManualOverride !== null && persistedManualOverride > 0
+          ? {
+              value: persistedManualOverride,
+              source: 'MANUAL_OVERRIDE',
+            }
+          : await this.resolvePvGeneration(systemId, month, year);
     const pvGenerationKwh = roundMoney(pvResolution.value);
 
     if (pvGenerationKwh <= 0) {
@@ -830,12 +964,550 @@ export class MonthlyPvBillingsService {
     }
   }
 
+  async refreshLifecycleForRecord(
+    id: string,
+    options?: {
+      actorId?: string;
+      forceSyncStatus?: BillingSyncStatus;
+      markAutoRetried?: boolean;
+    },
+  ) {
+    const record = await this.loadRecordById(id);
+    const coverage = await this.computeCoverage(record.solarSystemId, record.month, record.year);
+    const provider = this.resolveProviderCode(record);
+    const sourceStable = this.isStableAutoBillingProvider(provider);
+    const closedPeriod = this.isPastBillingPeriod(record.year, record.month);
+    const hasManualOverride =
+      record.manualOverrideKwh !== null && record.manualOverrideKwh !== undefined;
+    const hasEnergyData = toNumber(record.pvGenerationKwh) > 0;
+
+    let syncStatus =
+      options?.forceSyncStatus ||
+      (hasManualOverride
+        ? BillingSyncStatus.MANUAL_OVERRIDE
+        : hasEnergyData
+          ? BillingSyncStatus.SYNCED
+          : BillingSyncStatus.PENDING);
+    let dataQualityStatus: BillingDataQualityStatus =
+      BillingDataQualityStatus.UNKNOWN;
+    let invoiceStatus: BillingWorkflowStatus | null = this.mapInvoiceToWorkflowStatus(
+      record.invoice?.status,
+    );
+    let qualitySummary = 'Dang cho doi soat du lieu billing.';
+
+    if (!closedPeriod) {
+      dataQualityStatus = BillingDataQualityStatus.IN_PROGRESS;
+      invoiceStatus = record.invoiceId ? invoiceStatus || BillingWorkflowStatus.DRAFT : BillingWorkflowStatus.ESTIMATE;
+      qualitySummary =
+        'Ky hien tai chi hien thi san luong va so tien tam tinh cho den khi ket thuc thang.';
+    } else if (hasManualOverride) {
+      dataQualityStatus = BillingDataQualityStatus.MANUAL_OVERRIDE;
+      invoiceStatus = invoiceStatus || BillingWorkflowStatus.PENDING_REVIEW;
+      syncStatus = options?.forceSyncStatus || BillingSyncStatus.MANUAL_OVERRIDE;
+      qualitySummary =
+        record.manualOverrideReason?.trim() ||
+        'Dang dung manual override kWh do provider sync chua on dinh.';
+    } else if (!hasEnergyData || coverage.availableDayCount === 0) {
+      dataQualityStatus = BillingDataQualityStatus.INCOMPLETE;
+      invoiceStatus = invoiceStatus || BillingWorkflowStatus.PENDING_REVIEW;
+      syncStatus = options?.forceSyncStatus || BillingSyncStatus.RETRYING;
+      qualitySummary = 'Chua co du lieu nang luong hop le cho thang truoc.';
+    } else if (coverage.missingDayCount > 0) {
+      dataQualityStatus = BillingDataQualityStatus.INCOMPLETE;
+      invoiceStatus = invoiceStatus || BillingWorkflowStatus.PENDING_REVIEW;
+      syncStatus = options?.forceSyncStatus || BillingSyncStatus.RETRYING;
+      qualitySummary = `Thieu ${coverage.missingDayCount}/${coverage.expectedDayCount} ngay du lieu nang luong.`;
+    } else if (!sourceStable) {
+      dataQualityStatus = BillingDataQualityStatus.UNSTABLE_SOURCE;
+      invoiceStatus = invoiceStatus || BillingWorkflowStatus.PENDING_REVIEW;
+      qualitySummary = `Nguon ${this.providerLabel(provider)} can manual review truoc khi chot hoa don.`;
+    } else {
+      dataQualityStatus = BillingDataQualityStatus.OK;
+      invoiceStatus = invoiceStatus || BillingWorkflowStatus.DRAFT;
+      syncStatus = options?.forceSyncStatus || BillingSyncStatus.SYNCED;
+      qualitySummary = 'Du du lieu nang luong va da san sang chot hoa don.';
+    }
+
+    const autoSendEligible =
+      closedPeriod &&
+      dataQualityStatus === BillingDataQualityStatus.OK &&
+      sourceStable &&
+      invoiceStatus !== BillingWorkflowStatus.PENDING_REVIEW;
+    const updated = await this.prisma.monthlyPvBilling.update({
+      where: { id },
+      data: {
+        contractId:
+          record.contractId || (await this.resolveContract(record.solarSystemId, record.month, record.year))?.id || null,
+        syncStatus,
+        dataQualityStatus,
+        invoiceStatus,
+        expectedDayCount: coverage.expectedDayCount,
+        availableDayCount: coverage.availableDayCount,
+        missingDayCount: coverage.missingDayCount,
+        dataSourceStable: sourceStable,
+        autoSendEligible,
+        qualitySummary,
+        lastQualityCheckedAt: new Date(),
+        lastAutoRetriedAt: options?.markAutoRetried ? new Date() : record.lastAutoRetriedAt,
+        finalizedAt:
+          invoiceStatus === BillingWorkflowStatus.ISSUED
+            ? record.finalizedAt || new Date()
+            : invoiceStatus === BillingWorkflowStatus.PAID ||
+                invoiceStatus === BillingWorkflowStatus.PARTIAL ||
+                invoiceStatus === BillingWorkflowStatus.OVERDUE
+              ? record.finalizedAt
+              : null,
+      },
+      include: this.includeRelations(),
+    });
+
+    return updated;
+  }
+
+  async refreshLifecycleForSystemPeriod(
+    systemId: string,
+    month: number,
+    year: number,
+    options?: {
+      actorId?: string;
+      markAutoRetried?: boolean;
+    },
+  ) {
+    let record = await this.prisma.monthlyPvBilling.findUnique({
+      where: {
+        solarSystemId_month_year: {
+          solarSystemId: systemId,
+          month,
+          year,
+        },
+      },
+    });
+
+    if (!record) {
+      const pvResolution = await this.resolvePvGeneration(systemId, month, year);
+      if (pvResolution.value <= 0) {
+        return null;
+      }
+      const system = await this.prisma.solarSystem.findUnique({
+        where: { id: systemId },
+        select: { customerId: true },
+      });
+
+      if (!system?.customerId) {
+        return null;
+      }
+      const contract = await this.resolveContract(systemId, month, year);
+      const amounts = await this.calculateAmounts(
+        systemId,
+        {
+          month,
+          year,
+          pvGenerationKwh: pvResolution.value,
+          source: pvResolution.source,
+        },
+        null,
+        contract,
+      );
+
+      record = await this.prisma.monthlyPvBilling.create({
+        data: {
+          solarSystemId: systemId,
+          customerId: system.customerId,
+          contractId: contract?.id || null,
+          month,
+          year,
+          pvGenerationKwh: amounts.pvGenerationKwh,
+          billableKwh: amounts.billableKwh,
+          unitPrice: amounts.unitPrice,
+          subtotalAmount: amounts.subtotalAmount,
+          vatRate: amounts.vatRate,
+          taxAmount: amounts.taxAmount,
+          discountAmount: amounts.discountAmount,
+          totalAmount: amounts.totalAmount,
+          syncTime: new Date(),
+          source: pvResolution.source,
+          syncStatus: BillingSyncStatus.PENDING,
+          dataQualityStatus: BillingDataQualityStatus.UNKNOWN,
+          invoiceStatus: BillingWorkflowStatus.ESTIMATE,
+        },
+      });
+    }
+
+    return this.refreshLifecycleForRecord(record.id, options);
+  }
+
+  private async loadRecordById(id: string) {
+    const record = await this.prisma.monthlyPvBilling.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+      },
+      include: this.includeRelations(),
+    });
+
+    if (!record) {
+      throw new NotFoundException('Monthly PV billing record not found');
+    }
+
+    return record;
+  }
+
+  private async computeCoverage(solarSystemId: string, month: number, year: number) {
+    const { from, to } = getMonthDateRange(year, month);
+    const rows = await this.prisma.energyRecord.findMany({
+      where: {
+        solarSystemId,
+        recordDate: {
+          gte: from,
+          lte: to,
+        },
+      },
+      select: {
+        recordDate: true,
+      },
+      orderBy: {
+        recordDate: 'asc',
+      },
+    });
+    const uniqueDays = new Set(
+      rows.map((item) => item.recordDate.toISOString().slice(0, 10)),
+    );
+    const expectedDayCount = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    const availableDayCount = uniqueDays.size;
+
+    return {
+      expectedDayCount,
+      availableDayCount,
+      missingDayCount: Math.max(expectedDayCount - availableDayCount, 0),
+    };
+  }
+
+  private resolveProviderCode(record: BillingRecordWithRelations) {
+    return (
+      record.solarSystem?.sourceSystem ||
+      record.solarSystem?.monitoringProvider ||
+      (typeof record.source === 'string' ? record.source.split('_').slice(0, 2).join('_') : '') ||
+      'UNKNOWN'
+    );
+  }
+
+  private providerLabel(provider: string) {
+    switch (provider) {
+      case 'SEMS_PORTAL':
+        return 'SEMS Portal';
+      case 'DEYE':
+        return 'Deye OpenAPI';
+      case 'SOLARMAN':
+        return 'Solarman';
+      case 'LUXPOWER':
+        return 'LuxPower';
+      default:
+        return provider || 'monitor';
+    }
+  }
+
+  private isStableAutoBillingProvider(provider: string) {
+    return STABLE_AUTO_BILLING_PROVIDERS.has(provider);
+  }
+
+  private mapInvoiceToWorkflowStatus(status?: InvoiceStatus | null) {
+    switch (status) {
+      case InvoiceStatus.DRAFT:
+        return BillingWorkflowStatus.DRAFT;
+      case InvoiceStatus.PENDING_REVIEW:
+        return BillingWorkflowStatus.PENDING_REVIEW;
+      case InvoiceStatus.ISSUED:
+        return BillingWorkflowStatus.ISSUED;
+      case InvoiceStatus.PAID:
+        return BillingWorkflowStatus.PAID;
+      case InvoiceStatus.PARTIAL:
+        return BillingWorkflowStatus.PARTIAL;
+      case InvoiceStatus.OVERDUE:
+        return BillingWorkflowStatus.OVERDUE;
+      case InvoiceStatus.CANCELLED:
+        return BillingWorkflowStatus.CANCELLED;
+      default:
+        return null;
+    }
+  }
+
+  private isPastBillingPeriod(year: number, month: number) {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: BILLING_TIMEZONE,
+      year: 'numeric',
+      month: '2-digit',
+    });
+    const parts = formatter.formatToParts(new Date());
+    const currentYear = Number(parts.find((part) => part.type === 'year')?.value || 0);
+    const currentMonth = Number(parts.find((part) => part.type === 'month')?.value || 0);
+
+    return year < currentYear || (year === currentYear && month < currentMonth);
+  }
+
+  private resolveInvoiceTargetStatus(record: BillingRecordWithRelations) {
+    if (
+      record.dataQualityStatus === BillingDataQualityStatus.OK &&
+      record.dataSourceStable
+    ) {
+      return InvoiceStatus.ISSUED;
+    }
+
+    return InvoiceStatus.PENDING_REVIEW;
+  }
+
+  private async createOrUpdateInvoiceDraft(record: BillingRecordWithRelations, contract: any) {
+    const draftBaseData = {
+      customerId: record.customerId,
+      contractId: contract.id,
+      billingMonth: record.month,
+      billingYear: record.year,
+      issuedAt: new Date(),
+      dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      subtotal: record.subtotalAmount,
+      vatRate: record.vatRate,
+      vatAmount: record.taxAmount,
+      penaltyAmount: 0,
+      discountAmount: record.discountAmount,
+      totalAmount: record.totalAmount,
+      status: InvoiceStatus.DRAFT,
+    };
+    const draftItem = {
+      description: this.buildInvoiceDescription(record),
+      quantity: record.billableKwh,
+      unitPrice: record.unitPrice,
+      amount: record.subtotalAmount,
+    };
+
+    const invoice = record.invoiceId
+      ? await this.prisma.invoice.update({
+          where: { id: record.invoiceId },
+          data: {
+            ...draftBaseData,
+            items: {
+              deleteMany: {},
+              create: [draftItem],
+            },
+          },
+          include: {
+            items: true,
+            payments: true,
+          },
+        })
+      : await this.prisma.invoice.create({
+          data: {
+            ...draftBaseData,
+            invoiceNumber: generateCode(
+              `INV-PV-${record.year}${String(record.month).padStart(2, '0')}`,
+            ),
+            items: {
+              create: [draftItem],
+            },
+          },
+          include: {
+            items: true,
+            payments: true,
+          },
+        });
+
+    await this.prisma.monthlyPvBilling.update({
+      where: { id: record.id },
+      data: {
+        contractId: contract.id,
+        invoiceId: invoice.id,
+        invoiceStatus: BillingWorkflowStatus.DRAFT,
+      },
+    });
+
+    return invoice;
+  }
+
+  private async transitionInvoiceToTargetStatus(
+    invoiceId: string,
+    record: BillingRecordWithRelations,
+    targetStatus: InvoiceStatus,
+  ) {
+    const previousInvoice = await this.prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      include: {
+        items: true,
+        payments: true,
+      },
+    });
+
+    if (!previousInvoice) {
+      throw new NotFoundException('Invoice not found');
+    }
+
+    const updatedInvoice = await this.prisma.invoice.update({
+      where: { id: invoiceId },
+      data: {
+        status: targetStatus,
+        issuedAt:
+          targetStatus === InvoiceStatus.ISSUED && previousInvoice.status !== InvoiceStatus.ISSUED
+            ? new Date()
+            : previousInvoice.issuedAt,
+      },
+      include: {
+        items: true,
+        payments: true,
+      },
+    });
+
+    await this.prisma.monthlyPvBilling.update({
+      where: { id: record.id },
+      data: {
+        invoiceStatus: this.mapInvoiceToWorkflowStatus(updatedInvoice.status) || record.invoiceStatus,
+        finalizedAt:
+          updatedInvoice.status === InvoiceStatus.ISSUED
+            ? record.finalizedAt || new Date()
+            : null,
+      },
+    });
+
+    if (
+      updatedInvoice.status === InvoiceStatus.ISSUED &&
+      previousInvoice.status !== InvoiceStatus.ISSUED
+    ) {
+      await this.notificationsService.create({
+        userId: record.customer.userId,
+        title: 'Hoa don ky moi da san sang',
+        body: `Hoa don ${updatedInvoice.invoiceNumber} cho ky ${String(record.month).padStart(2, '0')}/${record.year} da duoc phat hanh.`,
+        entityType: 'Invoice',
+        entityId: updatedInvoice.id,
+        linkHref: '/customer/billing',
+      });
+    }
+
+    return updatedInvoice;
+  }
+
+  private async buildCurrentMonthEstimate(customerId: string) {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: BILLING_TIMEZONE,
+      year: 'numeric',
+      month: '2-digit',
+    });
+    const parts = formatter.formatToParts(new Date());
+    const year = Number(parts.find((part) => part.type === 'year')?.value || 0);
+    const month = Number(parts.find((part) => part.type === 'month')?.value || 0);
+    const existing = await this.prisma.monthlyPvBilling.findFirst({
+      where: {
+        customerId,
+        month,
+        year,
+        deletedAt: null,
+      },
+      include: this.includeRelations(),
+    });
+
+    if (existing) {
+      return null;
+    }
+
+    const contract = await this.prisma.contract.findFirst({
+      where: {
+        customerId,
+        status: 'ACTIVE',
+        deletedAt: null,
+      },
+      include: {
+        servicePackage: true,
+        solarSystem: {
+          include: {
+            customer: {
+              include: {
+                user: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: [{ startDate: 'desc' }],
+    });
+
+    if (!contract?.solarSystem) {
+      return null;
+    }
+
+    let amounts: AmountBreakdown;
+    try {
+      amounts = await this.calculateAmounts(
+        contract.solarSystemId,
+        {
+          month,
+          year,
+        },
+        null,
+        contract,
+      );
+    } catch {
+      return null;
+    }
+
+    return {
+      id: `estimate-${contract.solarSystemId}-${year}-${month}`,
+      solarSystemId: contract.solarSystemId,
+      solarSystem: contract.solarSystem,
+      customerId,
+      customer: contract.solarSystem.customer,
+      contractId: contract.id,
+      contract,
+      invoiceId: null,
+      invoice: null,
+      month,
+      year,
+      pvGenerationKwh: amounts.pvGenerationKwh,
+      billableKwh: amounts.billableKwh,
+      unitPrice: amounts.unitPrice,
+      subtotalAmount: amounts.subtotalAmount,
+      vatRate: amounts.vatRate,
+      taxAmount: amounts.taxAmount,
+      discountAmount: amounts.discountAmount,
+      totalAmount: amounts.totalAmount,
+      syncStatus: BillingSyncStatus.SYNCED,
+      dataQualityStatus: BillingDataQualityStatus.IN_PROGRESS,
+      invoiceStatus: BillingWorkflowStatus.ESTIMATE,
+      expectedDayCount: 0,
+      availableDayCount: 0,
+      missingDayCount: 0,
+      dataSourceStable: this.isStableAutoBillingProvider(
+        contract.solarSystem.sourceSystem || contract.solarSystem.monitoringProvider || '',
+      ),
+      autoSendEligible: false,
+      qualitySummary:
+        'San luong thang nay dang duoc cap nhat, he thong chi hien thi tam tinh cho den khi ket thuc thang.',
+      manualOverrideKwh: null,
+      manualOverrideReason: null,
+      manualOverrideAt: null,
+      manualOverrideByUserId: null,
+      manualOverrideByUser: null,
+      lastAutoRetriedAt: null,
+      lastQualityCheckedAt: new Date(),
+      finalizedAt: null,
+      syncTime: new Date(),
+      source: 'ENERGY_RECORD_AGGREGATE',
+      note: 'Tam tinh trong thang tu daily energy data.',
+      createdAt: new Date(),
+      updatedAt: new Date(),
+      deletedAt: null,
+    } as BillingRecordWithRelations;
+  }
+
   private async syncLinkedInvoice(record: BillingRecordWithRelations) {
     if (!record.invoiceId || !record.invoice) {
       return;
     }
 
     this.ensureRecordIsMutable(record.invoice);
+    const invoiceStatus =
+      record.invoice.status === InvoiceStatus.PAID ||
+      record.invoice.status === InvoiceStatus.PARTIAL
+        ? record.invoice.status
+        : record.invoiceStatus === BillingWorkflowStatus.PENDING_REVIEW
+          ? InvoiceStatus.PENDING_REVIEW
+          : record.invoiceStatus === BillingWorkflowStatus.DRAFT
+            ? InvoiceStatus.DRAFT
+            : record.invoice.status;
 
     await this.prisma.invoice.update({
       where: { id: record.invoiceId },
@@ -848,6 +1520,7 @@ export class MonthlyPvBillingsService {
         vatAmount: record.taxAmount,
         discountAmount: record.discountAmount,
         totalAmount: record.totalAmount,
+        status: invoiceStatus,
         items: {
           deleteMany: {},
           create: [
@@ -897,6 +1570,17 @@ export class MonthlyPvBillingsService {
       taxAmount: toNumber(record.taxAmount),
       discountAmount: toNumber(record.discountAmount),
       totalAmount: toNumber(record.totalAmount),
+      expectedDayCount: Number(record.expectedDayCount || 0),
+      availableDayCount: Number(record.availableDayCount || 0),
+      missingDayCount: Number(record.missingDayCount || 0),
+      manualOverrideKwh: this.optionalNumber(record.manualOverrideKwh),
+      manualOverrideByUser: record.manualOverrideByUser
+        ? {
+            id: record.manualOverrideByUser.id,
+            fullName: record.manualOverrideByUser.fullName,
+            email: record.manualOverrideByUser.email,
+          }
+        : null,
       contract: record.contract
         ? {
             ...record.contract,
@@ -949,6 +1633,7 @@ export class MonthlyPvBillingsService {
         capacityKwp: toNumber(record.solarSystem.capacityKwp),
         stationId: record.solarSystem.stationId,
         stationName: record.solarSystem.stationName,
+        sourceSystem: record.solarSystem.sourceSystem,
         monitoringProvider: record.solarSystem.monitoringProvider,
         monitoringPlantId: record.solarSystem.monitoringPlantId,
         status: record.solarSystem.status,

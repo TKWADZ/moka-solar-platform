@@ -7,9 +7,13 @@ import { InvoiceTable } from '@/components/invoice-table';
 import { SectionCard } from '@/components/section-card';
 import { StatCard } from '@/components/stat-card';
 import { StatusPill } from '@/components/status-pill';
-import { downloadInvoicePdfRequest, listMyInvoicesRequest } from '@/lib/api';
+import {
+  downloadInvoicePdfRequest,
+  listMyInvoicesRequest,
+  listMyMonthlyPvBillingsRequest,
+} from '@/lib/api';
 import { formatCurrency, formatDate, formatNumber } from '@/lib/utils';
-import { InvoiceRecord, InvoiceRow, StatCardItem } from '@/types';
+import { InvoiceRecord, InvoiceRow, MonthlyPvBillingRecord, StatCardItem } from '@/types';
 
 function monthLabel(invoice: InvoiceRecord) {
   return `${String(invoice.billingMonth).padStart(2, '0')}/${invoice.billingYear}`;
@@ -58,6 +62,10 @@ function invoiceItemLabel(value: string) {
 }
 
 function invoiceStatusLabel(status: InvoiceRecord['status']) {
+  if (status === 'PENDING_REVIEW') {
+    return 'Chờ duyệt dữ liệu';
+  }
+
   if (status === 'PAID') {
     return 'Đã thanh toán';
   }
@@ -87,6 +95,8 @@ function toInvoiceRows(invoices: InvoiceRecord[]): InvoiceRow[] {
           ? 'Overdue'
           : invoice.status === 'PARTIAL'
             ? 'Partial'
+            : invoice.status === 'PENDING_REVIEW'
+              ? 'Pending'
             : 'Issued',
     model: contractTypeLabel(
       invoice.contract?.type || invoice.contract?.servicePackage?.contractType || null,
@@ -124,12 +134,16 @@ function formatMeterReading(value?: number | null) {
 
 export default function CustomerBillingPage() {
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
+  const [monthlyBillings, setMonthlyBillings] = useState<MonthlyPvBillingRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   useEffect(() => {
-    listMyInvoicesRequest()
-      .then((data) => setInvoices(data))
+    Promise.all([listMyInvoicesRequest(), listMyMonthlyPvBillingsRequest()])
+      .then(([invoiceData, billingData]) => {
+        setInvoices(invoiceData);
+        setMonthlyBillings(billingData);
+      })
       .catch((nextError) =>
         setError(
           nextError instanceof Error ? nextError.message : 'Không thể tải dữ liệu hóa đơn.',
@@ -137,6 +151,31 @@ export default function CustomerBillingPage() {
       )
       .finally(() => setLoading(false));
   }, []);
+
+  const currentMonthEstimate = useMemo(() => {
+    const now = new Date();
+    const month = now.getMonth() + 1;
+    const year = now.getFullYear();
+
+    return (
+      monthlyBillings.find(
+        (record) =>
+          record.month === month &&
+          record.year === year &&
+          record.invoiceStatus === 'ESTIMATE',
+      ) || null
+    );
+  }, [monthlyBillings]);
+
+  const pendingReviewRecord = useMemo(
+    () =>
+      monthlyBillings.find(
+        (record) =>
+          record.invoiceStatus === 'PENDING_REVIEW' &&
+          (!record.invoice || record.invoice.status === 'PENDING_REVIEW'),
+      ) || null,
+    [monthlyBillings],
+  );
 
   const openInvoices = useMemo(
     () => invoices.filter((invoice) => !['PAID', 'CANCELLED'].includes(invoice.status)),
@@ -180,12 +219,16 @@ export default function CustomerBillingPage() {
         value: formatCurrency(outstanding),
         subtitle: openInvoices.length
           ? `${openInvoices.length} hóa đơn chưa thanh toán`
-          : 'Không còn dư nợ cần đối soát',
+          : currentMonthEstimate
+            ? 'Trong tháng chỉ hiển thị tạm tính, chưa phát hành hóa đơn chính thức'
+            : 'Không còn dư nợ cần đối soát',
         delta: nearestDueInvoice
           ? `${nearestDueInvoice.invoiceNumber} • đến hạn ${formatDate(nearestDueInvoice.dueDate)}`
           : overdueCount
             ? `${overdueCount} hóa đơn quá hạn`
-            : 'Danh mục đang ổn định',
+            : currentMonthEstimate
+              ? `Tạm tính ${formatCurrency(currentMonthEstimate.totalAmount)}`
+              : 'Danh mục đang ổn định',
         trend: outstanding > 0 ? 'neutral' : 'up',
       },
       {
@@ -198,7 +241,7 @@ export default function CustomerBillingPage() {
         trend: currentInvoice?.status === 'OVERDUE' ? 'down' : 'neutral',
       },
     ];
-  }, [currentInvoice, invoices, openInvoices]);
+  }, [currentInvoice, currentMonthEstimate, invoices, openInvoices]);
 
   if (loading) {
     return (
@@ -228,8 +271,46 @@ export default function CustomerBillingPage() {
         </SectionCard>
 
         <SectionCard title="Tóm tắt kỳ đang theo dõi" eyebrow="Số tiền, sản lượng và đối soát chỉ số" dark>
-          {currentInvoice ? (
+          {currentMonthEstimate || pendingReviewRecord || currentInvoice ? (
             <div className="space-y-4">
+              {currentMonthEstimate ? (
+                <div className="portal-card-soft p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div>
+                      <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                        Tạm tính tháng này
+                      </p>
+                      <h3 className="mt-3 text-3xl font-semibold tracking-tight text-white">
+                        {formatCurrency(currentMonthEstimate.totalAmount)}
+                      </h3>
+                      <p className="mt-2 text-sm text-slate-400">
+                        {monthLabel({
+                          billingMonth: currentMonthEstimate.month,
+                          billingYear: currentMonthEstimate.year,
+                        } as InvoiceRecord)} • {formatNumber(currentMonthEstimate.pvGenerationKwh, 'kWh')}
+                      </p>
+                    </div>
+
+                    <StatusPill label={currentMonthEstimate.invoiceStatus} />
+                  </div>
+
+                  <div className="mt-5 grid gap-3 text-sm text-slate-300 sm:grid-cols-2">
+                    <p>Đơn giá: {formatCurrency(currentMonthEstimate.unitPrice)}</p>
+                    <p>Thuế VAT: {currentMonthEstimate.vatRate != null ? `${currentMonthEstimate.vatRate}%` : '-'}</p>
+                    <p>Dữ liệu: {currentMonthEstimate.qualitySummary || 'Đang cập nhật trong tháng'}</p>
+                    <p>Nguồn: {currentMonthEstimate.periodMetrics?.sourceLabel || currentMonthEstimate.source}</p>
+                  </div>
+                </div>
+              ) : null}
+
+              {pendingReviewRecord ? (
+                <div className="rounded-[24px] border border-amber-300/15 bg-amber-400/10 px-5 py-4 text-sm leading-6 text-amber-100">
+                  Dữ liệu kỳ {String(pendingReviewRecord.month).padStart(2, '0')}/{pendingReviewRecord.year} đang chờ đối soát trước khi phát hành hóa đơn chính thức.
+                </div>
+              ) : null}
+
+              {currentInvoice ? (
+                <>
               <div className="portal-card-soft p-5">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
@@ -307,6 +388,8 @@ export default function CustomerBillingPage() {
                   <ArrowUpRight className="h-4 w-4" />
                 </Link>
               </div>
+                </>
+              ) : null}
             </div>
           ) : (
             <div className="portal-card-soft p-5">

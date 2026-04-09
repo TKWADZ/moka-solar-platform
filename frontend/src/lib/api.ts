@@ -2289,6 +2289,10 @@ export async function listMonthlyPvBillingsRequest(query?: {
   return apiFetch<MonthlyPvBillingRecord[]>(`/monthly-pv-billings${suffix}`);
 }
 
+export async function listMyMonthlyPvBillingsRequest() {
+  return apiFetch<MonthlyPvBillingRecord[]>('/monthly-pv-billings/me');
+}
+
 export async function syncMonthlyPvBillingRequest(
   systemId: string,
   payload: {
@@ -2301,6 +2305,7 @@ export async function syncMonthlyPvBillingRequest(
     discountAmount?: number;
     source?: string;
     note?: string;
+    manualOverrideReason?: string;
   },
 ) {
   return apiFetch<MonthlyPvBillingRecord>(`/monthly-pv-billings/sync/${systemId}`, {
@@ -2321,6 +2326,8 @@ export async function updateMonthlyPvBillingRequest(
     discountAmount?: number;
     source?: string;
     note?: string;
+    manualOverrideReason?: string;
+    clearManualOverride?: boolean;
   },
 ) {
   return apiFetch<MonthlyPvBillingRecord>(`/monthly-pv-billings/${id}`, {

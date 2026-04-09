@@ -33,6 +33,7 @@ import { SolarmanConnectionsModule } from './solarman-connections/solarman-conne
 import { LuxPowerConnectionsModule } from './luxpower-connections/luxpower-connections.module';
 import { MonitorSyncModule } from './monitor-sync/monitor-sync.module';
 import { ZaloNotificationsModule } from './zalo-notifications/zalo-notifications.module';
+import { BillingLifecycleModule } from './billing-lifecycle/billing-lifecycle.module';
 import { RequestContextMiddleware } from './common/request-context/request-context.middleware';
 
 @Module({
@@ -61,6 +62,7 @@ import { RequestContextMiddleware } from './common/request-context/request-conte
     LuxPowerConnectionsModule,
     MonitorSyncModule,
     ZaloNotificationsModule,
+    BillingLifecycleModule,
     WebsiteSettingsModule,
     MarketingPagesModule,
     ContactInquiriesModule,

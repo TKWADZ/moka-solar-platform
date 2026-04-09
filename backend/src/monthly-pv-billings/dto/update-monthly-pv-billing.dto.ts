@@ -1,5 +1,5 @@
 import { Type } from 'class-transformer';
-import { IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
+import { IsBoolean, IsInt, IsNumber, IsOptional, IsString, Max, Min } from 'class-validator';
 
 export class UpdateMonthlyPvBillingDto {
   @IsOptional()
@@ -48,4 +48,13 @@ export class UpdateMonthlyPvBillingDto {
   @IsOptional()
   @IsString()
   note?: string;
+
+  @IsOptional()
+  @IsString()
+  manualOverrideReason?: string;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  clearManualOverride?: boolean;
 }

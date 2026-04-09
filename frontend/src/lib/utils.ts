@@ -97,6 +97,7 @@ export function statusTone(status: string) {
 
   if (
     normalized.includes('paid') ||
+    normalized.includes('ok') ||
     normalized.includes('success') ||
     normalized.includes('resolved') ||
     normalized.includes('đã thanh toán') ||
@@ -110,6 +111,7 @@ export function statusTone(status: string) {
 
   if (
     normalized.includes('overdue') ||
+    normalized.includes('error') ||
     normalized.includes('failed') ||
     normalized.includes('urgent') ||
     normalized.includes('quá hạn') ||
@@ -121,6 +123,12 @@ export function statusTone(status: string) {
   }
 
   if (
+    normalized.includes('draft') ||
+    normalized.includes('estimate') ||
+    normalized.includes('review') ||
+    normalized.includes('retry') ||
+    normalized.includes('incomplete') ||
+    normalized.includes('override') ||
     normalized.includes('issued') ||
     normalized.includes('pending') ||
     normalized.includes('progress') ||

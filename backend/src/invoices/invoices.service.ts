@@ -12,6 +12,7 @@ import {
   buildOperationalPeriodKey,
   extractOperationalPeriodMetrics,
 } from '../common/helpers/operational-period.helper';
+import { MonthlyPvBillingsService } from '../monthly-pv-billings/monthly-pv-billings.service';
 
 @Injectable()
 export class InvoicesService {
@@ -20,6 +21,7 @@ export class InvoicesService {
     private calculator: InvoiceCalculatorService,
     private auditLogsService: AuditLogsService,
     private notificationsService: NotificationsService,
+    private monthlyPvBillingsService: MonthlyPvBillingsService,
   ) {}
 
   async findAll() {
@@ -130,6 +132,39 @@ export class InvoicesService {
     year: number,
     actorId?: string,
   ) {
+    const contract = await this.prisma.contract.findFirst({
+      where: { id: contractId, deletedAt: null },
+      select: {
+        id: true,
+        solarSystemId: true,
+      },
+    });
+
+    if (!contract) {
+      throw new NotFoundException('Contract not found');
+    }
+
+    const monthlyPvBilling = await this.prisma.monthlyPvBilling.findFirst({
+      where: {
+        contractId,
+        solarSystemId: contract.solarSystemId,
+        month,
+        year,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+      },
+    });
+
+    if (monthlyPvBilling?.id) {
+      const result = await this.monthlyPvBillingsService.generateInvoice(
+        monthlyPvBilling.id,
+        actorId,
+      );
+      return result.invoice;
+    }
+
     const existingInvoice = await this.prisma.invoice.findFirst({
       where: {
         contractId,
@@ -146,150 +181,9 @@ export class InvoicesService {
       return existingInvoice;
     }
 
-    const { from, to } = getMonthDateRange(year, month);
-    const contract = await this.prisma.contract.findFirst({
-      where: { id: contractId, deletedAt: null },
-      include: {
-        customer: { include: { user: true } },
-        solarSystem: {
-          include: {
-            energyRecords: {
-              where: {
-                recordDate: {
-                  gte: from,
-                  lte: to,
-                },
-              },
-            },
-          },
-        },
-        servicePackage: true,
-      },
-    });
-
-    if (!contract) {
-      throw new NotFoundException('Contract not found');
-    }
-
-    const monthlyPvBilling = await this.prisma.monthlyPvBilling.findFirst({
-      where: {
-        contractId: contract.id,
-        solarSystemId: contract.solarSystemId,
-        month,
-        year,
-        deletedAt: null,
-      },
-      include: {
-        solarSystem: true,
-      },
-    });
-
-    const totalImportedKwh = contract.solarSystem.energyRecords.reduce(
-      (sum, record) => sum + Number(record.gridImportedKwh),
-      0,
+    throw new NotFoundException(
+      'Chua co du lieu billing thang da duoc doi soat. Vui long tao Monthly PV billing truoc khi phat hanh hoa don.',
     );
-
-    const yearsFromStart = Math.max(0, year - contract.startDate.getUTCFullYear());
-
-    const result = monthlyPvBilling
-      ? {
-          subtotal: Number(monthlyPvBilling.subtotalAmount),
-          discountAmount: Number(monthlyPvBilling.discountAmount),
-          vatAmount: Number(monthlyPvBilling.taxAmount),
-          vatRate: Number(monthlyPvBilling.vatRate || 0),
-          penaltyAmount: 0,
-          totalAmount: Number(monthlyPvBilling.totalAmount),
-          items: [
-            {
-              description: `S\u1ea3n l\u01b0\u1ee3ng PV th\u00e1ng ${String(month).padStart(2, '0')}/${year} - ${monthlyPvBilling.solarSystem.name}`,
-              quantity: Number(monthlyPvBilling.billableKwh),
-              unitPrice: Number(monthlyPvBilling.unitPrice),
-              amount: Number(monthlyPvBilling.subtotalAmount),
-            },
-          ],
-        }
-      : this.calculator.calculate({
-          contractType: contract.type,
-          fixedMonthlyFee: Number(contract.fixedMonthlyFee || 0),
-          pricePerKwh: Number(contract.pricePerKwh || contract.servicePackage.pricePerKwh || 0),
-          vatRate: Number(contract.vatRate || contract.servicePackage.vatRate || 0),
-          lateFeeRate: Number(contract.servicePackage.lateFeeRate || 0),
-          earlyDiscountRate: Number(contract.servicePackage.earlyDiscountRate || 0),
-          interestRate: Number(contract.interestRate || 0),
-          termMonths: contract.termMonths || 12,
-          gridImportedKwh: totalImportedKwh,
-          serviceFee: Number(contract.servicePackage.maintenanceFee || 0),
-          principalAmount: Number(contract.fixedMonthlyFee || 120000000),
-          annualEscalationRate: Number(contract.servicePackage.annualEscalationRate || 0),
-          yearsFromStart,
-          applyLateFee: false,
-        });
-
-    const invoice = await this.prisma.invoice.create({
-      data: {
-        customerId: contract.customerId,
-        contractId: contract.id,
-        invoiceNumber: generateCode(`INV-${year}${String(month).padStart(2, '0')}`),
-        billingMonth: month,
-        billingYear: year,
-        issuedAt: new Date(),
-        dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
-        subtotal: result.subtotal,
-        vatRate: Number((result as any).vatRate || contract.vatRate || contract.servicePackage.vatRate || 0),
-        vatAmount: result.vatAmount,
-        penaltyAmount: result.penaltyAmount,
-        discountAmount: result.discountAmount,
-        totalAmount: result.totalAmount,
-        status: InvoiceStatus.ISSUED,
-        items: { create: result.items },
-      },
-      include: {
-        items: true,
-        customer: { include: { user: true } },
-      },
-    });
-
-    if (monthlyPvBilling && !monthlyPvBilling.invoiceId) {
-      await this.prisma.monthlyPvBilling.update({
-        where: { id: monthlyPvBilling.id },
-        data: {
-          contractId: contract.id,
-          invoiceId: invoice.id,
-        },
-      });
-    }
-
-    await this.notificationsService.create({
-      userId: contract.customer.userId,
-      title: 'Hoa don moi da san sang',
-      body: `Hoa don ${invoice.invoiceNumber} cho ky ${String(month).padStart(2, '0')}/${year} da duoc phat hanh.`,
-    });
-
-    await this.auditLogsService.log({
-      userId: actorId,
-      action: 'INVOICE_GENERATED',
-      moduleKey: 'billing',
-      entityType: 'Invoice',
-      entityId: invoice.id,
-      payload: {
-        contractId,
-        month,
-        year,
-      },
-      afterState: this.serializeInvoiceAuditState(invoice),
-    });
-
-    if (actorId) {
-      await this.auditLogsService.touchEntity({
-        entityType: 'Invoice',
-        entityId: invoice.id,
-        actorId,
-        moduleKey: 'billing',
-      });
-    }
-
-    const [serialized] = await this.attachPeriodMetrics([invoice]);
-    return serialized;
   }
 
   private async attachPeriodMetrics(invoices: any[]) {

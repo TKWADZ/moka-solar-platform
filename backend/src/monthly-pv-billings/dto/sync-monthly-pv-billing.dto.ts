@@ -50,4 +50,8 @@ export class SyncMonthlyPvBillingDto {
   @IsOptional()
   @IsString()
   note?: string;
+
+  @IsOptional()
+  @IsString()
+  manualOverrideReason?: string;
 }
