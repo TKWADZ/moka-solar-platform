@@ -198,7 +198,7 @@ export class ZaloNotificationsService {
         customerName: 'Khach hang test',
         systemName: 'He thong rooftop test',
         energyKwhLabel: this.formatKwhLabelForBillingTemplate(500),
-        displayAmount: this.formatDisplayAmountForBillingTemplate(1749600),
+        displayAmount: this.formatCurrencyForPayload(1749600),
         contractNumber: 'MKSL-TEST-001',
       }),
       tracking_id: `TEST-${Date.now()}`,
@@ -418,7 +418,7 @@ export class ZaloNotificationsService {
             customerName,
             systemName,
             energyKwhLabel: this.formatKwhLabelForBillingTemplate(billableConsumption),
-            displayAmount: this.formatDisplayAmountForBillingTemplate(outstandingAmount),
+            displayAmount: this.formatCurrencyForPayload(outstandingAmount),
             contractNumber: invoice.contract?.contractNumber || '',
           })
         : this.buildLegacyBillingTemplatePayload({
@@ -1729,7 +1729,7 @@ export class ZaloNotificationsService {
       case 'san_luong_kwh':
         return /^\d+(?:[.,]\d+)?\s*kwh$/i.test(normalized);
       case 'so_tien':
-        return /\d/.test(normalized);
+        return /^\d+$/.test(normalized);
       default:
         return true;
     }
