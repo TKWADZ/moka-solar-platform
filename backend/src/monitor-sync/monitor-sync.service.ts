@@ -208,14 +208,6 @@ export class MonitorSyncService {
           : await this.syncHistory(system, provider);
 
       const completedAt = new Date();
-      const nextRealtimeSyncAt =
-        scope === 'REALTIME'
-          ? this.computeNextRealtimeSyncAt(system, tier, completedAt)
-          : system.nextRealtimeSyncAt;
-      const nextHistorySyncAt =
-        scope === 'HISTORY'
-          ? this.computeNextHistorySyncAt(completedAt)
-          : system.nextHistorySyncAt;
 
       await this.prisma.solarSystem.update({
         where: { id: system.id },
@@ -225,15 +217,19 @@ export class MonitorSyncService {
           lastSyncErrorStatus: null,
           lastSyncErrorMessage: null,
           lastSyncErrorAt: null,
-          ...(scope === 'REALTIME' ? { lastRealtimeSyncAt: completedAt } : {}),
-          ...(scope === 'HISTORY'
+          ...(scope === 'REALTIME'
             ? {
-                lastHourlySyncAt: completedAt,
-                lastDailySyncAt: completedAt,
+                lastRealtimeSyncAt: completedAt,
+                nextRealtimeSyncAt: this.computeNextRealtimeSyncAt(system, tier, completedAt),
               }
             : {}),
-          nextRealtimeSyncAt,
-          nextHistorySyncAt,
+          ...(scope === 'HISTORY'
+              ? {
+                  lastHourlySyncAt: completedAt,
+                  lastDailySyncAt: completedAt,
+                  nextHistorySyncAt: this.computeNextHistorySyncAt(completedAt),
+                }
+              : {}),
         },
       });
 
@@ -667,23 +663,25 @@ export class MonitorSyncService {
     const errorStatus = this.classifyErrorStatus(message);
     const now = new Date();
 
-    await this.prisma.solarSystem.update({
-      where: { id: system.id },
-      data: {
-        lastSyncStatus: 'ERROR',
-        lastSyncErrorStatus: errorStatus,
-        lastSyncErrorMessage: message,
-        lastSyncErrorAt: now,
-        nextRealtimeSyncAt:
-          scope === 'REALTIME'
-            ? this.computeNextRealtimeSyncAt(system, 'BACKOFF', now)
-            : system.nextRealtimeSyncAt,
-        nextHistorySyncAt:
-          scope === 'HISTORY'
-            ? new Date(now.getTime() + 90 * 60 * 1000)
-            : system.nextHistorySyncAt,
-      },
-    });
+      await this.prisma.solarSystem.update({
+        where: { id: system.id },
+        data: {
+          lastSyncStatus: 'ERROR',
+          lastSyncErrorStatus: errorStatus,
+          lastSyncErrorMessage: message,
+          lastSyncErrorAt: now,
+          ...(scope === 'REALTIME'
+            ? {
+                nextRealtimeSyncAt: this.computeNextRealtimeSyncAt(system, 'BACKOFF', now),
+              }
+            : {}),
+          ...(scope === 'HISTORY'
+            ? {
+                nextHistorySyncAt: new Date(now.getTime() + 90 * 60 * 1000),
+              }
+            : {}),
+        },
+      });
 
     await this.prisma.systemMonitorSyncLog.update({
       where: { id: options.logId },
