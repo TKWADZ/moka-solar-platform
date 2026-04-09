@@ -202,10 +202,10 @@ export class MonitorSyncService {
     });
 
     try {
-      const result =
-        scope === 'REALTIME'
-          ? await this.syncRealtime(system, provider)
-          : await this.syncHistory(system, provider);
+      const result = await this.runSyncWithTimeout(
+        scope === 'REALTIME' ? this.syncRealtime(system, provider) : this.syncHistory(system, provider),
+        scope,
+      );
 
       const completedAt = new Date();
 
@@ -906,6 +906,44 @@ export class MonitorSyncService {
 
   private getRealtimeRetentionHours() {
     return this.getConfigNumber('MONITOR_SYNC_REALTIME_RETENTION_HOURS', 48);
+  }
+
+  private getSyncTimeoutMs(scope: SyncScope) {
+    if (scope === 'REALTIME') {
+      return this.getConfigNumber('MONITOR_SYNC_REALTIME_TIMEOUT_SECONDS', 90) * 1000;
+    }
+
+    if (scope === 'HISTORY') {
+      return this.getConfigNumber('MONITOR_SYNC_HISTORY_TIMEOUT_SECONDS', 300) * 1000;
+    }
+
+    return this.getConfigNumber('MONITOR_SYNC_DAY_CLOSE_TIMEOUT_SECONDS', 480) * 1000;
+  }
+
+  private async runSyncWithTimeout(task: Promise<any>, scope: SyncScope): Promise<any> {
+    const timeoutMs = this.getSyncTimeoutMs(scope);
+
+    return await new Promise<any>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        reject(
+          new Error(
+            scope === 'REALTIME'
+              ? 'Dong bo realtime vuot qua thoi gian cho phep.'
+              : 'Dong bo history/billing vuot qua thoi gian cho phep.',
+          ),
+        );
+      }, timeoutMs);
+
+      task
+        .then((result) => {
+          clearTimeout(timer);
+          resolve(result);
+        })
+        .catch((error) => {
+          clearTimeout(timer);
+          reject(error);
+        });
+    });
   }
 
   private schedulerEnabled() {
