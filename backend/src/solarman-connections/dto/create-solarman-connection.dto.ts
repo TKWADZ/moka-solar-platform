@@ -5,6 +5,10 @@ export class CreateSolarmanConnectionDto {
   @IsString()
   accountName: string;
 
+  @IsOptional()
+  @IsString()
+  providerType?: string;
+
   @IsString()
   usernameOrEmail: string;
 

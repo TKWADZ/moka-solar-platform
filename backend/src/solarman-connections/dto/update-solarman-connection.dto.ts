@@ -8,6 +8,10 @@ export class UpdateSolarmanConnectionDto {
 
   @IsOptional()
   @IsString()
+  providerType?: string;
+
+  @IsOptional()
+  @IsString()
   usernameOrEmail?: string;
 
   @IsOptional()

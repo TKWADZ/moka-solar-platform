@@ -440,6 +440,7 @@ model SolarSystem {
   solarmanConnectionId String?
   solarmanConnection  SolarmanConnection? @relation(fields: [solarmanConnectionId], references: [id], onDelete: SetNull)
   luxPowerConnection  LuxPowerConnection?
+  solarmanDebugSnapshots SolarmanDebugSnapshot[]
   luxPowerDebugSnapshots LuxPowerDebugSnapshot[]
   luxPowerNormalizedMetrics LuxPowerNormalizedMetric[]
   monitoringProvider  String?
@@ -615,11 +616,13 @@ model Device {
 model SolarmanConnection {
   id                   String              @id @default(cuid())
   accountName          String
+  providerType         String              @default("COOKIE_SESSION")
   usernameOrEmail      String
   passwordEncrypted    String
   accessToken          String?
   refreshToken         String?
   cookieJar            Json?
+  cookieJarEncrypted   String?
   customerId           String?
   customer             Customer?           @relation(fields: [customerId], references: [id], onDelete: SetNull)
   defaultUnitPrice     Decimal?            @db.Decimal(12,2)
@@ -627,11 +630,18 @@ model SolarmanConnection {
   defaultVatRate       Decimal?            @db.Decimal(5,2)
   defaultDiscountAmount Decimal?           @db.Decimal(12,2)
   status               String              @default("ACTIVE")
+  lastAuthAt           DateTime?
   lastSyncTime         DateTime?
+  lastSuccessfulSyncAt DateTime?
+  lastErrorCode        String?
+  lastErrorMessage     String?
+  lastErrorDetails     Json?
+  providerMetadata     Json?
   notes                String?
   systems              SolarSystem[]
   monthlyEnergyRecords MonthlyEnergyRecord[]
   syncLogs             SolarmanSyncLog[]
+  debugSnapshots       SolarmanDebugSnapshot[]
   createdAt            DateTime            @default(now())
   updatedAt            DateTime            @updatedAt
   deletedAt            DateTime?
@@ -859,10 +869,13 @@ model SolarmanSyncLog {
   id             String             @id @default(cuid())
   connectionId   String
   connection     SolarmanConnection @relation(fields: [connectionId], references: [id])
+  providerType   String?
   action         String
   status         String
+  errorCode      String?
   message        String
   context        Json?
+  responsePayload Json?
   syncedStations Int                @default(0)
   syncedMonths   Int                @default(0)
   syncedBillings Int                @default(0)
@@ -873,6 +886,28 @@ model SolarmanSyncLog {
 
   @@index([connectionId, createdAt])
   @@index([status])
+}
+
+model SolarmanDebugSnapshot {
+  id           String             @id @default(cuid())
+  connectionId String
+  connection   SolarmanConnection @relation(fields: [connectionId], references: [id], onDelete: Cascade)
+  solarSystemId String?
+  solarSystem  SolarSystem?       @relation(fields: [solarSystemId], references: [id], onDelete: SetNull)
+  stationId    String?
+  deviceSn     String?
+  providerType String
+  snapshotType String
+  status       String             @default("CAPTURED")
+  capturedAt   DateTime
+  payload      Json?
+  note         String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+
+  @@index([connectionId, snapshotType, capturedAt])
+  @@index([solarSystemId, capturedAt])
+  @@index([stationId, deviceSn, capturedAt])
 }
 
 model MediaAsset {

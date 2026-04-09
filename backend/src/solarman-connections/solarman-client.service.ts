@@ -2,8 +2,13 @@ import { BadGatewayException, BadRequestException, Injectable } from '@nestjs/co
 import { ConfigService } from '@nestjs/config';
 import { createHash } from 'crypto';
 import {
+  ParsedSolarmanDailyHistory,
+  ParsedSolarmanDevice,
   ParsedSolarmanMonthlyHistory,
+  ParsedSolarmanStation,
   asRecord,
+  parseDailyGeneration,
+  parseDeviceList,
   parseMonthlyGeneration,
   parseStationList,
   toStringValue,
@@ -14,6 +19,8 @@ type SolarmanCredentialConfig = {
   password: string;
 };
 
+export type SolarmanProviderType = 'OFFICIAL_OPENAPI' | 'COOKIE_SESSION' | 'MANUAL_IMPORT';
+
 type SolarmanMode = 'official' | 'web';
 type SolarmanRequestMethod = 'GET' | 'POST';
 
@@ -21,9 +28,12 @@ type SolarmanBaseConfig = {
   baseUrl: string;
   appId: string | null;
   appSecret: string | null;
+  dailyEndpoints: string[];
   monthlyEndpoints: string[];
   webLoginUrl: string | null;
   webStationListUrl: string | null;
+  webDeviceListUrls: string[];
+  webDailyUrls: string[];
   webMonthlyUrls: string[];
   webOrigin: string | null;
   webReferer: string | null;
@@ -44,6 +54,12 @@ type SolarmanSession = {
   cookieJar: string | null;
 };
 
+export type SolarmanPersistedSession = {
+  mode?: SolarmanMode | null;
+  token?: string | null;
+  cookieJar?: string | null;
+};
+
 type TokenCacheValue = {
   session: SolarmanSession;
   expiresAt: number;
@@ -56,6 +72,12 @@ type SolarmanRequestPlan = {
   formUrlEncoded?: boolean;
 };
 
+type SolarmanRequestOptions = {
+  mode?: SolarmanMode;
+  persistedSession?: SolarmanPersistedSession | null;
+  forceRelogin?: boolean;
+};
+
 @Injectable()
 export class SolarmanClientService {
   private readonly timeoutMs: number;
@@ -65,52 +87,115 @@ export class SolarmanClientService {
     this.timeoutMs = Number(this.configService.get('REQUEST_TIMEOUT') || 20000);
   }
 
-  async testConnection(credentials: SolarmanCredentialConfig) {
-    const session = await this.login(credentials);
-    const stations = await this.listStations(credentials);
+  primePersistedSession(
+    credentials: SolarmanCredentialConfig,
+    session: SolarmanPersistedSession,
+    providerType: SolarmanProviderType = 'COOKIE_SESSION',
+  ) {
+    const mode = this.resolveModeFromProviderType(providerType);
+    const config = this.resolveBaseConfig();
+    const cacheKey = this.createCacheKey(credentials, mode, config);
+
+    this.tokenCache.set(cacheKey, {
+      session: {
+        mode,
+        token: session.token || null,
+        authHeader: session.token || null,
+        cookieJar: session.cookieJar || null,
+      },
+      expiresAt: Date.now() + 12 * 60 * 60 * 1000,
+    });
+  }
+
+  invalidateSession(
+    credentials: SolarmanCredentialConfig,
+    providerType: SolarmanProviderType = 'COOKIE_SESSION',
+  ) {
+    const config = this.resolveBaseConfig();
+    const mode = this.resolveModeFromProviderType(providerType);
+    this.tokenCache.delete(this.createCacheKey(credentials, mode, config));
+  }
+
+  async testConnection(
+    credentials: SolarmanCredentialConfig,
+    options: SolarmanRequestOptions = {},
+  ) {
+    const stationResult = await this.listStationsDetailed(credentials, options);
+    const firstStation = stationResult.stations[0] || null;
+    const deviceResult = firstStation
+      ? await this.listDevicesDetailed(credentials, firstStation.stationId, {
+          ...options,
+          mode: stationResult.session.mode,
+          persistedSession: stationResult.session,
+        })
+      : null;
 
     return {
       connected: true,
-      mode: session.mode,
-      stationCount: stations.length,
-      tokenPreview: session.token ? `${session.token.slice(0, 10)}...` : null,
-      cookieJar: session.cookieJar,
-      stations,
+      mode: stationResult.session.mode,
+      stationCount: stationResult.stations.length,
+      tokenPreview: stationResult.session.token
+        ? `${stationResult.session.token.slice(0, 10)}...`
+        : null,
+      cookieJar: stationResult.session.cookieJar,
+      stations: stationResult.stations,
+      sampleDevices: deviceResult?.devices || [],
+      rawResponses: {
+        plantList: stationResult.raw,
+        deviceList: deviceResult?.raw || null,
+      },
     };
   }
 
-  async listStations(credentials: SolarmanCredentialConfig) {
+  async listStations(credentials: SolarmanCredentialConfig, options: SolarmanRequestOptions = {}) {
+    const result = await this.listStationsDetailed(credentials, options);
+    return result.stations;
+  }
+
+  async listStationsDetailed(
+    credentials: SolarmanCredentialConfig,
+    options: SolarmanRequestOptions = {},
+  ) {
     const config = this.resolveBaseConfig();
-    const modes = this.getModeOrder(config);
+    const modes = this.getModeOrder(config, options.mode);
     let lastError: unknown = null;
 
     for (const mode of modes) {
       try {
         if (mode === 'web') {
-          const stations = await this.listStationsViaWeb(credentials, config);
+          const { stations, raw, session } = await this.listStationsViaWeb(credentials, config, options);
           if (stations.length) {
-            return stations;
+            return {
+              mode,
+              session,
+              stations,
+              raw,
+            };
           }
           lastError = new Error('SOLARMAN web station list returned no stations.');
           continue;
         }
 
-        const response = (
-          await this.requestWithAuth(
-            credentials,
-            {
-              method: 'POST',
-              endpoint: '/station/v1.0/list',
-              payload: { page: 1, size: 200 },
-            },
-            'SOLARMAN station list',
-            mode,
-          )
-        ).body;
+        const response = await this.requestWithAuth(
+          credentials,
+          {
+            method: 'POST',
+            endpoint: '/station/v1.0/list',
+            payload: { page: 1, size: 200 },
+          },
+          'SOLARMAN station list',
+          mode,
+          options,
+        );
 
-        const stations = parseStationList(response);
+        const stations = parseStationList(response.body);
         if (stations.length) {
-          return stations;
+          return {
+            mode,
+            session: response.session,
+            stations,
+            raw: response.body,
+          };
         }
 
         lastError = new Error(`SOLARMAN station list returned no stations in ${mode} mode.`);
@@ -129,14 +214,113 @@ export class SolarmanClientService {
     });
   }
 
+  async listDevices(
+    credentials: SolarmanCredentialConfig,
+    stationId: string,
+    options: SolarmanRequestOptions = {},
+  ) {
+    const result = await this.listDevicesDetailed(credentials, stationId, options);
+    return result.devices;
+  }
+
+  async listDevicesDetailed(
+    credentials: SolarmanCredentialConfig,
+    stationId: string,
+    options: SolarmanRequestOptions = {},
+  ) {
+    const config = this.resolveBaseConfig();
+    const modes = this.getModeOrder(config, options.mode);
+    let lastError: unknown = null;
+
+    for (const mode of modes) {
+      if (mode === 'web') {
+        const requests = this.buildWebDeviceRequests(config, stationId);
+        for (const request of requests) {
+          try {
+            const response = await this.requestWithAuth(
+              credentials,
+              request,
+              `SOLARMAN device list (${request.endpoint})`,
+              mode,
+              options,
+            );
+            const devices = parseDeviceList(response.body);
+            if (devices.length) {
+              return {
+                mode,
+                session: response.session,
+                devices,
+                raw: response.body,
+              };
+            }
+          } catch (error) {
+            lastError = error;
+          }
+        }
+
+        continue;
+      }
+
+      const payloadCandidates = this.buildDevicePayloadCandidates(stationId);
+      for (const payload of payloadCandidates) {
+        try {
+          const response = await this.requestWithAuth(
+            credentials,
+            {
+              method: 'POST',
+              endpoint: '/station/v1.0/device',
+              payload,
+            },
+            'SOLARMAN device list',
+            mode,
+            options,
+          );
+
+          const devices = parseDeviceList(response.body);
+          if (devices.length) {
+            return {
+              mode,
+              session: response.session,
+              devices,
+              raw: response.body,
+            };
+          }
+        } catch (error) {
+          lastError = error;
+        }
+      }
+    }
+
+    throw new BadGatewayException({
+      message:
+        lastError instanceof Error && lastError.message
+          ? lastError.message
+          : 'Khong lay duoc danh sach thiet bi tu SOLARMAN.',
+      provider: 'SOLARMAN',
+      stationId,
+      detail: lastError instanceof Error ? lastError.message : 'Unknown device list error',
+    });
+  }
+
   async getMonthlyGeneration(
     credentials: SolarmanCredentialConfig,
     stationId: string,
     year: number,
+    options: SolarmanRequestOptions = {},
   ): Promise<ParsedSolarmanMonthlyHistory> {
+    const result = await this.getMonthlyGenerationDetailed(credentials, stationId, year, options);
+    return result.history;
+  }
+
+  async getMonthlyGenerationDetailed(
+    credentials: SolarmanCredentialConfig,
+    stationId: string,
+    year: number,
+    options: SolarmanRequestOptions = {},
+  ) {
     const config = this.resolveBaseConfig();
     const payloadCandidates = this.buildMonthlyPayloadCandidates(stationId, year);
-    const modes = this.getModeOrder(config);
+    const modes = this.getModeOrder(config, options.mode);
     let lastError: unknown = null;
 
     for (const mode of modes) {
@@ -144,18 +328,22 @@ export class SolarmanClientService {
         const webRequests = this.buildWebMonthlyRequests(config, stationId, year);
         for (const request of webRequests) {
           try {
-            const response = (
-              await this.requestWithAuth(
-                credentials,
-                request,
-                `SOLARMAN monthly history (${request.endpoint})`,
-                mode,
-              )
-            ).body;
+            const response = await this.requestWithAuth(
+              credentials,
+              request,
+              `SOLARMAN monthly history (${request.endpoint})`,
+              mode,
+              options,
+            );
 
-            const parsed = parseMonthlyGeneration(response);
+            const parsed = parseMonthlyGeneration(response.body);
             if (parsed && parsed.records.length) {
-              return parsed;
+              return {
+                mode,
+                session: response.session,
+                history: parsed,
+                raw: response.body,
+              };
             }
           } catch (error) {
             lastError = error;
@@ -168,22 +356,26 @@ export class SolarmanClientService {
       for (const endpoint of config.monthlyEndpoints) {
         for (const payload of payloadCandidates) {
           try {
-            const response = (
-              await this.requestWithAuth(
-                credentials,
-                {
-                  method: 'POST',
-                  endpoint,
-                  payload,
-                },
-                `SOLARMAN monthly history (${endpoint})`,
-                mode,
-              )
-            ).body;
+            const response = await this.requestWithAuth(
+              credentials,
+              {
+                method: 'POST',
+                endpoint,
+                payload,
+              },
+              `SOLARMAN monthly history (${endpoint})`,
+              mode,
+              options,
+            );
 
-            const parsed = parseMonthlyGeneration(response);
+            const parsed = parseMonthlyGeneration(response.body);
             if (parsed && parsed.records.length) {
-              return parsed;
+              return {
+                mode,
+                session: response.session,
+                history: parsed,
+                raw: response.body,
+              };
             }
           } catch (error) {
             lastError = error;
@@ -204,13 +396,114 @@ export class SolarmanClientService {
     });
   }
 
-  async login(credentials: SolarmanCredentialConfig) {
+  async getDailyGenerationDetailed(
+    credentials: SolarmanCredentialConfig,
+    stationId: string,
+    year: number,
+    options: SolarmanRequestOptions = {},
+  ) {
     const config = this.resolveBaseConfig();
-    const modes = this.getModeOrder(config);
+    const modes = this.getModeOrder(config, options.mode);
+    let lastError: unknown = null;
+
+    for (const mode of modes) {
+      if (mode === 'web') {
+        const webRequests = this.buildWebDailyRequests(config, stationId, year);
+        for (const request of webRequests) {
+          try {
+            const response = await this.requestWithAuth(
+              credentials,
+              request,
+              `SOLARMAN daily history (${request.endpoint})`,
+              mode,
+              options,
+            );
+            const parsed = parseDailyGeneration(response.body);
+            if (parsed && parsed.records.length) {
+              return {
+                mode,
+                session: response.session,
+                history: parsed,
+                raw: response.body,
+              };
+            }
+          } catch (error) {
+            lastError = error;
+          }
+        }
+
+        continue;
+      }
+
+      try {
+        for (const endpoint of config.dailyEndpoints) {
+          for (const payload of this.buildDailyPayloadCandidates(stationId, year)) {
+            try {
+              const response = await this.requestWithAuth(
+                credentials,
+                {
+                  method: 'POST',
+                  endpoint,
+                  payload,
+                },
+                `SOLARMAN daily history (${endpoint})`,
+                mode,
+                options,
+              );
+              const parsed = parseDailyGeneration(response.body);
+              if (parsed && parsed.records.length) {
+                return {
+                  mode,
+                  session: response.session,
+                  history: parsed,
+                  raw: response.body,
+                };
+              }
+            } catch (error) {
+              lastError = error;
+            }
+          }
+        }
+      } catch (error) {
+        lastError = error;
+      }
+    }
+
+    throw new BadGatewayException({
+      message:
+        lastError instanceof Error && lastError.message
+          ? lastError.message
+          : 'Khong lay duoc daily history tu SOLARMAN.',
+      provider: 'SOLARMAN',
+      stationId,
+      year,
+      detail: lastError instanceof Error ? lastError.message : 'Unknown daily history error',
+    });
+  }
+
+  async login(credentials: SolarmanCredentialConfig, options: SolarmanRequestOptions = {}) {
+    const config = this.resolveBaseConfig();
+    const modes = this.getModeOrder(config, options.mode);
     let lastError: unknown = null;
 
     for (const mode of modes) {
       const cacheKey = this.createCacheKey(credentials, mode, config);
+      if (options.forceRelogin === true) {
+        this.tokenCache.delete(cacheKey);
+      }
+
+      if (options.persistedSession && mode === (options.persistedSession.mode || mode)) {
+        this.primePersistedSession(
+          credentials,
+          {
+            mode,
+            token: options.persistedSession.token || null,
+            cookieJar: options.persistedSession.cookieJar || null,
+          },
+          mode === 'web' ? 'COOKIE_SESSION' : 'OFFICIAL_OPENAPI',
+        );
+      }
+
       const cached = this.tokenCache.get(cacheKey);
       if (cached && cached.expiresAt > Date.now()) {
         return cached.session;
@@ -251,6 +544,19 @@ export class SolarmanClientService {
     const appId = (this.configService.get<string>('SOLARMAN_APP_ID') || '').trim() || null;
     const appSecret =
       (this.configService.get<string>('SOLARMAN_APP_SECRET') || '').trim() || null;
+    const dailyEndpoints = (
+      this.configService.get<string>('SOLARMAN_DAILY_ENDPOINTS') ||
+      [
+        '/station/v1.0/history',
+        '/station/v1.0/day',
+        '/station/v1.0/history/day',
+        '/station/v1.0/statistics/day',
+        '/station/v1.0/energy/day',
+      ].join(',')
+    )
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
     const monthlyEndpoints = (
       this.configService.get<string>('SOLARMAN_MONTHLY_ENDPOINTS') ||
       [
@@ -277,6 +583,28 @@ export class SolarmanClientService {
     const webStationListUrl =
       (this.configService.get<string>('SOLARMAN_WEB_STATION_LIST_URL') || '').trim() ||
       `${defaultWebOrigin}/maintain-s/operating/station/search`;
+    const webDeviceListUrls = (
+      this.configService.get<string>('SOLARMAN_WEB_DEVICE_LIST_URLS') ||
+      this.configService.get<string>('SOLARMAN_WEB_DEVICE_LIST_URL') ||
+      [
+        `${defaultWebOrigin}/maintain-s/operating/device/search`,
+        `${defaultWebOrigin}/maintain-s/operating/station/device/search`,
+      ].join(',')
+    )
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+    const webDailyUrls = (
+      this.configService.get<string>('SOLARMAN_WEB_DAILY_ENDPOINTS') ||
+      this.configService.get<string>('SOLARMAN_WEB_DAILY_URL') ||
+      [
+        `${defaultWebOrigin}/maintain-s/history/power/{stationId}/record`,
+        `${defaultWebOrigin}/maintain-s/history/power/{stationId}/stats/day`,
+      ].join(',')
+    )
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
     const webMonthlyUrls = (
       this.configService.get<string>('SOLARMAN_WEB_MONTHLY_ENDPOINTS') ||
       this.configService.get<string>('SOLARMAN_WEB_MONTHLY_URL') ||
@@ -341,9 +669,12 @@ export class SolarmanClientService {
       baseUrl,
       appId,
       appSecret,
+      dailyEndpoints,
       monthlyEndpoints,
       webLoginUrl,
       webStationListUrl,
+      webDeviceListUrls,
+      webDailyUrls,
       webMonthlyUrls,
       webOrigin: defaultWebOrigin,
       webReferer: defaultWebReferer,
@@ -368,6 +699,7 @@ export class SolarmanClientService {
   private async listStationsViaWeb(
     credentials: SolarmanCredentialConfig,
     config: SolarmanBaseConfig,
+    options: SolarmanRequestOptions = {},
   ) {
     const payloadCandidates = [
       { page: 1, size: 200 },
@@ -381,22 +713,25 @@ export class SolarmanClientService {
 
     for (const payload of payloadCandidates) {
       try {
-        const response = (
-          await this.requestWithAuth(
-            credentials,
-            {
-              method: 'POST',
-              endpoint: config.webStationListUrl!,
-              payload,
-            },
-            'SOLARMAN web station list',
-            'web',
-          )
-        ).body;
+        const response = await this.requestWithAuth(
+          credentials,
+          {
+            method: 'POST',
+            endpoint: config.webStationListUrl!,
+            payload,
+          },
+          'SOLARMAN web station list',
+          'web',
+          options,
+        );
 
-        const stations = parseStationList(response);
+        const stations = parseStationList(response.body);
         if (stations.length) {
-          return stations;
+          return {
+            stations,
+            raw: response.body,
+            session: response.session,
+          };
         }
       } catch (error) {
         lastError = error;
@@ -407,7 +742,14 @@ export class SolarmanClientService {
       throw lastError;
     }
 
-    return [];
+    return {
+      stations: [] as ParsedSolarmanStation[],
+      raw: {},
+      session: await this.login(credentials, {
+        ...options,
+        mode: 'web',
+      }),
+    };
   }
 
   private buildWebMonthlyRequests(
@@ -449,9 +791,54 @@ export class SolarmanClientService {
     plan: SolarmanRequestPlan,
     context: string,
     mode: SolarmanMode,
+    options: SolarmanRequestOptions = {},
   ) {
+    const config = this.resolveBaseConfig();
+    const cacheKey = this.createCacheKey(credentials, mode, config);
+
+    if (options.persistedSession && (options.persistedSession.mode || mode) === mode) {
+      this.primePersistedSession(
+        credentials,
+        {
+          mode,
+          token: options.persistedSession.token || null,
+          cookieJar: options.persistedSession.cookieJar || null,
+        },
+        mode === 'web' ? 'COOKIE_SESSION' : 'OFFICIAL_OPENAPI',
+      );
+    }
+
     const session = await this.loginForMode(credentials, mode);
-    return this.requestJson(plan, session, context, mode);
+
+    try {
+      const response = await this.requestJson(plan, session, context, mode);
+      return {
+        ...response,
+        session: {
+          ...session,
+          cookieJar: response.cookieJar || session.cookieJar,
+        },
+      };
+    } catch (error) {
+      if (!this.isAuthFailure(error)) {
+        throw error;
+      }
+
+      this.tokenCache.delete(cacheKey);
+      const freshSession = await this.login(credentials, {
+        ...options,
+        mode,
+        forceRelogin: true,
+      });
+      const response = await this.requestJson(plan, freshSession, context, mode);
+      return {
+        ...response,
+        session: {
+          ...freshSession,
+          cookieJar: response.cookieJar || freshSession.cookieJar,
+        },
+      };
+    }
   }
 
   private async loginForMode(credentials: SolarmanCredentialConfig, mode: SolarmanMode) {
@@ -839,6 +1226,38 @@ export class SolarmanClientService {
     ];
   }
 
+  private buildDevicePayloadCandidates(stationId: string) {
+    return [
+      { stationId: Number(stationId), deviceType: 'INVERTER', page: 1, size: 100 },
+      { systemId: Number(stationId), deviceType: 'INVERTER', page: 1, size: 100 },
+      { stationId: String(stationId), deviceType: 'INVERTER', page: 1, size: 100 },
+      { systemId: String(stationId), deviceType: 'INVERTER', page: 1, size: 100 },
+      { stationId: Number(stationId), page: 1, size: 100 },
+      { stationId: String(stationId), page: 1, size: 100 },
+    ];
+  }
+
+  private buildDailyPayloadCandidates(stationId: string, year: number) {
+    const candidates: Array<Record<string, unknown>> = [];
+
+    for (let month = 1; month <= 12; month += 1) {
+      const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+      const endDate = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+      candidates.push(
+        { stationId: Number(stationId), timeType: 2, startTime: startDate, endTime: endDate },
+        { systemId: Number(stationId), timeType: 2, startTime: startDate, endTime: endDate },
+        { stationId: String(stationId), timeType: 2, startTime: startDate, endTime: endDate },
+        { systemId: String(stationId), timeType: 2, startTime: startDate, endTime: endDate },
+        { stationId: Number(stationId), year, month },
+        { systemId: Number(stationId), year, month },
+        { stationId: String(stationId), year, month },
+        { systemId: String(stationId), year, month },
+      );
+    }
+
+    return candidates;
+  }
+
   private createCacheKey(
     credentials: SolarmanCredentialConfig,
     mode: SolarmanMode,
@@ -852,7 +1271,62 @@ export class SolarmanClientService {
     return `${mode}|${scope}|${credentials.usernameOrEmail}|${this.sha256(credentials.password)}`;
   }
 
-  private getModeOrder(config: SolarmanBaseConfig): SolarmanMode[] {
+  private buildWebDeviceRequests(config: SolarmanBaseConfig, stationId: string): SolarmanRequestPlan[] {
+    const payloadCandidates = [
+      { stationId, page: 1, size: 100 },
+      { systemId: stationId, page: 1, size: 100 },
+      { stationId: Number(stationId), page: 1, size: 100 },
+      { systemId: Number(stationId), page: 1, size: 100 },
+      { stationId },
+    ];
+
+    return config.webDeviceListUrls.flatMap((endpoint) =>
+      payloadCandidates.map((payload) => ({
+        method: 'POST' as const,
+        endpoint,
+        payload,
+      })),
+    );
+  }
+
+  private buildWebDailyRequests(
+    config: SolarmanBaseConfig,
+    stationId: string,
+    year: number,
+  ): SolarmanRequestPlan[] {
+    const requests: SolarmanRequestPlan[] = [];
+
+    for (const template of config.webDailyUrls) {
+      const endpoint = template
+        .replace(/\{stationId\}/g, stationId)
+        .replace(/\{year\}/g, String(year));
+
+      for (let month = 1; month <= 12; month += 1) {
+        const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
+        const endDate = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+        requests.push(
+          {
+            method: 'GET',
+            endpoint,
+            payload: { year, month, dateType: 'day' },
+          },
+          {
+            method: 'GET',
+            endpoint,
+            payload: { startDate, endDate, type: 'day' },
+          },
+        );
+      }
+    }
+
+    return requests;
+  }
+
+  private getModeOrder(config: SolarmanBaseConfig, preferredMode?: SolarmanMode): SolarmanMode[] {
+    if (preferredMode) {
+      return [preferredMode];
+    }
+
     if (config.preferredMode === 'web') {
       return config.officialAvailable ? ['web', 'official'] : ['web'];
     }
@@ -866,6 +1340,10 @@ export class SolarmanClientService {
     }
 
     return config.webAvailable ? ['web'] : ['official'];
+  }
+
+  private resolveModeFromProviderType(providerType: SolarmanProviderType): SolarmanMode {
+    return providerType === 'OFFICIAL_OPENAPI' ? 'official' : 'web';
   }
 
   private buildWebHeaders(config: SolarmanBaseConfig) {
@@ -900,6 +1378,37 @@ export class SolarmanClientService {
     }
 
     return 3;
+  }
+
+  private isAuthFailure(error: unknown) {
+    if (!(error instanceof BadGatewayException)) {
+      return false;
+    }
+
+    const response = error.getResponse();
+    if (!response || typeof response !== 'object') {
+      return false;
+    }
+
+    const payload = response as Record<string, unknown>;
+    const statusCode = Number(payload.statusCode || 0);
+    const message = [
+      typeof payload.message === 'string' ? payload.message : '',
+      typeof payload.detail === 'string' ? payload.detail : '',
+      typeof payload.msg === 'string' ? payload.msg : '',
+    ]
+      .join(' ')
+      .toLowerCase();
+
+    return (
+      statusCode === 401 ||
+      statusCode === 403 ||
+      statusCode === 412 ||
+      message.includes('token') ||
+      message.includes('auth') ||
+      message.includes('session') ||
+      message.includes('login')
+    );
   }
 
   private extractCookieJar(response: Response, fallback: string | null) {

@@ -1465,10 +1465,13 @@ export type DeviceRecord = {
 export type SolarmanSyncLogRecord = {
   id: string;
   connectionId: string;
+  providerType?: string | null;
   action: string;
   status: string;
+  errorCode?: string | null;
   message: string;
   context?: Record<string, unknown> | null;
+  responsePayload?: Record<string, unknown> | null;
   syncedStations: number;
   syncedMonths: number;
   syncedBillings: number;
@@ -1493,10 +1496,32 @@ export type SolarmanStationRecord = {
   raw?: Record<string, unknown> | null;
 };
 
+export type SolarmanDeviceRecord = {
+  deviceId: string;
+  serialNumber?: string | null;
+  deviceType?: string | null;
+  deviceModel?: string | null;
+  status?: string | null;
+  raw?: Record<string, unknown> | null;
+};
+
+export type SolarmanDebugSnapshotRecord = {
+  id: string;
+  stationId?: string | null;
+  deviceSn?: string | null;
+  providerType: string;
+  snapshotType: string;
+  status: string;
+  capturedAt?: string | null;
+  note?: string | null;
+  payload?: Record<string, unknown> | null;
+};
+
 export type SolarmanConnectionRecord = {
   id: string;
   accountName: string;
-  usernameOrEmail: string;
+  providerType?: 'OFFICIAL_OPENAPI' | 'COOKIE_SESSION' | 'MANUAL_IMPORT' | string;
+  usernameOrEmail: string | null;
   customerId?: string | null;
   defaultUnitPrice?: number | null;
   defaultVatRate?: number | null;
@@ -1504,15 +1529,20 @@ export type SolarmanConnectionRecord = {
   defaultDiscountAmount?: number | null;
   status: string;
   lastSyncTime?: string | null;
+  lastSuccessfulSyncAt?: string | null;
+  lastErrorCode?: string | null;
+  lastErrorMessage?: string | null;
   notes?: string | null;
   accessTokenPreview?: string | null;
   hasStoredPassword?: boolean;
+  hasPersistedCookieSession?: boolean;
   createdAt: string;
   updatedAt: string;
   deletedAt?: string | null;
   customer?: CustomerRecord | null;
   systems?: AdminSystemRecord[];
   syncLogs?: SolarmanSyncLogRecord[];
+  debugSnapshots?: SolarmanDebugSnapshotRecord[];
   statusSummary?: {
     configured: boolean;
     customerLinked: boolean;
@@ -1524,7 +1554,12 @@ export type SolarmanConnectionRecord = {
     lastSyncStatus?: string | null;
     lastSyncMessage?: string | null;
     lastSyncAt?: string | null;
+    lastSuccessfulSyncAt?: string | null;
     lastFailureMessage?: string | null;
+    providerType?: string | null;
+    authBridgeReady?: boolean;
+    lastErrorCode?: string | null;
+    lastErrorMessage?: string | null;
     realtimeAvailable: boolean;
     realtimeMessage: string;
   };
@@ -1538,12 +1573,17 @@ export type SolarmanSyncStationResult = {
   stationSynced: boolean;
   syncedMonths: number;
   syncedBillings: number;
+  syncedDailyRecords?: number;
+  providerType?: string;
+  dailyCoverage?: number;
+  monthlyCoverage?: number;
   reason?: string;
 };
 
 export type SolarmanTestResponse = {
   connection: SolarmanConnectionRecord;
   stations: SolarmanStationRecord[];
+  sampleDevices?: SolarmanDeviceRecord[];
 };
 
 export type SolarmanSyncResponse = {

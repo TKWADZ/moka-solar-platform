@@ -25,6 +25,7 @@ import { cn, formatCurrency, formatDateTime, formatNumber } from '@/lib/utils';
 import {
   CustomerRecord,
   SolarmanConnectionRecord,
+  SolarmanDeviceRecord,
   SolarmanStationRecord,
   SolarmanSyncLogRecord,
   SolarmanSyncStationResult,
@@ -32,6 +33,7 @@ import {
 
 type ConnectionFormState = {
   accountName: string;
+  providerType: string;
   usernameOrEmail: string;
   password: string;
   customerId: string;
@@ -50,9 +52,28 @@ const connectionStatusOptions = [
   { value: 'ERROR', label: 'Đang lỗi' },
 ];
 
+const providerTypeOptions = [
+  {
+    value: 'COOKIE_SESSION',
+    label: 'CookieSessionProvider',
+    description: 'Cau noi tam qua cookie session, doc plant/device/history cho billing.',
+  },
+  {
+    value: 'OFFICIAL_OPENAPI',
+    label: 'OfficialOpenApiProvider',
+    description: 'San duong chuyen sang OpenAPI chinh thuc khi SOLARMAN mo du endpoint.',
+  },
+  {
+    value: 'MANUAL_IMPORT',
+    label: 'ManualImportProvider',
+    description: 'Du phong cho import tay khi cloud sync chua on dinh.',
+  },
+];
+
 function emptyForm(): ConnectionFormState {
   return {
     accountName: '',
+    providerType: 'COOKIE_SESSION',
     usernameOrEmail: '',
     password: '',
     customerId: '',
@@ -71,6 +92,7 @@ function buildForm(connection: SolarmanConnectionRecord | null): ConnectionFormS
 
   return {
     accountName: connection.accountName || '',
+    providerType: connection.providerType || 'COOKIE_SESSION',
     usernameOrEmail: connection.usernameOrEmail || '',
     password: '',
     customerId: connection.customerId || '',
@@ -144,6 +166,7 @@ export default function AdminSolarmanPage() {
   const [customers, setCustomers] = useState<CustomerRecord[]>([]);
   const [logs, setLogs] = useState<SolarmanSyncLogRecord[]>([]);
   const [stations, setStations] = useState<SolarmanStationRecord[]>([]);
+  const [sampleDevices, setSampleDevices] = useState<SolarmanDeviceRecord[]>([]);
   const [syncStations, setSyncStations] = useState<SolarmanSyncStationResult[]>([]);
   const [selectedId, setSelectedId] = useState('');
   const [mode, setMode] = useState<'create' | 'edit'>('edit');
@@ -210,6 +233,7 @@ export default function AdminSolarmanPage() {
 
     if (!fallbackId) {
       setLogs([]);
+      setSampleDevices([]);
       if (mode === 'edit') {
         setForm(emptyForm());
       }
@@ -222,6 +246,7 @@ export default function AdminSolarmanPage() {
     ]);
 
     setLogs(nextLogs);
+    setSampleDevices([]);
     if (mode === 'edit') {
       setForm(buildForm(detail));
     }
@@ -293,6 +318,7 @@ export default function AdminSolarmanPage() {
     setSelectedId('');
     setForm(emptyForm());
     setStations([]);
+    setSampleDevices([]);
     setSyncStations([]);
     setLogs([]);
     setFieldErrors({});
@@ -304,6 +330,7 @@ export default function AdminSolarmanPage() {
     setMode('edit');
     setSelectedId(id);
     setStations([]);
+    setSampleDevices([]);
     setSyncStations([]);
     setFieldErrors({});
     setMessage('');
@@ -339,6 +366,7 @@ export default function AdminSolarmanPage() {
 
     const payload = {
       accountName: form.accountName.trim(),
+      providerType: form.providerType,
       usernameOrEmail: form.usernameOrEmail.trim(),
       ...(form.password.trim() ? { password: form.password.trim() } : {}),
       ...(form.customerId ? { customerId: form.customerId } : {}),
@@ -392,6 +420,7 @@ export default function AdminSolarmanPage() {
     try {
       const result = await testSolarmanConnectionRequest(selectedConnection.id);
       setStations(result.stations);
+      setSampleDevices(result.sampleDevices || []);
       setSyncStations([]);
       await loadData(selectedConnection.id);
       setMessage(
@@ -422,6 +451,7 @@ export default function AdminSolarmanPage() {
         createMissingSystems,
       });
       setSyncStations(result.stations);
+      setSampleDevices([]);
       await loadData(selectedConnection.id);
       setMessage(
         `Đã đồng bộ ${formatNumber(result.syncedStations)} station, ${formatNumber(result.syncedMonths)} record tháng và ${formatNumber(result.syncedBillings)} billing record.`,
@@ -689,7 +719,24 @@ export default function AdminSolarmanPage() {
           dark
         >
           <form onSubmit={handleSubmit} className="grid gap-4">
-            <div className="grid gap-4 md:grid-cols-2">
+            <div className="grid gap-4 md:grid-cols-3">
+              <label className="grid gap-2 text-sm text-slate-300">
+                <span>Provider bridge</span>
+                <select
+                  className="portal-field"
+                  value={form.providerType}
+                  onChange={(event) => updateField('providerType', event.target.value)}
+                >
+                  {providerTypeOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <span className="text-xs text-slate-500">
+                  {providerTypeOptions.find((option) => option.value === form.providerType)?.description}
+                </span>
+              </label>
               <label className="grid gap-2 text-sm text-slate-300">
                 <span>Tên connection</span>
                 <input
@@ -827,7 +874,7 @@ export default function AdminSolarmanPage() {
             </label>
 
             {selectedConnection && mode === 'edit' ? (
-              <div className="grid gap-3 md:grid-cols-3">
+              <div className="grid gap-3 md:grid-cols-4">
                 <div className="portal-card-soft p-4">
                   <p className="text-sm text-slate-400">Token lưu gần nhất</p>
                   <p className="mt-2 break-words text-lg font-semibold text-white">
@@ -845,6 +892,45 @@ export default function AdminSolarmanPage() {
                   <p className="mt-2 text-lg font-semibold text-white">
                     {selectedConnection.hasStoredPassword ? 'Đã mã hóa' : 'Chưa có'}
                   </p>
+                </div>
+              </div>
+            ) : null}
+
+            {selectedConnection && mode === 'edit' ? (
+              <div className="grid gap-3 md:grid-cols-2">
+                <div className="portal-card-soft p-4">
+                  <p className="text-sm text-slate-400">Bridge & error status</p>
+                  <div className="mt-2 grid gap-2 text-sm text-slate-300">
+                    <p>Provider: {selectedConnection.providerType || 'COOKIE_SESSION'}</p>
+                    <p>
+                      Session bridge:{' '}
+                      {selectedConnection.hasPersistedCookieSession
+                        ? 'Da luu cookie session'
+                        : 'Chua co persisted session'}
+                    </p>
+                    <p>
+                      Last successful sync:{' '}
+                      {selectedConnection.lastSuccessfulSyncAt
+                        ? formatDateTime(selectedConnection.lastSuccessfulSyncAt)
+                        : 'Chua co'}
+                    </p>
+                    <p>
+                      Last error:{' '}
+                      {selectedConnection.lastErrorCode || selectedConnection.lastErrorMessage || 'None'}
+                    </p>
+                  </div>
+                </div>
+                <div className="portal-card-soft p-4">
+                  <p className="text-sm text-slate-400">Raw/debug snapshots</p>
+                  <div className="mt-2 grid gap-2 text-sm text-slate-300">
+                    <p>Total snapshots: {formatNumber(selectedConnection.debugSnapshots?.length || 0)}</p>
+                    {(selectedConnection.debugSnapshots || []).slice(0, 3).map((snapshot) => (
+                      <p key={snapshot.id}>
+                        {snapshot.snapshotType} · {snapshot.providerType} ·{' '}
+                        {snapshot.capturedAt ? formatDateTime(snapshot.capturedAt) : 'No timestamp'}
+                      </p>
+                    ))}
+                  </div>
                 </div>
               </div>
             ) : null}
@@ -904,6 +990,24 @@ export default function AdminSolarmanPage() {
       <div className="grid gap-5 xl:grid-cols-[minmax(0,0.56fr)_minmax(0,0.44fr)]">
         <SectionCard title="Station và system đã đồng bộ" eyebrow="Danh sách nhà máy nhận được từ SOLARMAN và map vào hệ thống nội bộ" dark>
           <div className="grid gap-4">
+            {sampleDevices.length ? (
+              <div className="grid gap-3 md:grid-cols-2">
+                {sampleDevices.slice(0, 4).map((device) => (
+                  <div key={device.deviceId} className="portal-card-soft p-4">
+                    <p className="text-base font-semibold text-white">
+                      {device.serialNumber || device.deviceId}
+                    </p>
+                    <div className="mt-3 grid gap-2 text-sm text-slate-300">
+                      <p>Device ID: {device.deviceId}</p>
+                      <p>Model: {device.deviceModel || 'Chua co'}</p>
+                      <p>Type: {device.deviceType || 'Chua co'}</p>
+                      <p>Status: {device.status || 'Chua co'}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
             {stations.length ? (
               <div className="grid gap-3 md:grid-cols-2">
                 {stations.map((station) => (

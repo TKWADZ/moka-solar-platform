@@ -1730,6 +1730,7 @@ export async function listSolarmanSyncLogsRequest(id: string) {
 
 export async function createSolarmanConnectionRequest(payload: {
   accountName: string;
+  providerType?: string;
   usernameOrEmail: string;
   password: string;
   customerId?: string;
@@ -1753,6 +1754,7 @@ export async function createSolarmanConnectionRequest(payload: {
       const created: SolarmanConnectionRecord = {
         id: `solarman-${Date.now()}`,
         accountName: payload.accountName,
+        providerType: payload.providerType || 'COOKIE_SESSION',
         usernameOrEmail: payload.usernameOrEmail,
         customerId: payload.customerId || null,
         defaultUnitPrice: payload.defaultUnitPrice || null,
@@ -1761,15 +1763,20 @@ export async function createSolarmanConnectionRequest(payload: {
         defaultDiscountAmount: payload.defaultDiscountAmount || null,
         status: payload.status || 'ACTIVE',
         lastSyncTime: null,
+        lastSuccessfulSyncAt: null,
+        lastErrorCode: null,
+        lastErrorMessage: null,
         notes: payload.notes || null,
         accessTokenPreview: null,
         hasStoredPassword: true,
+        hasPersistedCookieSession: false,
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
         deletedAt: null,
         customer,
         systems: [],
         syncLogs: [],
+        debugSnapshots: [],
       };
       demoSolarmanConnections = [created, ...demoSolarmanConnections];
       return created;
@@ -1781,6 +1788,7 @@ export async function updateSolarmanConnectionRequest(
   id: string,
   payload: {
     accountName?: string;
+    providerType?: string;
     usernameOrEmail?: string;
     password?: string;
     customerId?: string;
@@ -1814,6 +1822,7 @@ export async function updateSolarmanConnectionRequest(
       const updated: SolarmanConnectionRecord = {
         ...current,
         ...payload,
+        providerType: payload.providerType || current.providerType || 'COOKIE_SESSION',
         customerId:
           payload.customerId === undefined ? current.customerId : payload.customerId || null,
         customer,
@@ -1858,9 +1867,11 @@ export async function testSolarmanConnectionRequest(id: string) {
         connection: {
           ...connection,
           accessTokenPreview: 'demo-token...',
+          hasPersistedCookieSession: true,
           updatedAt: new Date().toISOString(),
         },
         stations: [],
+        sampleDevices: [],
       };
     });
   }
@@ -1890,6 +1901,7 @@ export async function syncSolarmanConnectionRequest(
         connection: {
           ...connection,
           lastSyncTime: new Date().toISOString(),
+          lastSuccessfulSyncAt: new Date().toISOString(),
           updatedAt: new Date().toISOString(),
         },
         syncedStations: 0,

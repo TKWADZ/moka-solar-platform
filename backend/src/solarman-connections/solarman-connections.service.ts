@@ -24,11 +24,17 @@ import { CreateSolarmanConnectionDto } from './dto/create-solarman-connection.dt
 import { SyncSolarmanConnectionDto } from './dto/sync-solarman-connection.dto';
 import { UpdateSolarmanConnectionDto } from './dto/update-solarman-connection.dto';
 import {
+  ParsedSolarmanDailyHistory,
+  ParsedSolarmanDevice,
   ParsedSolarmanMonthlyHistory,
   ParsedSolarmanMonthlyRecord,
   ParsedSolarmanStation,
 } from './solarman.parser';
-import { SolarmanClientService } from './solarman-client.service';
+import {
+  SolarmanPersistedSession,
+  SolarmanProviderType,
+} from './solarman-client.service';
+import { SolarmanProviderRegistry } from './solarman-provider.registry';
 
 type SolarmanConnectionWithRelations = any;
 type SolarSystemRecord = any;
@@ -43,7 +49,7 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
     private readonly auditLogsService: AuditLogsService,
-    private readonly solarmanClientService: SolarmanClientService,
+    private readonly solarmanProviderRegistry: SolarmanProviderRegistry,
     private readonly monthlyPvBillingsService: MonthlyPvBillingsService,
   ) {}
 
@@ -117,6 +123,7 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
     const connection = await this.prisma.solarmanConnection.create({
       data: {
         accountName: dto.accountName.trim(),
+        providerType: this.normalizeProviderType(dto.providerType),
         usernameOrEmail: dto.usernameOrEmail.trim(),
         passwordEncrypted: this.encrypt(dto.password),
         customerId: dto.customerId || null,
@@ -147,13 +154,25 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
   async update(id: string, dto: UpdateSolarmanConnectionDto, actorId?: string) {
     const existing = await this.getConnectionOrThrow(id);
     await this.ensureCustomerExists(dto.customerId);
+    const providerType =
+      dto.providerType === undefined
+        ? existing.providerType
+        : this.normalizeProviderType(dto.providerType);
+    const resetSession =
+      Boolean(dto.password) ||
+      Boolean(dto.usernameOrEmail && dto.usernameOrEmail.trim() !== existing.usernameOrEmail) ||
+      providerType !== existing.providerType;
 
     const updated = await this.prisma.solarmanConnection.update({
       where: { id },
       data: {
         accountName: dto.accountName?.trim() ?? existing.accountName,
+        providerType,
         usernameOrEmail: dto.usernameOrEmail?.trim() ?? existing.usernameOrEmail,
         passwordEncrypted: dto.password ? this.encrypt(dto.password) : existing.passwordEncrypted,
+        accessToken: resetSession ? null : existing.accessToken,
+        cookieJar: resetSession ? null : existing.cookieJar,
+        cookieJarEncrypted: resetSession ? null : existing.cookieJarEncrypted,
         customerId:
           dto.customerId === undefined ? existing.customerId : dto.customerId || null,
         defaultUnitPrice:
@@ -213,6 +232,7 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
   async testConnection(id: string, actorId?: string) {
     const connection = await this.getConnectionOrThrow(id);
     const credentials = this.toCredentials(connection);
+    const provider = this.solarmanProviderRegistry.resolve(connection.providerType);
 
     const log = await this.createLog(connection.id, {
       action: 'TEST_CONNECTION',
@@ -221,24 +241,58 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
     });
 
     try {
-      const result = await this.solarmanClientService.testConnection(credentials);
+      const result = await provider.testConnection(credentials, {
+        persistedSession: this.restorePersistedSession(connection),
+      });
 
       await this.prisma.solarmanConnection.update({
         where: { id },
         data: {
-          accessToken: result.tokenPreview || null,
-          cookieJar: result.cookieJar ? { raw: result.cookieJar } : null,
+          providerType: provider.providerType,
+          accessToken: null,
+          cookieJar: result.session?.cookieJar ? { mode: result.mode, persisted: true } : null,
+          cookieJarEncrypted: result.session?.cookieJar
+            ? this.encrypt(result.session.cookieJar)
+            : connection.cookieJarEncrypted,
           status: 'ACTIVE',
+          lastAuthAt: new Date(),
+          lastErrorCode: null,
+          lastErrorMessage: null,
+          lastErrorDetails: null,
+          providerMetadata: {
+            mode: result.mode,
+            lastTestStationCount: result.stations.length,
+          } as any,
         },
       });
 
+      await this.captureDebugSnapshot(connection.id, {
+        snapshotType: 'PLANT_LIST',
+        providerType: provider.providerType,
+        capturedAt: new Date(),
+        payload: result.rawResponses.plantList || null,
+        note: 'Latest plant list payload from test connection.',
+      });
+      if (result.rawResponses.deviceList) {
+        await this.captureDebugSnapshot(connection.id, {
+          snapshotType: 'DEVICE_LIST',
+          providerType: provider.providerType,
+          capturedAt: new Date(),
+          payload: result.rawResponses.deviceList,
+          note: 'Latest device list payload from test connection.',
+        });
+      }
+
       await this.finishLog(log.id, {
         status: 'SUCCESS',
-        message: `Kết nối thành công. Nhận ${result.stationCount} station từ SOLARMAN.`,
+        message: `Ket noi thanh cong. Nhan ${result.stations.length} plant tu SOLARMAN.`,
         context: {
-          stationCount: result.stationCount,
+          stationCount: result.stations.length,
+          deviceCount: result.sampleDevices.length,
+          mode: result.mode,
         },
-        syncedStations: result.stationCount,
+        responsePayload: result.rawResponses as Record<string, unknown>,
+        syncedStations: result.stations.length,
       });
 
       await this.auditLogsService.log({
@@ -247,25 +301,33 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         entityType: 'SolarmanConnection',
         entityId: id,
         payload: {
-          stationCount: result.stationCount,
+          providerType: provider.providerType,
+          stationCount: result.stations.length,
+          deviceCount: result.sampleDevices.length,
         },
       });
 
       return {
         connection: await this.findOne(id),
         stations: result.stations,
+        sampleDevices: result.sampleDevices,
       };
     } catch (error) {
       await this.prisma.solarmanConnection.update({
         where: { id },
         data: {
           status: 'ERROR',
+          lastErrorCode: this.resolveErrorCode(error),
+          lastErrorMessage: this.formatErrorMessage(error, 'Test connection that bai.'),
+          lastErrorDetails: this.toErrorPayload(error) as any,
         },
       });
 
       await this.finishLog(log.id, {
         status: 'ERROR',
+        errorCode: this.resolveErrorCode(error),
         message: this.formatErrorMessage(error, 'Test connection that bai.'),
+        responsePayload: this.toErrorPayload(error),
       });
 
       throw error;
@@ -328,12 +390,14 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         ? connectionInput
         : await this.getConnectionOrThrow(connectionInput.id);
     const credentials = this.toCredentials(connection);
+    const provider = this.solarmanProviderRegistry.resolve(connection.providerType);
     const syncYear = dto.year || new Date().getFullYear();
     const createMissingSystems = dto.createMissingSystems ?? true;
 
     const log = await this.createLog(connection.id, {
       action,
       status: 'RUNNING',
+      providerType: provider.providerType,
       message: `Đang đồng bộ SOLARMAN cho năm ${syncYear}.`,
       context: {
         year: syncYear,
@@ -346,8 +410,10 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
     let syncedBillings = 0;
 
     try {
-      const session = await this.solarmanClientService.login(credentials);
-      const stations = await this.solarmanClientService.listStations(credentials);
+      const testResult = await provider.testConnection(credentials, {
+        persistedSession: this.restorePersistedSession(connection),
+      });
+      const stations = testResult.stations;
       const selectedStationIds = new Set(dto.stationIds?.filter(Boolean) || []);
       const targetStations = selectedStationIds.size
         ? stations.filter((station) => selectedStationIds.has(station.stationId))
@@ -359,6 +425,8 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         const stationResult = await this.syncStation({
           connection,
           credentials,
+          providerType: provider.providerType,
+          persistedSession: testResult.session,
           station,
           year: syncYear,
           actorId,
@@ -374,10 +442,20 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
       await this.prisma.solarmanConnection.update({
         where: { id: connection.id },
         data: {
-          accessToken: session.token,
-          cookieJar: session.cookieJar ? { raw: session.cookieJar } : null,
+          providerType: provider.providerType,
+          accessToken: null,
+          cookieJar: testResult.session?.cookieJar
+            ? { mode: testResult.mode, persisted: true }
+            : connection.cookieJar,
+          cookieJarEncrypted: testResult.session?.cookieJar
+            ? this.encrypt(testResult.session.cookieJar)
+            : connection.cookieJarEncrypted,
           status: 'ACTIVE',
           lastSyncTime: new Date(),
+          lastSuccessfulSyncAt: new Date(),
+          lastErrorCode: null,
+          lastErrorMessage: null,
+          lastErrorDetails: null,
         },
       });
 
@@ -388,8 +466,13 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         syncedMonths,
         syncedBillings,
         context: {
+          providerType: provider.providerType,
           year: syncYear,
           stations: stationResults,
+        },
+        responsePayload: {
+          providerType: provider.providerType,
+          stationCount: stations.length,
         },
       });
 
@@ -399,6 +482,7 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         entityType: 'SolarmanConnection',
         entityId: connection.id,
         payload: {
+          providerType: provider.providerType,
           syncedStations,
           syncedMonths,
           syncedBillings,
@@ -418,6 +502,9 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         where: { id: connection.id },
         data: {
           status: 'ERROR',
+          lastErrorCode: this.resolveErrorCode(error),
+          lastErrorMessage: this.formatErrorMessage(error, 'SOLARMAN sync that bai.'),
+          lastErrorDetails: this.toErrorPayload(error) as any,
         },
       });
 
@@ -427,6 +514,8 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         syncedStations,
         syncedMonths,
         syncedBillings,
+        errorCode: this.resolveErrorCode(error),
+        responsePayload: this.toErrorPayload(error),
       });
 
       throw error;
@@ -436,12 +525,23 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
   private async syncStation(params: {
     connection: SolarmanConnectionWithRelations;
     credentials: { usernameOrEmail: string; password: string };
+    providerType: SolarmanProviderType;
+    persistedSession?: SolarmanPersistedSession | null;
     station: ParsedSolarmanStation;
     year: number;
     actorId?: string;
     createMissingSystems: boolean;
   }) {
-    const { connection, credentials, station, year, actorId, createMissingSystems } = params;
+    const {
+      connection,
+      credentials,
+      providerType,
+      persistedSession,
+      station,
+      year,
+      actorId,
+      createMissingSystems,
+    } = params;
     const system = await this.resolveSystemForStation(connection, station, createMissingSystems);
 
     if (!system) {
@@ -456,46 +556,108 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
       };
     }
 
-    const monthlyHistory = await this.getMonthlyHistoryWithFallback(
-      credentials,
-      station,
-      year,
-    );
+    const provider = this.solarmanProviderRegistry.resolve(providerType);
+    const bundle = await provider.fetchHistoryBundle(credentials, station.stationId, year, {
+      persistedSession,
+    });
+    const selectedStation = bundle.station || station;
+
+    await this.captureDebugSnapshot(connection.id, {
+      solarSystemId: system.id,
+      stationId: selectedStation.stationId,
+      providerType,
+      snapshotType: 'PLANT_LIST',
+      capturedAt: new Date(),
+      payload: bundle.rawResponses.plantList || null,
+      note: 'Plant list payload used during SOLARMAN sync.',
+    });
+    await this.captureDebugSnapshot(connection.id, {
+      solarSystemId: system.id,
+      stationId: selectedStation.stationId,
+      deviceSn: bundle.devices[0]?.serialNumber || null,
+      providerType,
+      snapshotType: 'DEVICE_LIST',
+      capturedAt: new Date(),
+      payload: bundle.rawResponses.deviceList || null,
+      note: 'Device list payload used during SOLARMAN sync.',
+    });
+    await this.captureDebugSnapshot(connection.id, {
+      solarSystemId: system.id,
+      stationId: selectedStation.stationId,
+      providerType,
+      snapshotType: 'DAILY_HISTORY',
+      capturedAt: new Date(),
+      payload: bundle.rawResponses.dailyHistory || null,
+      note: 'Daily history payload used for billing-grade sync.',
+    });
+    await this.captureDebugSnapshot(connection.id, {
+      solarSystemId: system.id,
+      stationId: selectedStation.stationId,
+      providerType,
+      snapshotType: 'MONTHLY_HISTORY',
+      capturedAt: new Date(),
+      payload: bundle.rawResponses.monthlyHistory || null,
+      note: 'Monthly aggregate payload used for reconciliation.',
+    });
+
+    const syncedDailyRecords = await this.upsertDailyHistoryRecords({
+      connection,
+      system,
+      station: selectedStation,
+      dailyHistory: bundle.dailyHistory,
+    });
+    const monthlyHistory =
+      bundle.dailyHistory?.records.length
+        ? this.aggregateMonthlyHistoryFromDaily(bundle.dailyHistory)
+        : bundle.monthlyHistory;
 
     let syncedMonths = 0;
     let syncedBillings = 0;
 
-    for (const monthlyRecord of monthlyHistory.records) {
-      const importResult = await this.upsertMonthlyRecord({
-        connection,
-        system,
-        station,
-        monthlyRecord,
-        actorId,
-      });
-      syncedMonths += 1;
-      syncedBillings += importResult.billingSynced ? 1 : 0;
+    if (monthlyHistory) {
+      for (const monthlyRecord of monthlyHistory.records) {
+        const importResult = await this.upsertMonthlyRecord({
+          connection,
+          system,
+          station: selectedStation,
+          monthlyRecord,
+          actorId,
+        });
+        syncedMonths += 1;
+        syncedBillings += importResult.billingSynced ? 1 : 0;
+      }
     }
 
     await this.prisma.solarSystem.update({
       where: { id: system.id },
       data: {
-        currentMonthGenerationKwh: station.generationMonthKwh ?? system.currentMonthGenerationKwh,
-        currentYearGenerationKwh: station.generationYearKwh ?? system.currentYearGenerationKwh,
-        totalGenerationKwh: station.generationTotalKwh ?? system.totalGenerationKwh,
-        currentGenerationPowerKw: station.generationPowerKw ?? system.currentGenerationPowerKw,
-        latestMonitorAt: station.lastUpdateTime ? new Date(station.lastUpdateTime) : system.latestMonitorAt,
+        currentMonthGenerationKwh:
+          selectedStation.generationMonthKwh ?? system.currentMonthGenerationKwh,
+        currentYearGenerationKwh:
+          selectedStation.generationYearKwh ?? system.currentYearGenerationKwh,
+        totalGenerationKwh: selectedStation.generationTotalKwh ?? system.totalGenerationKwh,
+        currentGenerationPowerKw:
+          selectedStation.generationPowerKw ?? system.currentGenerationPowerKw,
+        latestMonitorAt: selectedStation.lastUpdateTime
+          ? new Date(selectedStation.lastUpdateTime)
+          : system.latestMonitorAt,
       },
     });
 
     return {
-      stationId: station.stationId,
-      stationName: station.stationName,
+      stationId: selectedStation.stationId,
+      stationName: selectedStation.stationName,
       systemId: system.id,
       systemName: system.name,
       stationSynced: true,
+      syncedDailyRecords,
       syncedMonths,
       syncedBillings,
+      providerType,
+      dailyCoverage:
+        bundle.dailyHistory?.records.length || 0,
+      monthlyCoverage:
+        monthlyHistory?.records.length || 0,
     };
   }
 
@@ -602,46 +764,6 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
     });
   }
 
-  private async getMonthlyHistoryWithFallback(
-    credentials: { usernameOrEmail: string; password: string },
-    station: ParsedSolarmanStation,
-    year: number,
-  ): Promise<ParsedSolarmanMonthlyHistory> {
-    try {
-      return await this.solarmanClientService.getMonthlyGeneration(
-        credentials,
-        station.stationId,
-        year,
-      );
-    } catch (error) {
-      const currentYear = new Date().getFullYear();
-      const currentMonth = new Date().getMonth() + 1;
-
-      if (year === currentYear && station.generationMonthKwh !== null) {
-        return {
-          systemId: station.stationId,
-          year,
-          totalGenerationKwh: station.generationYearKwh || station.generationMonthKwh || 0,
-          records: [
-            {
-              systemId: station.stationId,
-              year,
-              month: currentMonth,
-              pvGenerationKwh: station.generationMonthKwh || 0,
-              raw: station.raw,
-            },
-          ],
-          raw: {
-            fallback: true,
-            station,
-          },
-        };
-      }
-
-      throw error;
-    }
-  }
-
   private async upsertMonthlyRecord(params: {
     connection: SolarmanConnectionWithRelations;
     system: SolarSystemRecord;
@@ -651,6 +773,10 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
   }) {
     const { connection, system, station, monthlyRecord, actorId } = params;
     const pricing = await this.resolvePricingDefaults(connection, system, monthlyRecord);
+    const source =
+      monthlyRecord.raw?.source === 'AGGREGATED_DAILY'
+        ? 'SOLARMAN_DAILY_AGGREGATE'
+        : 'SOLARMAN_MONTHLY';
     const subtotalAmount = this.roundAmount(monthlyRecord.pvGenerationKwh * pricing.unitPrice);
     const taxAmount = calculateVatAmount(subtotalAmount, pricing.vatRate);
     const totalAmount = this.roundAmount(subtotalAmount + taxAmount - pricing.discountAmount);
@@ -658,7 +784,7 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
     const monthlyEnergyRecord = await this.prisma.monthlyEnergyRecord.upsert({
       where: {
         source_stationId_year_month: {
-          source: 'SOLARMAN_MONTHLY',
+          source,
           stationId: station.stationId,
           year: monthlyRecord.year,
           month: monthlyRecord.month,
@@ -670,13 +796,14 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         connectionId: connection.id,
         stationId: station.stationId,
         pvGenerationKwh: monthlyRecord.pvGenerationKwh,
+        loadConsumedKwh: monthlyRecord.loadConsumedKwh,
         unitPrice: pricing.unitPrice,
         subtotalAmount,
         vatRate: pricing.vatRate,
         taxAmount,
         discountAmount: pricing.discountAmount,
         totalAmount,
-        source: 'SOLARMAN_MONTHLY',
+        source,
         syncTime: new Date(),
         rawPayload: monthlyRecord.raw as any,
         note: pricing.note,
@@ -690,13 +817,14 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         year: monthlyRecord.year,
         month: monthlyRecord.month,
         pvGenerationKwh: monthlyRecord.pvGenerationKwh,
+        loadConsumedKwh: monthlyRecord.loadConsumedKwh,
         unitPrice: pricing.unitPrice,
         subtotalAmount,
         vatRate: pricing.vatRate,
         taxAmount,
         discountAmount: pricing.discountAmount,
         totalAmount,
-        source: 'SOLARMAN_MONTHLY',
+        source,
         syncTime: new Date(),
         rawPayload: monthlyRecord.raw as any,
         note: pricing.note,
@@ -714,7 +842,7 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
           unitPrice: pricing.unitPrice,
           vatRate: pricing.vatRate,
           discountAmount: pricing.discountAmount,
-          source: 'SOLARMAN_MONTHLY',
+          source,
           note: pricing.note,
         },
         actorId,
@@ -724,6 +852,7 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
       await this.prisma.solarmanSyncLog.create({
         data: {
           connectionId: connection.id,
+          providerType: connection.providerType || null,
           action: 'SYNC_BILLING_WARNING',
           status: 'WARNING',
           message: this.formatErrorMessage(
@@ -844,18 +973,173 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
     });
   }
 
+  private async captureDebugSnapshot(
+    connectionId: string,
+    payload: {
+      solarSystemId?: string | null;
+      stationId?: string | null;
+      deviceSn?: string | null;
+      providerType: string;
+      snapshotType: string;
+      capturedAt: Date;
+      payload?: Record<string, unknown> | null;
+      note?: string | null;
+    },
+  ) {
+    return this.prisma.solarmanDebugSnapshot.create({
+      data: {
+        connectionId,
+        solarSystemId: payload.solarSystemId || null,
+        stationId: payload.stationId || null,
+        deviceSn: payload.deviceSn || null,
+        providerType: payload.providerType,
+        snapshotType: payload.snapshotType,
+        capturedAt: payload.capturedAt,
+        payload: payload.payload as any,
+        note: payload.note || null,
+      },
+    });
+  }
+
+  private async upsertDailyHistoryRecords(params: {
+    connection: SolarmanConnectionWithRelations;
+    system: SolarSystemRecord;
+    station: ParsedSolarmanStation;
+    dailyHistory: ParsedSolarmanDailyHistory | null;
+  }) {
+    const { connection, system, station, dailyHistory } = params;
+    if (!dailyHistory?.records.length) {
+      return 0;
+    }
+
+    let synced = 0;
+    for (const record of dailyHistory.records) {
+      const solarGeneratedKwh = this.roundAmount(record.pvGenerationKwh);
+      const loadConsumedKwh = this.roundAmount(record.loadConsumedKwh || 0);
+      const gridImportedKwh = this.roundAmount(record.gridImportedKwh || 0);
+      const gridExportedKwh = this.roundAmount(record.gridExportedKwh || 0);
+      const selfConsumedKwh = this.roundAmount(
+        Math.max(0, solarGeneratedKwh - gridExportedKwh),
+      );
+      const savingAmount = this.roundAmount(selfConsumedKwh * 2200 + gridExportedKwh * 900);
+
+      await this.prisma.energyRecord.upsert({
+        where: {
+          solarSystemId_recordDate: {
+            solarSystemId: system.id,
+            recordDate: new Date(record.recordDate),
+          },
+        },
+        update: {
+          solarGeneratedKwh,
+          loadConsumedKwh,
+          gridImportedKwh,
+          gridExportedKwh,
+          selfConsumedKwh,
+          savingAmount,
+        },
+        create: {
+          solarSystemId: system.id,
+          recordDate: new Date(record.recordDate),
+          solarGeneratedKwh,
+          loadConsumedKwh,
+          gridImportedKwh,
+          gridExportedKwh,
+          selfConsumedKwh,
+          savingAmount,
+        },
+      });
+
+      synced += 1;
+    }
+
+    await this.captureDebugSnapshot(connection.id, {
+      solarSystemId: system.id,
+      stationId: station.stationId,
+      providerType: connection.providerType || 'COOKIE_SESSION',
+      snapshotType: 'DAILY_NORMALIZED',
+      capturedAt: new Date(),
+      payload: {
+        recordCount: dailyHistory.records.length,
+        firstRecord: dailyHistory.records[0],
+        lastRecord: dailyHistory.records[dailyHistory.records.length - 1],
+      },
+      note: 'Normalized daily billing-grade metrics saved into EnergyRecord.',
+    });
+
+    return synced;
+  }
+
+  private aggregateMonthlyHistoryFromDaily(
+    dailyHistory: ParsedSolarmanDailyHistory,
+  ): ParsedSolarmanMonthlyHistory {
+    const buckets = new Map<number, ParsedSolarmanMonthlyRecord>();
+
+    for (const record of dailyHistory.records) {
+      const existing = buckets.get(record.month);
+      if (existing) {
+        existing.pvGenerationKwh = this.roundAmount(existing.pvGenerationKwh + record.pvGenerationKwh);
+        existing.loadConsumedKwh = this.sumNullable(existing.loadConsumedKwh, record.loadConsumedKwh);
+        existing.gridImportedKwh = this.sumNullable(existing.gridImportedKwh, record.gridImportedKwh);
+        existing.gridExportedKwh = this.sumNullable(existing.gridExportedKwh, record.gridExportedKwh);
+        existing.batteryChargeKwh = this.sumNullable(
+          existing.batteryChargeKwh,
+          record.batteryChargeKwh,
+        );
+        existing.batteryDischargeKwh = this.sumNullable(
+          existing.batteryDischargeKwh,
+          record.batteryDischargeKwh,
+        );
+        continue;
+      }
+
+      buckets.set(record.month, {
+        systemId: record.systemId,
+        year: record.year,
+        month: record.month,
+        pvGenerationKwh: this.roundAmount(record.pvGenerationKwh),
+        loadConsumedKwh: record.loadConsumedKwh,
+        gridImportedKwh: record.gridImportedKwh,
+        gridExportedKwh: record.gridExportedKwh,
+        batteryChargeKwh: record.batteryChargeKwh,
+        batteryDischargeKwh: record.batteryDischargeKwh,
+        raw: {
+          source: 'AGGREGATED_DAILY',
+          month: record.month,
+        },
+      });
+    }
+
+    const records = Array.from(buckets.values()).sort((left, right) => left.month - right.month);
+
+    return {
+      systemId: dailyHistory.systemId,
+      year: dailyHistory.year,
+      totalGenerationKwh: this.roundAmount(
+        records.reduce((sum, record) => sum + record.pvGenerationKwh, 0),
+      ),
+      records,
+      raw: {
+        source: 'DAILY_AGGREGATION',
+        recordCount: dailyHistory.records.length,
+      },
+    };
+  }
+
   private async createLog(
     connectionId: string,
     payload: {
       action: string;
       status: string;
       message: string;
+      providerType?: string;
       context?: Record<string, unknown>;
     },
   ) {
     return this.prisma.solarmanSyncLog.create({
       data: {
         connectionId,
+        providerType: payload.providerType || null,
         action: payload.action,
         status: payload.status,
         message: payload.message,
@@ -869,21 +1153,27 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
     payload: {
       status: string;
       message: string;
+      providerType?: string;
+      errorCode?: string | null;
       syncedStations?: number;
       syncedMonths?: number;
       syncedBillings?: number;
       context?: Record<string, unknown>;
+      responsePayload?: Record<string, unknown> | null;
     },
   ) {
     return this.prisma.solarmanSyncLog.update({
       where: { id },
       data: {
+        providerType: payload.providerType || undefined,
         status: payload.status,
+        errorCode: payload.errorCode || null,
         message: payload.message,
         syncedStations: payload.syncedStations ?? 0,
         syncedMonths: payload.syncedMonths ?? 0,
         syncedBillings: payload.syncedBillings ?? 0,
         context: payload.context as any,
+        responsePayload: payload.responsePayload as any,
         finishedAt: new Date(),
       },
     });
@@ -934,6 +1224,10 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         orderBy: { createdAt: 'desc' as const },
         take: 12,
       },
+      debugSnapshots: {
+        orderBy: { capturedAt: 'desc' as const },
+        take: 12,
+      },
     };
   }
 
@@ -979,6 +1273,7 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
       accessToken,
       refreshToken,
       cookieJar,
+      cookieJarEncrypted,
       ...safeConnection
     } = connection;
 
@@ -989,11 +1284,28 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
       defaultTaxAmount: toNumber(connection.defaultTaxAmount),
       defaultVatRate: toNumber(connection.defaultVatRate),
       defaultDiscountAmount: toNumber(connection.defaultDiscountAmount),
+      providerType: this.normalizeProviderType(connection.providerType),
+      lastSuccessfulSyncAt: connection.lastSuccessfulSyncAt?.toISOString?.() || null,
+      lastErrorCode: connection.lastErrorCode || null,
+      lastErrorMessage: connection.lastErrorMessage || null,
       accessTokenPreview: canViewSecrets && accessToken
         ? `${String(accessToken).slice(0, 10)}...`
         : null,
       hasStoredPassword: Boolean(passwordEncrypted),
+      hasPersistedCookieSession: Boolean(cookieJarEncrypted),
       statusSummary: this.buildStatusSummary(connection, Boolean(passwordEncrypted)),
+      debugSnapshots:
+        connection.debugSnapshots?.map((snapshot: any) => ({
+          id: snapshot.id,
+          stationId: snapshot.stationId || null,
+          deviceSn: snapshot.deviceSn || null,
+          providerType: snapshot.providerType,
+          snapshotType: snapshot.snapshotType,
+          status: snapshot.status,
+          capturedAt: snapshot.capturedAt?.toISOString?.() || null,
+          note: snapshot.note || null,
+          payload: snapshot.payload || null,
+        })) || [],
       systems:
         connection.systems?.map((system: any) => ({
           ...system,
@@ -1045,11 +1357,102 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         lastSync?.startedAt?.toISOString?.() ||
         connection.lastSyncTime?.toISOString?.() ||
         null,
+      lastSuccessfulSyncAt: connection.lastSuccessfulSyncAt?.toISOString?.() || null,
       lastFailureMessage: lastFailure?.message || null,
+      providerType: this.normalizeProviderType(connection.providerType),
+      authBridgeReady: Boolean(connection.cookieJarEncrypted),
+      lastErrorCode: connection.lastErrorCode || null,
+      lastErrorMessage: connection.lastErrorMessage || null,
       realtimeAvailable: false,
       realtimeMessage:
         'SOLARMAN dang o trang thai dang cap nhat. Giai doan hien tai uu tien van hanh manual-first va import thang, khong xem day la nguon realtime on dinh.',
     };
+  }
+
+  private restorePersistedSession(connection: SolarmanConnectionWithRelations): SolarmanPersistedSession | null {
+    const cookieJar = connection.cookieJarEncrypted
+      ? this.decrypt(connection.cookieJarEncrypted)
+      : null;
+
+    if (!cookieJar && !connection.accessToken) {
+      return null;
+    }
+
+    return {
+      mode: this.normalizeProviderType(connection.providerType) === 'OFFICIAL_OPENAPI' ? 'official' : 'web',
+      token: connection.accessToken || null,
+      cookieJar,
+    };
+  }
+
+  private normalizeProviderType(providerType?: string | null): SolarmanProviderType {
+    const normalized = (providerType || 'COOKIE_SESSION').trim().toUpperCase();
+    if (normalized === 'OFFICIAL_OPENAPI') {
+      return 'OFFICIAL_OPENAPI';
+    }
+    if (normalized === 'MANUAL_IMPORT') {
+      return 'MANUAL_IMPORT';
+    }
+    return 'COOKIE_SESSION';
+  }
+
+  private resolveErrorCode(error: unknown) {
+    if (error instanceof HttpException) {
+      const response = error.getResponse();
+      if (response && typeof response === 'object') {
+        const payload = response as Record<string, unknown>;
+        if (typeof payload.code === 'string' && payload.code.trim()) {
+          return payload.code.trim();
+        }
+        if (typeof payload.statusCode === 'number') {
+          return `HTTP_${payload.statusCode}`;
+        }
+      }
+      return `HTTP_${error.getStatus()}`;
+    }
+
+    if (error instanceof Error && error.name) {
+      return error.name;
+    }
+
+    return 'UNKNOWN_ERROR';
+  }
+
+  private toErrorPayload(error: unknown) {
+    if (error instanceof HttpException) {
+      const response = error.getResponse();
+      if (response && typeof response === 'object') {
+        return response as Record<string, unknown>;
+      }
+
+      return {
+        statusCode: error.getStatus(),
+        message: typeof response === 'string' ? response : error.message,
+      };
+    }
+
+    if (error instanceof Error) {
+      return {
+        name: error.name,
+        message: error.message,
+      };
+    }
+
+    return {
+      message: 'Unknown error',
+    };
+  }
+
+  private sumNullable(left?: number | null, right?: number | null) {
+    if (left === null || left === undefined) {
+      return right ?? null;
+    }
+
+    if (right === null || right === undefined) {
+      return left;
+    }
+
+    return this.roundAmount(left + right);
   }
 
   private formatErrorMessage(error: unknown, fallback: string) {
