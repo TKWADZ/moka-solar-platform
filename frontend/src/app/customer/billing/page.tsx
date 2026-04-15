@@ -30,43 +30,82 @@ import {
 } from '@/lib/utils';
 import { InvoiceRecord, InvoiceRow, MonthlyPvBillingRecord, StatCardItem } from '@/types';
 
-function toInvoiceRows(invoices: InvoiceRecord[]): InvoiceRow[] {
-  return invoices.map((invoice) => ({
-    id: invoice.id,
-    number: invoice.invoiceNumber,
-    month: formatMonthPeriod(invoice.billingMonth, invoice.billingYear),
-    dueDate: formatDate(invoice.dueDate),
-    amount: Number(invoice.totalAmount),
-    status:
-      invoice.status === 'PAID'
-        ? 'Paid'
-        : invoice.status === 'OVERDUE'
-          ? 'Overdue'
-          : invoice.status === 'PARTIAL'
-            ? 'Partial'
-            : invoice.status === 'PENDING_REVIEW'
-              ? 'Pending'
-              : 'Issued',
-    model: contractTypeLabel(
-      invoice.contract?.type || invoice.contract?.servicePackage?.contractType || null,
-    ),
-    loadConsumedKwh:
-      typeof invoice.periodMetrics?.loadConsumedKwh === 'number'
-        ? invoice.periodMetrics.loadConsumedKwh
-        : null,
-    previousReading:
-      typeof invoice.periodMetrics?.previousReading === 'number'
-        ? invoice.periodMetrics.previousReading
-        : null,
-    currentReading:
-      typeof invoice.periodMetrics?.currentReading === 'number'
-        ? invoice.periodMetrics.currentReading
-        : null,
-    sourceLabel:
-      typeof invoice.periodMetrics?.sourceLabel === 'string'
-        ? invoice.periodMetrics.sourceLabel
-        : null,
-  }));
+function mapInvoiceStatusToRowStatus(status: InvoiceRecord['status']): InvoiceRow['status'] {
+  if (status === 'PAID') {
+    return 'Paid';
+  }
+
+  if (status === 'OVERDUE') {
+    return 'Overdue';
+  }
+
+  if (status === 'PARTIAL') {
+    return 'Partial';
+  }
+
+  if (status === 'PENDING_REVIEW') {
+    return 'Pending';
+  }
+
+  return 'Issued';
+}
+
+function toInvoiceRows(
+  invoices: InvoiceRecord[],
+  monthlyBillings: MonthlyPvBillingRecord[],
+): InvoiceRow[] {
+  return invoices.map((invoice) => {
+    const billing = findBillingRecordForInvoice(invoice, monthlyBillings);
+    const display = buildCustomerBillingDisplayModel({ invoice, billing });
+
+    return {
+      id: invoice.id,
+      number: invoice.invoiceNumber,
+      month: formatMonthPeriod(invoice.billingMonth, invoice.billingYear),
+      dueDate: formatDate(invoice.dueDate),
+      amount: Number(display.totalAmount ?? invoice.totalAmount ?? 0),
+      status: mapInvoiceStatusToRowStatus(invoice.status),
+      customer: display.customerName,
+      model: contractTypeLabel(
+        display.contractType ||
+          invoice.contract?.type ||
+          invoice.contract?.servicePackage?.contractType ||
+          null,
+      ),
+      loadConsumedKwh: display.loadConsumedKwh,
+      previousReading: display.previousReading,
+      currentReading: display.currentReading,
+      sourceLabel: display.sourceLabel,
+      billingDetails: {
+        systemName: display.systemName,
+        customerName: display.customerName,
+        contractNumber: display.contractNumber,
+        address: display.address,
+        monthLabel: display.monthLabel,
+        contractType: display.contractType,
+        pvGenerationKwh: display.pvGenerationKwh,
+        loadConsumedKwh: display.loadConsumedKwh,
+        billableKwh: display.billableKwh,
+        unitPrice: display.unitPrice,
+        subtotalAmount: display.subtotalAmount,
+        vatRate: display.vatRate,
+        taxAmount: display.taxAmount,
+        discountAmount: display.discountAmount,
+        totalAmount: display.totalAmount,
+        previousReading: display.previousReading,
+        currentReading: display.currentReading,
+        syncStatus: display.syncStatus,
+        dataQualityStatus: display.dataQualityStatus,
+        invoiceStatus: display.workflowStatus,
+        syncTime: display.syncTime,
+        sourceLabel: display.sourceLabel,
+        transferAmount: display.transferAmount,
+        bankTransferNote: display.bankTransferNote,
+        qualitySummary: display.qualitySummary,
+        note: display.note,
+      },
+    };
+  });
 }
 
 function invoiceOutstanding(invoice: InvoiceRecord | null) {
@@ -363,7 +402,10 @@ export default function CustomerBillingPage() {
     [currentInvoice, monthlyBillings],
   );
 
-  const invoiceRows = useMemo(() => toInvoiceRows(invoices), [invoices]);
+  const invoiceRows = useMemo(
+    () => toInvoiceRows(invoices, monthlyBillings),
+    [invoices, monthlyBillings],
+  );
 
   const stats = useMemo<StatCardItem[]>(() => {
     const outstanding = openInvoices.reduce(
@@ -438,7 +480,7 @@ export default function CustomerBillingPage() {
             </div>
           ) : null}
 
-          <InvoiceTable rows={invoiceRows} dark />
+          <InvoiceTable rows={invoiceRows} dark variant="billingDetailed" />
         </SectionCard>
 
         <SectionCard

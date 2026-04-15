@@ -1,6 +1,6 @@
 'use client';
 
-import { formatCurrency, formatNumber } from '@/lib/utils';
+import { formatCurrency, formatDateTime, formatNumber } from '@/lib/utils';
 import { InvoiceRow } from '@/types';
 import { StatusPill } from './status-pill';
 
@@ -12,12 +12,299 @@ function formatUsage(value?: number | null) {
   return value != null ? formatNumber(value, 'kWh') : 'Chưa cập nhật';
 }
 
+function detailCardClasses(dark: boolean) {
+  return dark
+    ? 'rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-3'
+    : 'rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3';
+}
+
+function detailLabelClasses(dark: boolean) {
+  return dark
+    ? 'text-[11px] uppercase tracking-[0.18em] text-slate-500'
+    : 'text-[11px] uppercase tracking-[0.18em] text-slate-400';
+}
+
+function detailValueClasses(dark: boolean, emphasis = false) {
+  if (dark) {
+    return emphasis
+      ? 'mt-2 text-sm font-semibold leading-6 text-white'
+      : 'mt-2 text-sm leading-6 text-slate-200';
+  }
+
+  return emphasis
+    ? 'mt-2 text-sm font-semibold leading-6 text-slate-950'
+    : 'mt-2 text-sm leading-6 text-slate-700';
+}
+
+function BillingDetailItem({
+  label,
+  value,
+  dark,
+  emphasis = false,
+}: {
+  label: string;
+  value: string;
+  dark: boolean;
+  emphasis?: boolean;
+}) {
+  return (
+    <div className={detailCardClasses(dark)}>
+      <p className={detailLabelClasses(dark)}>{label}</p>
+      <p className={detailValueClasses(dark, emphasis)}>{value}</p>
+    </div>
+  );
+}
+
+function renderBillingDetailedCards(rows: InvoiceRow[], dark: boolean) {
+  return (
+    <div className="grid gap-4">
+      {rows.map((row) => {
+        const details = row.billingDetails;
+        const primaryTitle = details?.systemName || row.number;
+        const paymentBadgeLabel = details?.invoiceStatus || row.status;
+        const metadataItems = [
+          details?.customerName
+            ? { label: 'Tên khách hàng', value: details.customerName }
+            : null,
+          details?.contractNumber
+            ? { label: 'Mã hợp đồng', value: details.contractNumber }
+            : null,
+          details?.address ? { label: 'Địa chỉ', value: details.address } : null,
+          {
+            label: 'Kỳ hóa đơn',
+            value: details?.monthLabel || row.month,
+          },
+          row.model ? { label: 'Mô hình', value: row.model } : null,
+          row.dueDate ? { label: 'Hạn thanh toán', value: row.dueDate } : null,
+        ].filter((item): item is { label: string; value: string } => Boolean(item));
+
+        const visibleBillableKwh =
+          details?.billableKwh != null &&
+          (details?.pvGenerationKwh == null ||
+            Math.abs(Number(details.billableKwh) - Number(details.pvGenerationKwh)) > 0.05);
+
+        const billingDetailItems = [
+          {
+            label: 'PV tháng',
+            value:
+              details?.pvGenerationKwh != null
+                ? formatNumber(details.pvGenerationKwh, 'kWh')
+                : 'Chưa cập nhật',
+          },
+          {
+            label: 'Điện tiêu thụ',
+            value: formatUsage(details?.loadConsumedKwh ?? row.loadConsumedKwh),
+          },
+          ...(visibleBillableKwh
+            ? [
+                {
+                  label: 'Sản lượng kWh',
+                  value:
+                    details?.billableKwh != null
+                      ? formatNumber(details.billableKwh, 'kWh')
+                      : 'Chưa cập nhật',
+                },
+              ]
+            : []),
+          {
+            label: 'Đơn giá',
+            value:
+              details?.unitPrice != null
+                ? formatCurrency(details.unitPrice)
+                : 'Chưa cấu hình',
+          },
+          {
+            label: 'Tiền trước VAT',
+            value:
+              details?.subtotalAmount != null
+                ? formatCurrency(details.subtotalAmount)
+                : 'Chưa cập nhật',
+          },
+          {
+            label: 'VAT',
+            value: details?.vatRate != null ? `${details.vatRate}%` : '-',
+          },
+          {
+            label: 'Tiền VAT',
+            value:
+              details?.taxAmount != null ? formatCurrency(details.taxAmount) : '-',
+          },
+          {
+            label: 'Chiết khấu',
+            value:
+              details?.discountAmount != null
+                ? formatCurrency(details.discountAmount)
+                : '-',
+          },
+          {
+            label: 'Tổng cộng',
+            value:
+              details?.totalAmount != null
+                ? formatCurrency(details.totalAmount)
+                : formatCurrency(row.amount),
+            emphasis: true,
+          },
+          {
+            label: 'Chỉ số cũ',
+            value: formatReading(details?.previousReading ?? row.previousReading),
+          },
+          {
+            label: 'Chỉ số mới',
+            value: formatReading(details?.currentReading ?? row.currentReading),
+          },
+          {
+            label: 'Sync',
+            value: details?.syncStatus || 'Chưa cập nhật',
+          },
+          {
+            label: 'Chất lượng',
+            value: details?.dataQualityStatus || 'Chưa cập nhật',
+          },
+          {
+            label: 'Hóa đơn',
+            value: details?.invoiceStatus || row.status,
+          },
+          {
+            label: 'Đồng bộ',
+            value: details?.syncTime ? formatDateTime(details.syncTime) : 'Chưa cập nhật',
+          },
+        ];
+
+        return (
+          <article
+            key={row.id}
+            className={dark ? 'portal-card-soft p-5' : 'surface-card p-5'}
+          >
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="min-w-0">
+                <p className={detailLabelClasses(dark)}>{details?.monthLabel || row.month}</p>
+                <h3
+                  className={
+                    dark
+                      ? 'mt-2 text-xl font-semibold tracking-tight text-white'
+                      : 'mt-2 text-xl font-semibold tracking-tight text-slate-950'
+                  }
+                >
+                  {primaryTitle}
+                </h3>
+                <p
+                  className={
+                    dark
+                      ? 'mt-2 text-sm text-slate-400'
+                      : 'mt-2 text-sm text-slate-500'
+                  }
+                >
+                  Hóa đơn {row.number}
+                </p>
+              </div>
+
+              <div className="flex flex-col items-end gap-3">
+                <StatusPill label={paymentBadgeLabel} />
+                <div className={detailCardClasses(dark)}>
+                  <p className={detailLabelClasses(dark)}>Tổng cộng</p>
+                  <p className={detailValueClasses(dark, true)}>
+                    {details?.totalAmount != null
+                      ? formatCurrency(details.totalAmount)
+                      : formatCurrency(row.amount)}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {metadataItems.length ? (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {metadataItems.map((item) => (
+                  <BillingDetailItem
+                    key={item.label}
+                    label={item.label}
+                    value={item.value}
+                    dark={dark}
+                  />
+                ))}
+              </div>
+            ) : null}
+
+            <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {billingDetailItems.map((item) => (
+                <BillingDetailItem
+                  key={item.label}
+                  label={item.label}
+                  value={item.value}
+                  dark={dark}
+                  emphasis={Boolean(item.emphasis)}
+                />
+              ))}
+            </div>
+
+            {(details?.sourceLabel ||
+              details?.transferAmount != null ||
+              details?.bankTransferNote) && (
+              <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                {details?.sourceLabel ? (
+                  <BillingDetailItem
+                    label="Nguồn dữ liệu"
+                    value={details.sourceLabel}
+                    dark={dark}
+                  />
+                ) : null}
+                {details?.transferAmount != null ? (
+                  <BillingDetailItem
+                    label="Transfer amount"
+                    value={formatCurrency(details.transferAmount)}
+                    dark={dark}
+                  />
+                ) : null}
+                {details?.bankTransferNote ? (
+                  <div className={detailCardClasses(dark)}>
+                    <p className={detailLabelClasses(dark)}>Bank transfer note</p>
+                    <p
+                      className={`${detailValueClasses(dark)} break-all font-mono text-xs`}
+                    >
+                      {details.bankTransferNote}
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            )}
+
+            {details?.qualitySummary ? (
+              <div
+                className={
+                  dark
+                    ? 'mt-4 rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-3 text-sm leading-6 text-slate-300'
+                    : 'mt-4 rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-700'
+                }
+              >
+                {details.qualitySummary}
+              </div>
+            ) : null}
+
+            {details?.note ? (
+              <div
+                className={
+                  dark
+                    ? 'mt-3 rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-3 text-sm leading-6 text-slate-300'
+                    : 'mt-3 rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-700'
+                }
+              >
+                {details.note}
+              </div>
+            ) : null}
+          </article>
+        );
+      })}
+    </div>
+  );
+}
+
 export function InvoiceTable({
   rows,
   dark = false,
+  variant = 'summary',
 }: {
   rows: InvoiceRow[];
   dark?: boolean;
+  variant?: 'summary' | 'billingDetailed';
 }) {
   const showMeterColumns = rows.some(
     (row) => row.previousReading != null || row.currentReading != null,
@@ -35,6 +322,10 @@ export function InvoiceTable({
         Chưa có hóa đơn nào để hiển thị.
       </div>
     );
+  }
+
+  if (variant === 'billingDetailed') {
+    return renderBillingDetailedCards(rows, dark);
   }
 
   return (

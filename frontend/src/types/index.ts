@@ -510,6 +510,34 @@ export type InvoiceRow = {
   previousReading?: number | null;
   currentReading?: number | null;
   sourceLabel?: string | null;
+  billingDetails?: {
+    systemName?: string | null;
+    customerName?: string | null;
+    contractNumber?: string | null;
+    address?: string | null;
+    monthLabel?: string | null;
+    contractType?: string | null;
+    pvGenerationKwh?: number | null;
+    loadConsumedKwh?: number | null;
+    billableKwh?: number | null;
+    unitPrice?: number | null;
+    subtotalAmount?: number | null;
+    vatRate?: number | null;
+    taxAmount?: number | null;
+    discountAmount?: number | null;
+    totalAmount?: number | null;
+    previousReading?: number | null;
+    currentReading?: number | null;
+    syncStatus?: string | null;
+    dataQualityStatus?: string | null;
+    invoiceStatus?: string | null;
+    syncTime?: string | null;
+    sourceLabel?: string | null;
+    transferAmount?: number | null;
+    bankTransferNote?: string | null;
+    qualitySummary?: string | null;
+    note?: string | null;
+  } | null;
 };
 
 export type PaymentRow = {
