@@ -1,4 +1,4 @@
-import { formatMonthPeriod } from '@/lib/utils';
+import { formatDateTime, formatMonthPeriod } from '@/lib/utils';
 import { InvoiceRecord, MonthlyPvBillingRecord } from '@/types';
 
 const BANK_TRANSFER_NOTE_MAX_LENGTH = 40;
@@ -108,6 +108,22 @@ export function formatBillingUsage(value?: number | null) {
   return new Intl.NumberFormat('vi-VN', {
     maximumFractionDigits: 1,
   }).format(value).concat(' kWh');
+}
+
+export function buildBillingLiveSummaryLabel(params: {
+  summarySource?: 'LIVE_CURRENT' | 'SNAPSHOT' | string | null;
+  isCurrentOpenPeriod?: boolean;
+  liveAsOf?: string | null;
+}) {
+  if (params.summarySource !== 'LIVE_CURRENT') {
+    return null;
+  }
+
+  if (params.liveAsOf) {
+    return `Tạm tính đến ${formatDateTime(params.liveAsOf)}`;
+  }
+
+  return 'Tạm tính theo dữ liệu live hiện tại';
 }
 
 function stripAccents(value: string) {
@@ -258,6 +274,12 @@ export type CustomerBillingDisplayModel = {
   bankTransferNote: string | null;
   qualitySummary: string | null;
   note: string | null;
+  summarySource: 'LIVE_CURRENT' | 'SNAPSHOT' | null;
+  liveAsOf: string | null;
+  snapshotAt: string | null;
+  isCurrentOpenPeriod: boolean;
+  isFinalized: boolean;
+  liveSummaryLabel: string | null;
 };
 
 export function buildCustomerBillingDisplayModel(params: {
@@ -285,12 +307,33 @@ export function buildCustomerBillingDisplayModel(params: {
       : totalAmount;
   const customerName = resolveInvoiceCustomerName(invoice, billing);
   const contractNumber = resolveInvoiceContractNumber(invoice, billing);
+  const summarySource = billing?.summarySource || null;
+  const liveAsOf =
+    billing?.liveAsOf ||
+    (summarySource === 'LIVE_CURRENT' ? billing?.syncTime || null : null);
+  const isCurrentOpenPeriod = Boolean(billing?.isCurrentOpenPeriod);
+  const isFinalized = Boolean(billing?.isFinalized);
+  const visibleWorkflowStatus =
+    isCurrentOpenPeriod && !isFinalized
+      ? 'ESTIMATE'
+      : billing?.invoiceStatus || invoice?.status || null;
+  const liveSummaryLabel = buildBillingLiveSummaryLabel({
+    summarySource,
+    isCurrentOpenPeriod,
+    liveAsOf,
+  });
 
   return {
     monthLabel,
-    headerStatus: invoice?.status || billing?.invoiceStatus || null,
+    headerStatus:
+      isCurrentOpenPeriod && !isFinalized
+        ? 'ESTIMATE'
+        : invoice?.status || billing?.invoiceStatus || null,
     invoiceStatus: invoice?.status || null,
-    paymentStatus: invoice?.status || billing?.invoiceStatus || null,
+    paymentStatus:
+      isCurrentOpenPeriod && !isFinalized
+        ? 'ESTIMATE'
+        : invoice?.status || billing?.invoiceStatus || null,
     systemName: resolveInvoiceSystemName(invoice, billing),
     customerName,
     contractNumber,
@@ -366,7 +409,7 @@ export function buildCustomerBillingDisplayModel(params: {
           : null,
     syncStatus: billing?.syncStatus || null,
     dataQualityStatus: billing?.dataQualityStatus || null,
-    workflowStatus: billing?.invoiceStatus || invoice?.status || null,
+    workflowStatus: visibleWorkflowStatus,
     syncTime: billing?.syncTime || invoice?.periodMetrics?.syncTime || null,
     sourceLabel:
       billing?.periodMetrics?.sourceLabel ||
@@ -387,5 +430,11 @@ export function buildCustomerBillingDisplayModel(params: {
         : null,
     qualitySummary: billing?.qualitySummary || null,
     note: billing?.note || null,
+    summarySource,
+    liveAsOf,
+    snapshotAt: billing?.snapshotAt || invoice?.createdAt || invoice?.issuedAt || null,
+    isCurrentOpenPeriod,
+    isFinalized,
+    liveSummaryLabel,
   };
 }

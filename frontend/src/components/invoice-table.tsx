@@ -196,6 +196,17 @@ function renderBillingDetailedCards(rows: InvoiceRow[], dark: boolean) {
                 >
                   Hóa đơn {row.number}
                 </p>
+                {details?.liveSummaryLabel ? (
+                  <p
+                    className={
+                      dark
+                        ? 'mt-2 text-sm text-emerald-200'
+                        : 'mt-2 text-sm text-emerald-700'
+                    }
+                  >
+                    {details.liveSummaryLabel}
+                  </p>
+                ) : null}
               </div>
 
               <div className="flex flex-col items-end gap-3">

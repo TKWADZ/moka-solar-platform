@@ -103,6 +103,12 @@ function toInvoiceRows(
         bankTransferNote: display.bankTransferNote,
         qualitySummary: display.qualitySummary,
         note: display.note,
+        summarySource: display.summarySource,
+        liveAsOf: display.liveAsOf,
+        snapshotAt: display.snapshotAt,
+        isCurrentOpenPeriod: display.isCurrentOpenPeriod,
+        isFinalized: display.isFinalized,
+        liveSummaryLabel: display.liveSummaryLabel,
       },
     };
   });
@@ -114,6 +120,10 @@ function invoiceOutstanding(invoice: InvoiceRecord | null) {
   }
 
   return Math.max(Number(invoice.totalAmount || 0) - Number(invoice.paidAmount || 0), 0);
+}
+
+function isLiveCurrentBillingRecord(record?: MonthlyPvBillingRecord | null) {
+  return Boolean(record?.isCurrentOpenPeriod && !record?.isFinalized);
 }
 
 type DetailField = {
@@ -312,6 +322,12 @@ function BillingSpotlightCard({
         </div>
       )}
 
+      {display.liveSummaryLabel ? (
+        <div className="mt-4 rounded-[20px] border border-emerald-300/15 bg-emerald-400/10 px-4 py-3 text-sm leading-6 text-emerald-100">
+          {display.liveSummaryLabel}
+        </div>
+      ) : null}
+
       <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         {detailFields.map((field) => (
           <BillingField key={field.label} field={field} />
@@ -357,34 +373,49 @@ export default function CustomerBillingPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  const currentMonthEstimate = useMemo(() => {
-    const now = new Date();
-    const month = now.getMonth() + 1;
-    const year = now.getFullYear();
+  const currentOpenBillingRecord = useMemo(
+    () =>
+      [...monthlyBillings]
+        .filter((record) => isLiveCurrentBillingRecord(record))
+        .sort((left, right) => {
+          const leftTime = new Date(left.liveAsOf || left.syncTime || left.updatedAt).getTime();
+          const rightTime = new Date(right.liveAsOf || right.syncTime || right.updatedAt).getTime();
+          return rightTime - leftTime;
+        })[0] || null,
+    [monthlyBillings],
+  );
+
+  const currentOpenSnapshotInvoice = useMemo(() => {
+    if (!currentOpenBillingRecord) {
+      return null;
+    }
 
     return (
-      monthlyBillings.find(
-        (record) =>
-          record.month === month &&
-          record.year === year &&
-          record.invoiceStatus === 'ESTIMATE',
-      ) || null
+      invoices.find((invoice) => invoice.id === currentOpenBillingRecord.invoiceId) ||
+      currentOpenBillingRecord.invoice ||
+      null
     );
-  }, [monthlyBillings]);
+  }, [currentOpenBillingRecord, invoices]);
 
   const pendingReviewRecord = useMemo(
     () =>
       monthlyBillings.find(
         (record) =>
+          record.id !== currentOpenBillingRecord?.id &&
           record.invoiceStatus === 'PENDING_REVIEW' &&
           (!record.invoice || record.invoice.status === 'PENDING_REVIEW'),
       ) || null,
-    [monthlyBillings],
+    [currentOpenBillingRecord?.id, monthlyBillings],
   );
 
   const openInvoices = useMemo(
-    () => invoices.filter((invoice) => !['PAID', 'CANCELLED'].includes(invoice.status)),
-    [invoices],
+    () =>
+      invoices.filter(
+        (invoice) =>
+          !['PAID', 'CANCELLED'].includes(invoice.status) &&
+          invoice.id !== currentOpenSnapshotInvoice?.id,
+      ),
+    [currentOpenSnapshotInvoice?.id, invoices],
   );
 
   const currentInvoice = useMemo(
@@ -392,9 +423,9 @@ export default function CustomerBillingPage() {
       [...openInvoices].sort(
         (left, right) => new Date(left.dueDate).getTime() - new Date(right.dueDate).getTime(),
       )[0] ||
-      invoices[0] ||
+      invoices.find((invoice) => invoice.id !== currentOpenSnapshotInvoice?.id) ||
       null,
-    [invoices, openInvoices],
+    [currentOpenSnapshotInvoice?.id, invoices, openInvoices],
   );
 
   const currentInvoiceBilling = useMemo(
@@ -432,15 +463,15 @@ export default function CustomerBillingPage() {
         value: formatCurrency(outstanding),
         subtitle: openInvoices.length
           ? `${openInvoices.length} hóa đơn chưa thanh toán`
-          : currentMonthEstimate
+          : currentOpenBillingRecord
             ? 'Trong tháng chỉ hiển thị tạm tính, chưa phát hành hóa đơn chính thức'
             : 'Không còn dư nợ cần đối soát',
         delta: nearestDueInvoice
           ? `${nearestDueInvoice.invoiceNumber} • đến hạn ${formatDate(nearestDueInvoice.dueDate)}`
           : overdueCount
             ? `${overdueCount} hóa đơn quá hạn`
-            : currentMonthEstimate
-              ? `Tạm tính ${formatCurrency(currentMonthEstimate.totalAmount)}`
+            : currentOpenBillingRecord
+              ? `Tạm tính ${formatCurrency(currentOpenBillingRecord.totalAmount)}`
               : 'Danh mục đang ổn định',
         trend: outstanding > 0 ? 'neutral' : 'up',
       },
@@ -454,7 +485,7 @@ export default function CustomerBillingPage() {
         trend: currentInvoice?.status === 'OVERDUE' ? 'down' : 'neutral',
       },
     ];
-  }, [currentInvoice, currentMonthEstimate, invoices, openInvoices]);
+  }, [currentInvoice, currentOpenBillingRecord, invoices, openInvoices]);
 
   if (loading) {
     return (
@@ -488,13 +519,29 @@ export default function CustomerBillingPage() {
           eyebrow="Giữ layout mới nhưng mở rộng nội dung hóa đơn theo dữ liệu admin"
           dark
         >
-          {currentMonthEstimate || pendingReviewRecord || currentInvoice ? (
+          {currentOpenBillingRecord || pendingReviewRecord || currentInvoice ? (
             <div className="space-y-4">
-              {currentMonthEstimate ? (
+              {currentOpenBillingRecord ? (
                 <BillingSpotlightCard
                   eyebrow="Tạm tính tháng này"
-                  billing={currentMonthEstimate}
-                  helperText="Trong tháng hệ thống chỉ hiển thị sản lượng và số tiền tạm tính. Hóa đơn chính thức sẽ được chốt sau khi hoàn tất đối soát dữ liệu tháng."
+                  billing={currentOpenBillingRecord}
+                  helperText={
+                    currentOpenSnapshotInvoice
+                      ? `PDF ${currentOpenSnapshotInvoice.invoiceNumber} vẫn là snapshot export và không khóa số live đang hiển thị trên trang này.`
+                      : 'Trong tháng hệ thống chỉ hiển thị sản lượng và số tiền tạm tính theo dữ liệu live từ daily energy. Hóa đơn chính thức sẽ được chốt sau khi hoàn tất đối soát dữ liệu tháng.'
+                  }
+                  actions={
+                    currentOpenSnapshotInvoice ? (
+                      <button
+                        type="button"
+                        onClick={() => downloadInvoicePdfRequest(currentOpenSnapshotInvoice.id)}
+                        className="btn-ghost inline-flex items-center gap-2"
+                      >
+                        <FileDown className="h-4 w-4" />
+                        Tải PDF snapshot
+                      </button>
+                    ) : undefined
+                  }
                 />
               ) : null}
 

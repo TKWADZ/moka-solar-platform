@@ -90,6 +90,10 @@ function isFinalizedInvoiceStatus(status?: InvoiceRecord['status']) {
 }
 
 function canSendZaloForBillingRecord(record: MonthlyPvBillingRecord) {
+  if (record.isCurrentOpenPeriod && !record.isFinalized) {
+    return false;
+  }
+
   if (!record.invoice) {
     return false;
   }
@@ -99,6 +103,18 @@ function canSendZaloForBillingRecord(record: MonthlyPvBillingRecord) {
   }
 
   return record.dataQualityStatus === 'OK' && record.invoice.status !== 'PENDING_REVIEW';
+}
+
+function canMarkBillingRecordPaid(record: MonthlyPvBillingRecord) {
+  if (!record.invoice) {
+    return false;
+  }
+
+  if (record.isCurrentOpenPeriod && !record.isFinalized) {
+    return false;
+  }
+
+  return record.invoice.status !== 'PAID';
 }
 
 function generateInvoiceButtonLabel(record: MonthlyPvBillingRecord) {
@@ -934,7 +950,7 @@ export default function AdminBillingPage() {
                   onClick={() => void downloadInvoicePdfRequest(record.invoice!.id)}
                 >
                   <FileDown className="h-3.5 w-3.5" />
-                  Tải PDF
+                  {record.isCurrentOpenPeriod && !record.isFinalized ? 'Tải PDF snapshot' : 'Tải PDF'}
                 </button>
                 <button
                   type="button"
@@ -945,7 +961,7 @@ export default function AdminBillingPage() {
                   <Send className="h-3.5 w-3.5" />
                   {zaloLoadingId === record.id ? 'Dang gui...' : 'Gui Zalo'}
                 </button>
-                {record.invoice.status !== 'PAID' ? (
+                {canMarkBillingRecordPaid(record) ? (
                   <button
                     type="button"
                     className="inline-flex min-h-[42px] items-center justify-center gap-2 rounded-full border border-emerald-300/20 bg-emerald-400/10 px-3 py-2 text-xs font-semibold text-emerald-100 transition hover:bg-emerald-400/15"

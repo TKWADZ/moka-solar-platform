@@ -52,6 +52,11 @@ type AmountBreakdown = {
   source: string;
 };
 
+type BillingDisplayProjection = {
+  record: BillingRecordWithRelations;
+  periodMetricsOverride: ReturnType<typeof extractOperationalPeriodMetrics> | null;
+};
+
 const MUTABLE_INVOICE_STATUSES = new Set<InvoiceStatus>([
   InvoiceStatus.DRAFT,
   InvoiceStatus.PENDING_REVIEW,
@@ -88,7 +93,7 @@ export class MonthlyPvBillingsService {
       orderBy: [{ year: 'desc' }, { month: 'desc' }, { syncTime: 'desc' }],
     });
 
-    return this.attachPeriodMetrics(records);
+    return this.attachPeriodMetrics(await this.repairHistoricalLifecycleIfNeeded(records));
   }
 
   async findOne(id: string) {
@@ -104,7 +109,8 @@ export class MonthlyPvBillingsService {
       throw new NotFoundException('Monthly PV billing record not found');
     }
 
-    const [serialized] = await this.attachPeriodMetrics([record]);
+    const repairedRecords = await this.repairHistoricalLifecycleIfNeeded([record]);
+    const [serialized] = await this.attachPeriodMetrics(repairedRecords);
     return serialized;
   }
 
@@ -132,7 +138,7 @@ export class MonthlyPvBillingsService {
         ]
       : records;
 
-    return this.attachPeriodMetrics(items);
+    return this.attachPeriodMetrics(await this.repairHistoricalLifecycleIfNeeded(items));
   }
 
   async sync(systemId: string, dto: SyncMonthlyPvBillingDto, actorId?: string) {
@@ -602,9 +608,17 @@ export class MonthlyPvBillingsService {
       return [];
     }
 
+    const projectedRecords = await Promise.all(
+      records.map((record) => this.prepareRecordForDisplay(record)),
+    );
+    const effectiveRecords = projectedRecords.map((item) => item.record);
+    const periodMetricsOverrideMap = new Map(
+      projectedRecords.map((item) => [item.record.id, item.periodMetricsOverride] as const),
+    );
+
     const solarSystemIds = Array.from(
       new Set(
-        records
+        effectiveRecords
           .map((record) => record.solarSystemId)
           .filter((value): value is string => Boolean(value)),
       ),
@@ -614,7 +628,7 @@ export class MonthlyPvBillingsService {
       this.prisma.monthlyEnergyRecord.findMany({
         where: {
           deletedAt: null,
-          OR: records.map((record) => ({
+          OR: effectiveRecords.map((record) => ({
             solarSystemId: record.solarSystemId,
             year: record.year,
             month: record.month,
@@ -647,15 +661,16 @@ export class MonthlyPvBillingsService {
         : Promise.resolve([]),
     ]);
 
-    const cumulativeSourceRecords = [...fullBillingHistory];
-    const knownRecordIds = new Set(fullBillingHistory.map((record) => record.id));
+    const cumulativeSourceMap = new Map(
+      fullBillingHistory.map((record) => [record.id, record] as const),
+    );
 
-    for (const record of records) {
-      if (!record.id || knownRecordIds.has(record.id)) {
+    for (const record of effectiveRecords) {
+      if (!record.id) {
         continue;
       }
 
-      cumulativeSourceRecords.push({
+      cumulativeSourceMap.set(record.id, {
         id: record.id,
         solarSystemId: record.solarSystemId,
         contractId: record.contractId,
@@ -663,9 +678,9 @@ export class MonthlyPvBillingsService {
         month: record.month,
         pvGenerationKwh: record.pvGenerationKwh,
       });
-      knownRecordIds.add(record.id);
     }
 
+    const cumulativeSourceRecords = [...cumulativeSourceMap.values()];
     const cumulativeLookups = buildCumulativePvReadingLookups(cumulativeSourceRecords);
 
     const periodMap = new Map(
@@ -677,7 +692,7 @@ export class MonthlyPvBillingsService {
         .filter((entry): entry is [string, any] => Boolean(entry[0])),
     );
 
-    return records.map((record) => {
+    return effectiveRecords.map((record) => {
       const serialized = this.serialize(record);
       const recordPeriodKey = buildOperationalPeriodKey(
         record.solarSystemId,
@@ -686,13 +701,19 @@ export class MonthlyPvBillingsService {
       );
       const periodRecord =
         periodMap.get(recordPeriodKey || '') || null;
+      const periodMetricsOverride =
+        periodMetricsOverrideMap.get(record.id) !== undefined
+          ? periodMetricsOverrideMap.get(record.id) || null
+          : null;
       const basePeriodMetrics =
+        periodMetricsOverride ||
         aggregateOperationalPeriodMetrics(periodRecord ? [periodRecord] : [], {
           year: record.year,
           month: record.month,
           source: record.source,
           syncTime: record.syncTime,
-        }) || extractOperationalPeriodMetrics(periodRecord);
+        }) ||
+        extractOperationalPeriodMetrics(periodRecord);
       const cumulativeReading =
         cumulativeLookups.byRecordId.get(record.id) ||
         (recordPeriodKey
@@ -718,6 +739,146 @@ export class MonthlyPvBillingsService {
           : null,
       };
     });
+  }
+
+  private async repairHistoricalLifecycleIfNeeded(records: BillingRecordWithRelations[]) {
+    const staleHistoricalRecords = records.filter((record) =>
+      this.shouldRefreshHistoricalLifecycle(record),
+    );
+
+    if (!staleHistoricalRecords.length) {
+      return records;
+    }
+
+    const refreshedById = new Map<string, BillingRecordWithRelations>();
+    for (const record of staleHistoricalRecords) {
+      const refreshed = await this.refreshLifecycleForRecord(record.id, {
+        markAutoRetried: false,
+      });
+      refreshedById.set(record.id, refreshed);
+    }
+
+    return records.map((record) => refreshedById.get(record.id) || record);
+  }
+
+  private async prepareRecordForDisplay(
+    record: BillingRecordWithRelations,
+  ): Promise<BillingDisplayProjection> {
+    const isFinalized = this.isBillingRecordFinalized(record);
+    const isCurrentOpenPeriod = this.isCurrentBillingPeriod(record.year, record.month) && !isFinalized;
+    const snapshotAt = record.invoice?.createdAt || record.createdAt || null;
+    const displayInvoiceStatus = this.normalizeInvoiceStatusForDisplay(
+      record,
+      isCurrentOpenPeriod,
+    );
+
+    if (!isCurrentOpenPeriod) {
+      return {
+        record: {
+          ...record,
+          invoiceStatus: displayInvoiceStatus,
+          summarySource: 'SNAPSHOT',
+          liveAsOf: null,
+          snapshotAt,
+          isCurrentOpenPeriod: false,
+          isFinalized,
+        },
+        periodMetricsOverride: null,
+      };
+    }
+
+    const liveProjection = await this.buildLiveCurrentPeriodProjection(record);
+
+    if (!liveProjection) {
+      return {
+        record: {
+          ...record,
+          invoiceStatus: displayInvoiceStatus,
+          summarySource: 'SNAPSHOT',
+          liveAsOf: null,
+          snapshotAt,
+          isCurrentOpenPeriod: true,
+          isFinalized,
+        },
+        periodMetricsOverride: null,
+      };
+    }
+
+    return {
+      record: {
+        ...record,
+        contract: liveProjection.contract || record.contract,
+        pvGenerationKwh: liveProjection.amounts.pvGenerationKwh,
+        billableKwh: liveProjection.amounts.billableKwh,
+        unitPrice: liveProjection.amounts.unitPrice,
+        subtotalAmount: liveProjection.amounts.subtotalAmount,
+        vatRate: liveProjection.amounts.vatRate,
+        taxAmount: liveProjection.amounts.taxAmount,
+        discountAmount: liveProjection.amounts.discountAmount,
+        totalAmount: liveProjection.amounts.totalAmount,
+        syncTime: liveProjection.liveAsOf || record.syncTime,
+        source: liveProjection.amounts.source,
+        invoiceStatus: displayInvoiceStatus,
+        summarySource: 'LIVE_CURRENT',
+        liveAsOf: liveProjection.liveAsOf || record.syncTime || null,
+        snapshotAt,
+        isCurrentOpenPeriod: true,
+        isFinalized: false,
+      },
+      periodMetricsOverride: liveProjection.periodMetrics,
+    };
+  }
+
+  private async buildLiveCurrentPeriodProjection(record: BillingRecordWithRelations) {
+    const liveAggregation = await this.aggregateDailyEnergyForPeriod(
+      record.solarSystemId,
+      record.month,
+      record.year,
+    );
+
+    if (!liveAggregation.pvGenerationKwh || liveAggregation.pvGenerationKwh <= 0) {
+      return null;
+    }
+
+    const contract =
+      record.contract ||
+      (await this.resolveContract(record.solarSystemId, record.month, record.year));
+
+    let amounts: AmountBreakdown;
+    try {
+      amounts = await this.calculateAmounts(
+        record.solarSystemId,
+        {
+          month: record.month,
+          year: record.year,
+          pvGenerationKwh: liveAggregation.pvGenerationKwh,
+        },
+        record,
+        contract,
+      );
+    } catch {
+      return null;
+    }
+
+    const liveAsOf = liveAggregation.liveAsOf || record.syncTime || new Date();
+    const periodMetrics = extractOperationalPeriodMetrics({
+      year: record.year,
+      month: record.month,
+      pvGenerationKwh: amounts.pvGenerationKwh,
+      loadConsumedKwh: liveAggregation.loadConsumedKwh,
+      source: 'ENERGY_RECORD_AGGREGATE',
+      syncTime: liveAsOf,
+    });
+
+    return {
+      contract,
+      liveAsOf,
+      amounts: {
+        ...amounts,
+        source: 'ENERGY_RECORD_AGGREGATE',
+      },
+      periodMetrics,
+    };
   }
 
   private async resolveContract(systemId: string, month: number, year: number) {
@@ -936,6 +1097,32 @@ export class MonthlyPvBillingsService {
         this.optionalNumber(system?.defaultDiscountAmount) ||
         this.optionalNumber(system?.customer?.defaultDiscountAmount) ||
         MOKA_DEFAULT_DISCOUNT_AMOUNT,
+    };
+  }
+
+  private async aggregateDailyEnergyForPeriod(systemId: string, month: number, year: number) {
+    const { from, to } = getMonthDateRange(year, month);
+    const result = await this.prisma.energyRecord.aggregate({
+      where: {
+        solarSystemId: systemId,
+        recordDate: {
+          gte: from,
+          lte: to,
+        },
+      },
+      _sum: {
+        solarGeneratedKwh: true,
+        loadConsumedKwh: true,
+      },
+      _max: {
+        updatedAt: true,
+      },
+    });
+
+    return {
+      pvGenerationKwh: toNumber(result._sum.solarGeneratedKwh),
+      loadConsumedKwh: toNumber(result._sum.loadConsumedKwh),
+      liveAsOf: result._max.updatedAt || null,
     };
   }
 
@@ -1321,6 +1508,82 @@ export class MonthlyPvBillingsService {
     );
   }
 
+  private isBillingRecordFinalized(record: {
+    finalizedAt?: Date | string | null;
+    invoiceStatus?: BillingWorkflowStatus | null;
+    invoice?: {
+      status?: InvoiceStatus | null;
+    } | null;
+  }) {
+    return (
+      Boolean(record.finalizedAt) ||
+      record.invoiceStatus === BillingWorkflowStatus.ISSUED ||
+      record.invoiceStatus === BillingWorkflowStatus.PAID ||
+      record.invoiceStatus === BillingWorkflowStatus.PARTIAL ||
+      record.invoiceStatus === BillingWorkflowStatus.OVERDUE ||
+      this.isFinalizedInvoiceStatus(record.invoice?.status)
+    );
+  }
+
+  private shouldRefreshHistoricalLifecycle(record: {
+    id?: string;
+    year: number;
+    month: number;
+    finalizedAt?: Date | string | null;
+    invoiceStatus?: BillingWorkflowStatus | null;
+    dataQualityStatus?: BillingDataQualityStatus | null;
+    invoice?: {
+      status?: InvoiceStatus | null;
+    } | null;
+  }) {
+    if (!record.id) {
+      return false;
+    }
+
+    if (this.isCurrentBillingPeriod(record.year, record.month)) {
+      return false;
+    }
+
+    if (this.isBillingRecordFinalized(record)) {
+      return false;
+    }
+
+    return (
+      record.invoiceStatus === BillingWorkflowStatus.ESTIMATE ||
+      record.dataQualityStatus === BillingDataQualityStatus.UNKNOWN
+    );
+  }
+
+  private normalizeInvoiceStatusForDisplay(
+    record: {
+      invoiceStatus?: BillingWorkflowStatus | null;
+      dataQualityStatus?: BillingDataQualityStatus | null;
+      invoice?: {
+        status?: InvoiceStatus | null;
+      } | null;
+    },
+    isCurrentOpenPeriod: boolean,
+  ) {
+    if (isCurrentOpenPeriod) {
+      return record.invoiceStatus;
+    }
+
+    if (record.invoiceStatus !== BillingWorkflowStatus.ESTIMATE) {
+      return record.invoiceStatus;
+    }
+
+    const mappedFromInvoice = this.mapInvoiceToWorkflowStatus(record.invoice?.status);
+    if (mappedFromInvoice) {
+      return mappedFromInvoice;
+    }
+
+    if (record.dataQualityStatus === BillingDataQualityStatus.OK) {
+      return BillingWorkflowStatus.DRAFT;
+    }
+
+    return BillingWorkflowStatus.PENDING_REVIEW;
+  }
+
   private isPastBillingPeriod(year: number, month: number) {
     const formatter = new Intl.DateTimeFormat('en-CA', {
       timeZone: BILLING_TIMEZONE,
@@ -1332,6 +1595,19 @@ export class MonthlyPvBillingsService {
     const currentMonth = Number(parts.find((part) => part.type === 'month')?.value || 0);
 
     return year < currentYear || (year === currentYear && month < currentMonth);
+  }
+
+  private isCurrentBillingPeriod(year: number, month: number) {
+    const formatter = new Intl.DateTimeFormat('en-CA', {
+      timeZone: BILLING_TIMEZONE,
+      year: 'numeric',
+      month: '2-digit',
+    });
+    const parts = formatter.formatToParts(new Date());
+    const currentYear = Number(parts.find((part) => part.type === 'year')?.value || 0);
+    const currentMonth = Number(parts.find((part) => part.type === 'month')?.value || 0);
+
+    return year === currentYear && month === currentMonth;
   }
 
   private resolveInvoiceTargetStatus(
@@ -1606,6 +1882,11 @@ export class MonthlyPvBillingsService {
     }
 
     this.ensureRecordIsMutable(record.invoice);
+
+    if (this.isCurrentBillingPeriod(record.year, record.month) && !this.isBillingRecordFinalized(record)) {
+      return;
+    }
+
     const invoiceStatus =
       record.invoice.status === InvoiceStatus.PAID ||
       record.invoice.status === InvoiceStatus.PARTIAL
@@ -1680,6 +1961,17 @@ export class MonthlyPvBillingsService {
       expectedDayCount: Number(record.expectedDayCount || 0),
       availableDayCount: Number(record.availableDayCount || 0),
       missingDayCount: Number(record.missingDayCount || 0),
+      summarySource: record.summarySource || 'SNAPSHOT',
+      liveAsOf:
+        typeof record.liveAsOf === 'string'
+          ? record.liveAsOf
+          : record.liveAsOf?.toISOString?.() || null,
+      snapshotAt:
+        typeof record.snapshotAt === 'string'
+          ? record.snapshotAt
+          : record.snapshotAt?.toISOString?.() || null,
+      isCurrentOpenPeriod: Boolean(record.isCurrentOpenPeriod),
+      isFinalized: Boolean(record.isFinalized),
       manualOverrideKwh: this.optionalNumber(record.manualOverrideKwh),
       manualOverrideByUser: record.manualOverrideByUser
         ? {

@@ -4,6 +4,7 @@ import { ReactNode } from 'react';
 import { SectionCard } from '@/components/section-card';
 import { StatusPill } from '@/components/status-pill';
 import {
+  buildBillingLiveSummaryLabel,
   formatBillingMeterReading,
   formatBillingUsage,
   monthlyBillingSourceLabel,
@@ -30,6 +31,10 @@ type MonthlyPvBillingTableProps = {
 };
 
 function invoiceLabel(record: MonthlyPvBillingRecord) {
+  if (record.isCurrentOpenPeriod && !record.isFinalized) {
+    return 'ESTIMATE';
+  }
+
   return record.invoice?.status || record.invoiceStatus || 'UNBILLED';
 }
 
@@ -54,6 +59,13 @@ export function MonthlyPvBillingTable({
   dark = true,
   className,
 }: MonthlyPvBillingTableProps) {
+  const buildLiveSummary = (record: MonthlyPvBillingRecord) =>
+    buildBillingLiveSummaryLabel({
+      summarySource: record.summarySource,
+      isCurrentOpenPeriod: record.isCurrentOpenPeriod,
+      liveAsOf: record.liveAsOf || record.syncTime,
+    });
+
   const showUsageColumns = records.some(
     (record) =>
       record.periodMetrics?.loadConsumedKwh !== undefined ||
@@ -85,6 +97,9 @@ export function MonthlyPvBillingTable({
                     <p className="mt-1 text-sm text-slate-400">
                       {monthlyBillingSourceLabel(record.source)}
                     </p>
+                    {buildLiveSummary(record) ? (
+                      <p className="mt-2 text-xs text-emerald-200">{buildLiveSummary(record)}</p>
+                    ) : null}
                   </div>
                   <StatusPill label={invoiceLabel(record)} />
                 </div>
@@ -231,6 +246,11 @@ export function MonthlyPvBillingTable({
                       {record.qualitySummary ? (
                         <p className="mt-1 max-w-[240px] text-xs leading-5 text-slate-500">
                           {record.qualitySummary}
+                        </p>
+                      ) : null}
+                      {buildLiveSummary(record) ? (
+                        <p className="mt-1 max-w-[240px] text-xs leading-5 text-emerald-200">
+                          {buildLiveSummary(record)}
                         </p>
                       ) : null}
                     </td>

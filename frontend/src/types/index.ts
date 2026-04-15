@@ -537,6 +537,12 @@ export type InvoiceRow = {
     bankTransferNote?: string | null;
     qualitySummary?: string | null;
     note?: string | null;
+    summarySource?: 'LIVE_CURRENT' | 'SNAPSHOT' | null;
+    liveAsOf?: string | null;
+    snapshotAt?: string | null;
+    isCurrentOpenPeriod?: boolean;
+    isFinalized?: boolean;
+    liveSummaryLabel?: string | null;
   } | null;
 };
 
@@ -1325,6 +1331,8 @@ export type InvoiceRecord = {
   contract?: ContractRecord | null;
   items: InvoiceItemRecord[];
   payments: PaymentRecord[];
+  createdAt?: string;
+  updatedAt?: string;
   periodMetrics?: {
     period?: string | null;
     pvGenerationKwh?: number | null;
@@ -1387,6 +1395,11 @@ export type MonthlyPvBillingRecord = {
   lastAutoRetriedAt?: string | null;
   lastQualityCheckedAt?: string | null;
   finalizedAt?: string | null;
+  summarySource?: 'LIVE_CURRENT' | 'SNAPSHOT' | null;
+  liveAsOf?: string | null;
+  snapshotAt?: string | null;
+  isCurrentOpenPeriod?: boolean;
+  isFinalized?: boolean;
   manualOverrideKwh?: number | null;
   manualOverrideReason?: string | null;
   manualOverrideAt?: string | null;
