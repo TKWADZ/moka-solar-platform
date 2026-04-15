@@ -8,13 +8,14 @@ import {
   useRef,
   useState,
 } from 'react';
-import { getAccessToken } from '@/lib/auth';
+import { expireSession, getAccessToken } from '@/lib/auth';
 import {
   buildApiUrl,
   listMyNotificationsRequest,
   markAllNotificationsReadRequest,
   markNotificationReadRequest,
   notificationsUnreadSummaryRequest,
+  refreshSessionRequest,
   supportTicketUnreadSummaryRequest,
 } from '@/lib/api';
 import {
@@ -108,6 +109,7 @@ export function PortalLiveProvider({ children }: { children: React.ReactNode }) 
   const [lastEvent, setLastEvent] = useState<PortalRealtimeEvent | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const reconnectTimerRef = useRef<number | null>(null);
+  const reconnectAttemptRef = useRef(0);
 
   async function refreshNotifications() {
     const [items, unreadSummary] = await Promise.all([
@@ -142,7 +144,7 @@ export function PortalLiveProvider({ children }: { children: React.ReactNode }) 
   useEffect(() => {
     let active = true;
     const decoder = new TextDecoder();
-    const abortController = new AbortController();
+    let streamAbortController: AbortController | null = null;
 
     async function bootstrap() {
       try {
@@ -152,18 +154,33 @@ export function PortalLiveProvider({ children }: { children: React.ReactNode }) 
       }
     }
 
+    function clearReconnectTimer() {
+      if (reconnectTimerRef.current) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+    }
+
     function scheduleReconnect() {
       if (!active) {
         return;
       }
 
-      if (reconnectTimerRef.current) {
-        window.clearTimeout(reconnectTimerRef.current);
-      }
+      clearReconnectTimer();
+
+      const delayMs = Math.min(30000, 1000 * 2 ** Math.min(reconnectAttemptRef.current, 5));
+      reconnectAttemptRef.current += 1;
 
       reconnectTimerRef.current = window.setTimeout(() => {
-        void connect();
-      }, 2500);
+        void connect({ allowRefresh: true });
+      }, delayMs);
+    }
+
+    function expireAndStop(reason: 'expired' | 'forbidden') {
+      clearReconnectTimer();
+      reconnectAttemptRef.current = 0;
+      setIsConnected(false);
+      expireSession(reason);
     }
 
     function handleIncoming(event: PortalRealtimeEvent) {
@@ -186,13 +203,17 @@ export function PortalLiveProvider({ children }: { children: React.ReactNode }) 
       }
     }
 
-    async function connect() {
+    async function connect(options: { allowRefresh?: boolean } = {}) {
       const token = getAccessToken();
 
       if (!token) {
         setIsConnected(false);
+        clearReconnectTimer();
         return;
       }
+
+      streamAbortController?.abort();
+      streamAbortController = new AbortController();
 
       try {
         const response = await fetch(buildApiUrl('/notifications/stream'), {
@@ -202,16 +223,55 @@ export function PortalLiveProvider({ children }: { children: React.ReactNode }) 
             Authorization: `Bearer ${token}`,
           },
           cache: 'no-store',
-          signal: abortController.signal,
+          credentials: 'include',
+          signal: streamAbortController.signal,
         });
 
-        if (!response.ok || !response.body) {
+        if (!active) {
+          return;
+        }
+
+        if (response.status === 401) {
+          setIsConnected(false);
+
+          if (options.allowRefresh === false) {
+            expireAndStop('expired');
+            return;
+          }
+
+          const nextSession = await refreshSessionRequest();
+          if (nextSession?.accessToken && active) {
+            reconnectAttemptRef.current = 0;
+            await connect({ allowRefresh: false });
+            return;
+          }
+
+          expireAndStop('expired');
+          return;
+        }
+
+        if (response.status === 403) {
+          expireAndStop('forbidden');
+          return;
+        }
+
+        if (!response.ok) {
+          setIsConnected(false);
+
+          if (response.status >= 500) {
+            scheduleReconnect();
+          }
+          return;
+        }
+
+        if (!response.body) {
           setIsConnected(false);
           scheduleReconnect();
           return;
         }
 
         setIsConnected(true);
+        reconnectAttemptRef.current = 0;
         const reader = response.body.getReader();
         let buffer = '';
 
@@ -234,10 +294,18 @@ export function PortalLiveProvider({ children }: { children: React.ReactNode }) 
           });
         }
 
+        if (!active) {
+          return;
+        }
+
         setIsConnected(false);
         scheduleReconnect();
-      } catch {
+      } catch (error) {
         if (!active) {
+          return;
+        }
+
+        if (error instanceof DOMException && error.name === 'AbortError') {
           return;
         }
 
@@ -247,14 +315,12 @@ export function PortalLiveProvider({ children }: { children: React.ReactNode }) 
     }
 
     void bootstrap();
-    void connect();
+    void connect({ allowRefresh: true });
 
     return () => {
       active = false;
-      abortController.abort();
-      if (reconnectTimerRef.current) {
-        window.clearTimeout(reconnectTimerRef.current);
-      }
+      streamAbortController?.abort();
+      clearReconnectTimer();
     };
   }, []);
 

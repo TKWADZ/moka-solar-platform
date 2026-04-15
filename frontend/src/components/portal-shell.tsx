@@ -41,6 +41,7 @@ import {
   hasPermission,
   hasRole,
   logout,
+  subscribeToSessionChange,
 } from '@/lib/auth';
 import { useI18n } from '@/lib/i18n';
 import { cn } from '@/lib/utils';
@@ -674,6 +675,30 @@ export function PortalShell({ title, kicker, nav, allowedRoles, children }: Port
     setAuthState('ready');
 
     let active = true;
+    const unsubscribe = subscribeToSessionChange(({ session: updatedSession }) => {
+      if (!active) {
+        return;
+      }
+
+      const latestSession = updatedSession ?? getSession();
+
+      if (!latestSession) {
+        setSession(null);
+        setAuthState('redirecting');
+        window.location.replace('/login');
+        return;
+      }
+
+      if (!hasRole(latestSession, allowedRoleList)) {
+        setSession(null);
+        setAuthState('redirecting');
+        window.location.replace(getDefaultRouteForRole(latestSession.user.role));
+        return;
+      }
+
+      setSession(latestSession);
+      setAuthState('ready');
+    });
 
     featureCatalogRequest()
       .then((plugins) => {
@@ -697,6 +722,7 @@ export function PortalShell({ title, kicker, nav, allowedRoles, children }: Port
 
     return () => {
       active = false;
+      unsubscribe();
     };
   }, [roleKey]);
 

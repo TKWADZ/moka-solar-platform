@@ -3,6 +3,19 @@
 import { PermissionCode, SessionPayload, UserRole } from '@/types';
 
 const SESSION_KEY = 'moka_solar_session';
+export const AUTH_SESSION_CHANGED_EVENT = 'moka-auth-session-changed';
+
+export type AuthSessionChangeReason =
+  | 'saved'
+  | 'cleared'
+  | 'logout'
+  | 'expired'
+  | 'forbidden';
+
+export type AuthSessionChangeDetail = {
+  reason: AuthSessionChangeReason;
+  session: SessionPayload | null;
+};
 
 function getAvailableStorage() {
   if (typeof window === 'undefined') {
@@ -25,6 +38,18 @@ function getAvailableStorage() {
   return null;
 }
 
+function emitSessionChange(detail: AuthSessionChangeDetail) {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.dispatchEvent(
+    new CustomEvent<AuthSessionChangeDetail>(AUTH_SESSION_CHANGED_EVENT, {
+      detail,
+    }),
+  );
+}
+
 export function saveSession(session: SessionPayload) {
   const storage = getAvailableStorage();
 
@@ -35,6 +60,10 @@ export function saveSession(session: SessionPayload) {
   }
 
   storage.setItem(SESSION_KEY, JSON.stringify(session));
+  emitSessionChange({
+    reason: 'saved',
+    session,
+  });
 }
 
 export function getSession(): SessionPayload | null {
@@ -59,6 +88,10 @@ export function getSession(): SessionPayload | null {
 
 export function getAccessToken() {
   return getSession()?.accessToken || '';
+}
+
+export function getRefreshToken() {
+  return getSession()?.refreshToken || '';
 }
 
 export function hasRole(session: SessionPayload | null, allowedRoles: UserRole[]) {
@@ -107,7 +140,7 @@ export function getDefaultRouteForRole(role?: UserRole | null) {
   return '/login';
 }
 
-export function clearSession() {
+export function clearSession(reason: AuthSessionChangeReason = 'cleared') {
   if (typeof window === 'undefined') {
     return;
   }
@@ -119,9 +152,37 @@ export function clearSession() {
       // Ignore storage access errors while clearing the session.
     }
   }
+
+  emitSessionChange({
+    reason,
+    session: null,
+  });
+}
+
+export function expireSession(reason: 'expired' | 'forbidden' = 'expired') {
+  clearSession(reason);
+}
+
+export function subscribeToSessionChange(
+  listener: (detail: AuthSessionChangeDetail) => void,
+) {
+  if (typeof window === 'undefined') {
+    return () => undefined;
+  }
+
+  const handler = (event: Event) => {
+    const customEvent = event as CustomEvent<AuthSessionChangeDetail>;
+    listener(customEvent.detail);
+  };
+
+  window.addEventListener(AUTH_SESSION_CHANGED_EVENT, handler as EventListener);
+
+  return () => {
+    window.removeEventListener(AUTH_SESSION_CHANGED_EVENT, handler as EventListener);
+  };
 }
 
 export function logout() {
-  clearSession();
+  clearSession('logout');
   window.location.href = '/login';
 }

@@ -80,6 +80,12 @@ import {
 } from '@/data/mock';
 import { buildDefaultMarketingPages } from '@/data/marketing-cms';
 import { PublicSiteConfig, publicSiteConfig } from '@/config/public-site';
+import {
+  expireSession,
+  getAccessToken,
+  getRefreshToken,
+  saveSession,
+} from '@/lib/auth';
 
 const demoRolePermissions: Record<UserRole, PermissionCode[]> = {
   SUPER_ADMIN: [
@@ -232,6 +238,9 @@ const SESSION_KEY = 'moka_solar_session';
 const MARKETING_PAGES_KEY = 'moka_solar_marketing_pages';
 const WEBSITE_SETTINGS_KEY = 'moka_solar_website_settings';
 const API_TIMEOUT_MS = 8000;
+const AUTH_REFRESH_PATH = '/auth/refresh';
+
+let refreshSessionPromise: Promise<SessionPayload | null> | null = null;
 
 function isLoopbackHost(hostname: string) {
   return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
@@ -408,18 +417,9 @@ const demoSessions = Object.fromEntries(
 >;
 
 export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
-  const token =
-    typeof window !== 'undefined'
-      ? (() => {
-          try {
-            const raw = window.localStorage.getItem(SESSION_KEY);
-            if (!raw) return '';
-            return (JSON.parse(raw) as SessionPayload).accessToken || '';
-          } catch {
-            return '';
-          }
-        })()
-      : '';
+  const token = getAccessToken();
+  const canAttemptRefresh =
+    typeof window !== 'undefined' && !path.startsWith('/auth/');
 
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
@@ -433,11 +433,12 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
     response = await fetch(`${getApiBaseUrl()}${path}`, {
       ...options,
       headers: {
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        ...(!isFormDataBody ? { 'Content-Type': 'application/json' } : {}),
         ...(options?.headers || {}),
+        ...(!isFormDataBody ? { 'Content-Type': 'application/json' } : {}),
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       cache: 'no-store',
+      credentials: 'include',
       signal: controller.signal,
     });
   } catch (error) {
@@ -451,6 +452,41 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
   }
 
   clearTimeout(timeout);
+
+  if (response.status === 401 && canAttemptRefresh) {
+    const nextSession = await refreshSessionRequest();
+
+    if (nextSession?.accessToken) {
+      const retryController = new AbortController();
+      const retryTimeout = setTimeout(() => retryController.abort(), API_TIMEOUT_MS);
+
+      try {
+        response = await fetch(`${getApiBaseUrl()}${path}`, {
+          ...options,
+          headers: {
+            ...(options?.headers || {}),
+            ...(typeof FormData !== 'undefined' && options?.body instanceof FormData
+              ? {}
+              : { 'Content-Type': 'application/json' }),
+            Authorization: `Bearer ${nextSession.accessToken}`,
+          },
+          cache: 'no-store',
+          credentials: 'include',
+          signal: retryController.signal,
+        });
+      } catch (error) {
+        clearTimeout(retryTimeout);
+
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          throw new Error('Yeu cau toi may chu mat qua nhieu thoi gian. Vui long thu lai.');
+        }
+
+        throw error;
+      }
+
+      clearTimeout(retryTimeout);
+    }
+  }
 
   if (!response.ok) {
     let message = `API Error: ${response.status}`;
@@ -470,6 +506,55 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
   }
 
   return response.json();
+}
+
+export async function refreshSessionRequest(): Promise<SessionPayload | null> {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) {
+    expireSession('expired');
+    return null;
+  }
+
+  if (!refreshSessionPromise) {
+    refreshSessionPromise = (async () => {
+      try {
+        const response = await fetch(`${getApiBaseUrl()}${AUTH_REFRESH_PATH}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ refreshToken }),
+          cache: 'no-store',
+          credentials: 'include',
+        });
+
+        if (!response.ok) {
+          expireSession('expired');
+          return null;
+        }
+
+        const nextSession = (await response.json()) as SessionPayload;
+        if (!nextSession?.accessToken) {
+          expireSession('expired');
+          return null;
+        }
+
+        saveSession(nextSession);
+        return nextSession;
+      } catch {
+        expireSession('expired');
+        return null;
+      } finally {
+        refreshSessionPromise = null;
+      }
+    })();
+  }
+
+  return refreshSessionPromise;
 }
 
 export async function loginRequest(identifier: string, password: string) {
