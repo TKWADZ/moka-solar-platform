@@ -96,6 +96,7 @@ export const APPROVED_BILLING_TEMPLATE_PARAMS = [
   'san_luong_kwh',
   'so_tien',
   'ma_hop_dong',
+  'dia_chi',
 ] as const;
 export const DEFAULT_BILLING_TEMPLATE_SCHEMA: ZaloTemplateSchema = {
   code: 'BILLING_APPROVED',

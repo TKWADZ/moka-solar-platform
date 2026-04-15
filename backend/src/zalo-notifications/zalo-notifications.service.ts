@@ -118,6 +118,7 @@ type BillingTemplatePayloadParams = {
   energyKwhLabel: string;
   displayAmount: string;
   contractNumber: string;
+  address: string;
 };
 
 @Injectable()
@@ -198,8 +199,9 @@ export class ZaloNotificationsService {
         customerName: 'Khach hang test',
         systemName: 'He thong rooftop test',
         energyKwhLabel: this.formatKwhLabelForBillingTemplate(500),
-        displayAmount: this.formatCurrencyForPayload(1749600),
+        displayAmount: this.formatDisplayAmountForBillingTemplate(1749600),
         contractNumber: 'MKSL-TEST-001',
+        address: '123 Nguyen Van Linh, Da Nang',
       }),
       tracking_id: `TEST-${Date.now()}`,
       mode: 'development',
@@ -397,6 +399,7 @@ export class ZaloNotificationsService {
       invoice.customer?.user?.fullName?.trim() ||
       'Quy khach';
     const systemName = invoice.contract?.solarSystem?.name?.trim() || 'He thong dien mat troi';
+    const address = this.resolveBillingAddress(invoice);
     const billingMonthLabel = this.formatBillingMonthLabel(
       invoice.billingMonth,
       invoice.billingYear,
@@ -418,8 +421,9 @@ export class ZaloNotificationsService {
             customerName,
             systemName,
             energyKwhLabel: this.formatKwhLabelForBillingTemplate(billableConsumption),
-            displayAmount: this.formatCurrencyForPayload(outstandingAmount),
+            displayAmount: this.formatDisplayAmountForBillingTemplate(outstandingAmount),
             contractNumber: invoice.contract?.contractNumber || '',
+            address,
           })
         : this.buildLegacyBillingTemplatePayload({
             customerName,
@@ -1610,6 +1614,7 @@ export class ZaloNotificationsService {
       san_luong_kwh: params.energyKwhLabel,
       so_tien: params.displayAmount,
       ma_hop_dong: params.contractNumber,
+      dia_chi: params.address,
     } satisfies Record<(typeof APPROVED_BILLING_TEMPLATE_PARAMS)[number], string>;
   }
 
@@ -1723,6 +1728,7 @@ export class ZaloNotificationsService {
       case 'ten_khach_hang':
       case 'ten_he_thong':
       case 'ma_hop_dong':
+      case 'dia_chi':
         return normalized.length > 0;
       case 'thang':
         return /^(0[1-9]|1[0-2])\/\d{4}$/.test(normalized) || /^Thang\s+\d{1,2}$/i.test(normalized);
@@ -1755,6 +1761,29 @@ export class ZaloNotificationsService {
     return this.sanitizeBankTransferNote(`MOKA${month}${year}${contractOrReference}`);
   }
 
+  private resolveBillingAddress(invoice: {
+    contract?: {
+      solarSystem?: {
+        locationAddress?: string | null;
+      } | null;
+    } | null;
+    customer?: {
+      installationAddress?: string | null;
+      billingAddress?: string | null;
+    } | null;
+  }) {
+    const candidates = [
+      invoice.contract?.solarSystem?.locationAddress,
+      invoice.customer?.installationAddress,
+      invoice.customer?.billingAddress,
+    ];
+    const match = candidates.find(
+      (value) => typeof value === 'string' && value.trim().length > 0,
+    );
+
+    return match?.trim() || '';
+  }
+
   private formatBillingMonthLabel(month?: number | null, year?: number | null) {
     if (!month || !year) {
       return '';
@@ -1775,12 +1804,10 @@ export class ZaloNotificationsService {
   private formatDisplayAmountForBillingTemplate(value: unknown) {
     const numeric = Number(value || 0);
     if (!Number.isFinite(numeric)) {
-      return '0 đ';
+      return '0';
     }
 
-    return `${new Intl.NumberFormat('vi-VN', {
-      maximumFractionDigits: 0,
-    }).format(Math.round(numeric))} đ`;
+    return String(Math.round(numeric));
   }
 
   private normalizePhoneNumber(value: string) {

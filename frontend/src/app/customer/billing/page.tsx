@@ -1,91 +1,40 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { ArrowUpRight, FileDown, ReceiptText } from 'lucide-react';
 import { InvoiceTable } from '@/components/invoice-table';
 import { SectionCard } from '@/components/section-card';
 import { StatCard } from '@/components/stat-card';
 import { StatusPill } from '@/components/status-pill';
 import {
+  buildCustomerBillingDisplayModel,
+  contractTypeLabel,
+  findBillingRecordForInvoice,
+  formatBillingMeterReading,
+  formatBillingUsage,
+  invoiceItemLabel,
+  invoiceStatusLabel,
+} from '@/lib/billing-display';
+import {
   downloadInvoicePdfRequest,
   listMyInvoicesRequest,
   listMyMonthlyPvBillingsRequest,
 } from '@/lib/api';
-import { formatCurrency, formatDate, formatNumber } from '@/lib/utils';
+import {
+  formatCurrency,
+  formatDate,
+  formatDateTime,
+  formatMonthPeriod,
+  formatNumber,
+} from '@/lib/utils';
 import { InvoiceRecord, InvoiceRow, MonthlyPvBillingRecord, StatCardItem } from '@/types';
-
-function monthLabel(invoice: InvoiceRecord) {
-  return `${String(invoice.billingMonth).padStart(2, '0')}/${invoice.billingYear}`;
-}
-
-function contractTypeLabel(type?: string | null) {
-  switch (type) {
-    case 'PPA_KWH':
-      return 'Bán điện theo kWh';
-    case 'LEASE':
-      return 'Thuê hệ thống cố định';
-    case 'INSTALLMENT':
-      return 'Trả góp';
-    case 'HYBRID':
-      return 'Kết hợp cố định + sản lượng';
-    case 'SALE':
-      return 'Mua đứt hệ thống';
-    default:
-      return type || '-';
-  }
-}
-
-function invoiceItemLabel(value: string) {
-  switch (value) {
-    case 'Electricity usage charge':
-      return 'Tiền điện năng sử dụng';
-    case 'Monthly lease fee':
-      return 'Phí thuê hàng tháng';
-    case 'Maintenance fee':
-      return 'Phí bảo trì';
-    case 'Monthly principal':
-      return 'Gốc hàng tháng';
-    case 'Interest':
-      return 'Lãi';
-    case 'Service fee':
-      return 'Phí dịch vụ';
-    case 'Fixed monthly fee':
-      return 'Phí cố định hàng tháng';
-    case 'Energy usage fee':
-      return 'Phí sử dụng điện năng';
-    case 'System sale payment':
-      return 'Thanh toán mua hệ thống';
-    default:
-      return value;
-  }
-}
-
-function invoiceStatusLabel(status: InvoiceRecord['status']) {
-  if (status === 'PENDING_REVIEW') {
-    return 'Chờ duyệt dữ liệu';
-  }
-
-  if (status === 'PAID') {
-    return 'Đã thanh toán';
-  }
-
-  if (status === 'OVERDUE') {
-    return 'Quá hạn';
-  }
-
-  if (status === 'PARTIAL') {
-    return 'Thanh toán một phần';
-  }
-
-  return 'Chờ thanh toán';
-}
 
 function toInvoiceRows(invoices: InvoiceRecord[]): InvoiceRow[] {
   return invoices.map((invoice) => ({
     id: invoice.id,
     number: invoice.invoiceNumber,
-    month: monthLabel(invoice),
+    month: formatMonthPeriod(invoice.billingMonth, invoice.billingYear),
     dueDate: formatDate(invoice.dueDate),
     amount: Number(invoice.totalAmount),
     status:
@@ -97,7 +46,7 @@ function toInvoiceRows(invoices: InvoiceRecord[]): InvoiceRow[] {
             ? 'Partial'
             : invoice.status === 'PENDING_REVIEW'
               ? 'Pending'
-            : 'Issued',
+              : 'Issued',
     model: contractTypeLabel(
       invoice.contract?.type || invoice.contract?.servicePackage?.contractType || null,
     ),
@@ -128,8 +77,223 @@ function invoiceOutstanding(invoice: InvoiceRecord | null) {
   return Math.max(Number(invoice.totalAmount || 0) - Number(invoice.paidAmount || 0), 0);
 }
 
-function formatMeterReading(value?: number | null) {
-  return value != null ? value.toLocaleString('vi-VN') : 'Chưa áp dụng đo chỉ số';
+type DetailField = {
+  label: string;
+  value: ReactNode;
+  emphasis?: boolean;
+};
+
+function BillingField({ field }: { field: DetailField }) {
+  return (
+    <div className="rounded-[20px] border border-white/8 bg-white/[0.03] px-4 py-3">
+      <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{field.label}</p>
+      <div
+        className={`mt-2 text-sm leading-6 ${field.emphasis ? 'font-semibold text-white' : 'text-slate-200'}`}
+      >
+        {field.value}
+      </div>
+    </div>
+  );
+}
+
+function BillingSpotlightCard({
+  eyebrow,
+  invoice,
+  billing,
+  helperText,
+  actions,
+}: {
+  eyebrow: string;
+  invoice?: InvoiceRecord | null;
+  billing?: MonthlyPvBillingRecord | null;
+  helperText?: string;
+  actions?: ReactNode;
+}) {
+  const display = buildCustomerBillingDisplayModel({ invoice, billing });
+  const billableKwhVisible =
+    display.billableKwh != null &&
+    (display.pvGenerationKwh == null ||
+      Math.abs(Number(display.billableKwh) - Number(display.pvGenerationKwh)) > 0.05);
+
+  const detailFields: DetailField[] = [
+    {
+      label: 'PV tháng',
+      value:
+        display.pvGenerationKwh != null
+          ? formatNumber(display.pvGenerationKwh, 'kWh')
+          : 'Chưa cập nhật',
+    },
+    {
+      label: 'Điện tiêu thụ',
+      value: formatBillingUsage(display.loadConsumedKwh),
+    },
+    ...(billableKwhVisible
+      ? [
+          {
+            label: 'Sản lượng kWh',
+            value:
+              display.billableKwh != null
+                ? formatNumber(display.billableKwh, 'kWh')
+                : 'Chưa cập nhật',
+          } satisfies DetailField,
+        ]
+      : []),
+    {
+      label: 'Đơn giá',
+      value:
+        display.unitPrice != null ? formatCurrency(display.unitPrice) : 'Chưa cấu hình',
+    },
+    {
+      label: 'Tiền trước VAT',
+      value:
+        display.subtotalAmount != null
+          ? formatCurrency(display.subtotalAmount)
+          : 'Chưa cập nhật',
+    },
+    {
+      label: 'VAT',
+      value: display.vatRate != null ? `${display.vatRate}%` : '-',
+    },
+    {
+      label: 'Tiền VAT',
+      value: display.taxAmount != null ? formatCurrency(display.taxAmount) : '-',
+    },
+    {
+      label: 'Chiết khấu',
+      value:
+        display.discountAmount != null ? formatCurrency(display.discountAmount) : '-',
+    },
+    {
+      label: 'Tổng cộng',
+      value:
+        display.totalAmount != null ? formatCurrency(display.totalAmount) : 'Chưa cập nhật',
+      emphasis: true,
+    },
+    ...(invoice
+      ? [
+          {
+            label: 'Số dư cần thanh toán',
+            value: formatCurrency(display.outstandingAmount || 0),
+            emphasis: true,
+          } satisfies DetailField,
+          {
+            label: 'Đã thanh toán',
+            value: formatCurrency(display.paidAmount || 0),
+          } satisfies DetailField,
+        ]
+      : []),
+    {
+      label: 'Chỉ số cũ',
+      value: formatBillingMeterReading(display.previousReading),
+    },
+    {
+      label: 'Chỉ số mới',
+      value: formatBillingMeterReading(display.currentReading),
+    },
+    {
+      label: 'Sync',
+      value: display.syncStatus || 'Chưa cập nhật',
+    },
+    {
+      label: 'Chất lượng',
+      value: display.dataQualityStatus || 'Chưa cập nhật',
+    },
+    {
+      label: 'Hóa đơn',
+      value: display.workflowStatus || 'Chưa cập nhật',
+    },
+    {
+      label: 'Loại hóa đơn',
+      value: contractTypeLabel(display.contractType),
+    },
+    {
+      label: 'Đồng bộ',
+      value: display.syncTime ? formatDateTime(display.syncTime) : 'Chưa cập nhật',
+    },
+    {
+      label: 'Nguồn dữ liệu',
+      value: display.sourceLabel || 'Chưa cập nhật',
+    },
+    ...(display.transferAmount != null
+      ? [
+          {
+            label: 'Transfer amount',
+            value: formatCurrency(display.transferAmount),
+          } satisfies DetailField,
+        ]
+      : []),
+    ...(display.bankTransferNote
+      ? [
+          {
+            label: 'Bank transfer note',
+            value: <span className="break-all font-mono text-xs">{display.bankTransferNote}</span>,
+          } satisfies DetailField,
+        ]
+      : []),
+  ];
+
+  return (
+    <div className="portal-card-soft p-5">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{eyebrow}</p>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <p className="text-sm font-medium text-slate-300">{display.monthLabel}</p>
+            {display.headerStatus ? <StatusPill label={display.headerStatus} /> : null}
+          </div>
+          <h3 className="mt-3 text-2xl font-semibold tracking-tight text-white">
+            {display.systemName}
+          </h3>
+          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm text-slate-400">
+            {display.address ? <span>{display.address}</span> : null}
+            {display.contractNumber ? <span>Mã HĐ: {display.contractNumber}</span> : null}
+            {display.customerName ? <span>Khách hàng: {display.customerName}</span> : null}
+          </div>
+          {helperText ? <p className="mt-3 text-sm leading-6 text-slate-300">{helperText}</p> : null}
+        </div>
+
+        <div className="rounded-[20px] border border-white/8 bg-white/[0.03] px-4 py-3 text-right">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+            Giá trị hiện tại
+          </p>
+          <p className="mt-2 text-xl font-semibold text-white">
+            {display.totalAmount != null ? formatCurrency(display.totalAmount) : 'Chưa cập nhật'}
+          </p>
+          {invoice?.dueDate ? (
+            <p className="mt-2 text-xs text-slate-400">Đến hạn {formatDate(invoice.dueDate)}</p>
+          ) : null}
+        </div>
+      </div>
+
+      {(display.syncStatus || display.dataQualityStatus || display.workflowStatus) && (
+        <div className="mt-4 flex flex-wrap gap-2">
+          {display.syncStatus ? <StatusPill label={display.syncStatus} /> : null}
+          {display.dataQualityStatus ? <StatusPill label={display.dataQualityStatus} /> : null}
+          {display.workflowStatus ? <StatusPill label={display.workflowStatus} /> : null}
+        </div>
+      )}
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        {detailFields.map((field) => (
+          <BillingField key={field.label} field={field} />
+        ))}
+      </div>
+
+      {display.qualitySummary ? (
+        <div className="mt-4 rounded-[20px] border border-white/8 bg-white/[0.03] px-4 py-3 text-sm leading-6 text-slate-300">
+          {display.qualitySummary}
+        </div>
+      ) : null}
+
+      {display.note ? (
+        <div className="mt-3 rounded-[20px] border border-white/8 bg-white/[0.03] px-4 py-3 text-sm leading-6 text-slate-300">
+          {display.note}
+        </div>
+      ) : null}
+
+      {actions ? <div className="mt-5 flex flex-wrap gap-3">{actions}</div> : null}
+    </div>
+  );
 }
 
 export default function CustomerBillingPage() {
@@ -146,7 +310,9 @@ export default function CustomerBillingPage() {
       })
       .catch((nextError) =>
         setError(
-          nextError instanceof Error ? nextError.message : 'Không thể tải dữ liệu hóa đơn.',
+          nextError instanceof Error
+            ? nextError.message
+            : 'Không thể tải dữ liệu hóa đơn.',
         ),
       )
       .finally(() => setLoading(false));
@@ -190,6 +356,11 @@ export default function CustomerBillingPage() {
       invoices[0] ||
       null,
     [invoices, openInvoices],
+  );
+
+  const currentInvoiceBilling = useMemo(
+    () => findBillingRecordForInvoice(currentInvoice, monthlyBillings),
+    [currentInvoice, monthlyBillings],
   );
 
   const invoiceRows = useMemo(() => toInvoiceRows(invoices), [invoices]);
@@ -270,124 +441,94 @@ export default function CustomerBillingPage() {
           <InvoiceTable rows={invoiceRows} dark />
         </SectionCard>
 
-        <SectionCard title="Tóm tắt kỳ đang theo dõi" eyebrow="Số tiền, sản lượng và đối soát chỉ số" dark>
+        <SectionCard
+          title="Tóm tắt kỳ đang theo dõi"
+          eyebrow="Giữ layout mới nhưng mở rộng nội dung hóa đơn theo dữ liệu admin"
+          dark
+        >
           {currentMonthEstimate || pendingReviewRecord || currentInvoice ? (
             <div className="space-y-4">
               {currentMonthEstimate ? (
-                <div className="portal-card-soft p-5">
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div>
-                      <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                        Tạm tính tháng này
-                      </p>
-                      <h3 className="mt-3 text-3xl font-semibold tracking-tight text-white">
-                        {formatCurrency(currentMonthEstimate.totalAmount)}
-                      </h3>
-                      <p className="mt-2 text-sm text-slate-400">
-                        {monthLabel({
-                          billingMonth: currentMonthEstimate.month,
-                          billingYear: currentMonthEstimate.year,
-                        } as InvoiceRecord)} • {formatNumber(currentMonthEstimate.pvGenerationKwh, 'kWh')}
-                      </p>
-                    </div>
-
-                    <StatusPill label={currentMonthEstimate.invoiceStatus} />
-                  </div>
-
-                  <div className="mt-5 grid gap-3 text-sm text-slate-300 sm:grid-cols-2">
-                    <p>Đơn giá: {formatCurrency(currentMonthEstimate.unitPrice)}</p>
-                    <p>Thuế VAT: {currentMonthEstimate.vatRate != null ? `${currentMonthEstimate.vatRate}%` : '-'}</p>
-                    <p>Dữ liệu: {currentMonthEstimate.qualitySummary || 'Đang cập nhật trong tháng'}</p>
-                    <p>Nguồn: {currentMonthEstimate.periodMetrics?.sourceLabel || currentMonthEstimate.source}</p>
-                  </div>
-                </div>
+                <BillingSpotlightCard
+                  eyebrow="Tạm tính tháng này"
+                  billing={currentMonthEstimate}
+                  helperText="Trong tháng hệ thống chỉ hiển thị sản lượng và số tiền tạm tính. Hóa đơn chính thức sẽ được chốt sau khi hoàn tất đối soát dữ liệu tháng."
+                />
               ) : null}
 
               {pendingReviewRecord ? (
                 <div className="rounded-[24px] border border-amber-300/15 bg-amber-400/10 px-5 py-4 text-sm leading-6 text-amber-100">
-                  Dữ liệu kỳ {String(pendingReviewRecord.month).padStart(2, '0')}/{pendingReviewRecord.year} đang chờ đối soát trước khi phát hành hóa đơn chính thức.
+                  Dữ liệu kỳ {String(pendingReviewRecord.month).padStart(2, '0')}/
+                  {pendingReviewRecord.year} đang chờ đối soát. Hệ thống sẽ không tự phát hành
+                  hoặc gửi Zalo cho đến khi dữ liệu đạt trạng thái sẵn sàng.
                 </div>
               ) : null}
 
               {currentInvoice ? (
                 <>
-              <div className="portal-card-soft p-5">
-                <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div>
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                      {currentInvoice.invoiceNumber}
-                    </p>
-                    <h3 className="mt-3 text-3xl font-semibold tracking-tight text-white">
-                      {formatCurrency(Number(currentInvoice.totalAmount))}
-                    </h3>
-                    <p className="mt-2 text-sm text-slate-400">
-                      Kỳ {monthLabel(currentInvoice)} • Đến hạn {formatDate(currentInvoice.dueDate)}
-                    </p>
-                  </div>
+                  <BillingSpotlightCard
+                    eyebrow={currentInvoice.invoiceNumber}
+                    invoice={currentInvoice}
+                    billing={currentInvoiceBilling}
+                    helperText={`Kỳ ${formatMonthPeriod(
+                      currentInvoice.billingMonth,
+                      currentInvoice.billingYear,
+                    )} • Đến hạn ${formatDate(currentInvoice.dueDate)}`}
+                    actions={
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => downloadInvoicePdfRequest(currentInvoice.id)}
+                          className="btn-primary inline-flex items-center gap-2"
+                        >
+                          <FileDown className="h-4 w-4" />
+                          Tải PDF hóa đơn
+                        </button>
 
-                  <StatusPill label={currentInvoice.status} />
-                </div>
+                        <Link
+                          href="/customer/payments"
+                          className="btn-ghost inline-flex items-center gap-2"
+                        >
+                          Đi tới thanh toán
+                          <ArrowUpRight className="h-4 w-4" />
+                        </Link>
+                      </>
+                    }
+                  />
 
-                <div className="mt-5 grid gap-3 text-sm text-slate-300 sm:grid-cols-2">
-                  <p>Số dư cần thanh toán: {formatCurrency(invoiceOutstanding(currentInvoice))}</p>
-                  <p>VAT: {currentInvoice.vatRate != null ? `${currentInvoice.vatRate}%` : '-'}</p>
-                  <p>Đã thanh toán: {formatCurrency(Number(currentInvoice.paidAmount))}</p>
-                  <p>Tổng cộng: {formatCurrency(Number(currentInvoice.totalAmount || 0))}</p>
-                  <p>
-                    Điện tiêu thụ:{' '}
-                    {currentInvoice.periodMetrics?.loadConsumedKwh != null
-                      ? formatNumber(currentInvoice.periodMetrics.loadConsumedKwh, 'kWh')
-                      : 'Chưa cập nhật'}
-                  </p>
-                  <p>
-                    Nguồn dữ liệu:{' '}
-                    {currentInvoice.periodMetrics?.sourceLabel || 'Chưa cập nhật'}
-                  </p>
-                  <p>Chỉ số cũ: {formatMeterReading(currentInvoice.periodMetrics?.previousReading)}</p>
-                  <p>Chỉ số mới: {formatMeterReading(currentInvoice.periodMetrics?.currentReading)}</p>
-                </div>
-              </div>
-
-              <div className="portal-card-soft p-5">
-                <div className="flex items-center gap-2">
-                  <ReceiptText className="h-4.5 w-4.5 text-slate-300" />
-                  <p className="text-sm font-semibold text-white">Chi tiết hạng mục</p>
-                </div>
-                <div className="mt-4 space-y-3">
-                  {currentInvoice.items.map((item) => (
-                    <div
-                      key={item.id}
-                      className="flex items-start justify-between gap-4 text-sm text-slate-300"
-                    >
-                      <div className="min-w-0">
-                        <p className="font-medium text-white">{invoiceItemLabel(item.description)}</p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          Số lượng {item.quantity} • Đơn giá {formatCurrency(Number(item.unitPrice))}
-                        </p>
-                      </div>
-                      <span className="shrink-0 font-semibold text-white">
-                        {formatCurrency(Number(item.amount))}
-                      </span>
+                  <div className="portal-card-soft p-5">
+                    <div className="flex items-center gap-2">
+                      <ReceiptText className="h-4.5 w-4.5 text-slate-300" />
+                      <p className="text-sm font-semibold text-white">Chi tiết hạng mục</p>
                     </div>
-                  ))}
-                </div>
-              </div>
-
-              <div className="flex flex-wrap gap-3">
-                <button
-                  type="button"
-                  onClick={() => downloadInvoicePdfRequest(currentInvoice.id)}
-                  className="btn-primary inline-flex items-center gap-2"
-                >
-                  <FileDown className="h-4 w-4" />
-                  Tải PDF hóa đơn
-                </button>
-
-                <Link href="/customer/payments" className="btn-ghost inline-flex items-center gap-2">
-                  Đi tới thanh toán
-                  <ArrowUpRight className="h-4 w-4" />
-                </Link>
-              </div>
+                    <div className="mt-4 space-y-3">
+                      {currentInvoice.items.length ? (
+                        currentInvoice.items.map((item) => (
+                          <div
+                            key={item.id}
+                            className="flex items-start justify-between gap-4 text-sm text-slate-300"
+                          >
+                            <div className="min-w-0">
+                              <p className="font-medium text-white">
+                                {invoiceItemLabel(item.description)}
+                              </p>
+                              <p className="mt-1 text-xs text-slate-500">
+                                Số lượng {item.quantity} • Đơn giá{' '}
+                                {formatCurrency(Number(item.unitPrice))}
+                              </p>
+                            </div>
+                            <span className="shrink-0 font-semibold text-white">
+                              {formatCurrency(Number(item.amount))}
+                            </span>
+                          </div>
+                        ))
+                      ) : (
+                        <p className="text-sm leading-6 text-slate-300">
+                          Hóa đơn này chưa có danh sách hạng mục chi tiết.
+                        </p>
+                      )}
+                    </div>
+                  </div>
                 </>
               ) : null}
             </div>
@@ -395,7 +536,8 @@ export default function CustomerBillingPage() {
             <div className="portal-card-soft p-5">
               <p className="text-base font-semibold text-white">Chưa có hóa đơn cần hiển thị</p>
               <p className="mt-2 text-sm leading-6 text-slate-300">
-                Hệ thống sẽ tự động cập nhật hóa đơn theo chu kỳ hợp đồng sau khi hoàn tất đối soát điện năng.
+                Hệ thống sẽ tự động cập nhật hóa đơn theo chu kỳ hợp đồng sau khi hoàn tất đối
+                soát điện năng.
               </p>
             </div>
           )}

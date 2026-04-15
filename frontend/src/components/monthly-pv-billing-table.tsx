@@ -4,6 +4,11 @@ import { ReactNode } from 'react';
 import { SectionCard } from '@/components/section-card';
 import { StatusPill } from '@/components/status-pill';
 import {
+  formatBillingMeterReading,
+  formatBillingUsage,
+  monthlyBillingSourceLabel,
+} from '@/lib/billing-display';
+import {
   formatCurrency,
   formatDateTime,
   formatMonthPeriod,
@@ -26,35 +31,6 @@ type MonthlyPvBillingTableProps = {
 
 function invoiceLabel(record: MonthlyPvBillingRecord) {
   return record.invoice?.status || record.invoiceStatus || 'UNBILLED';
-}
-
-function sourceLabel(source?: string | null) {
-  switch (source) {
-    case 'MANUAL':
-      return 'Nhap tay';
-    case 'MANUAL_OVERRIDE':
-      return 'Override tay';
-    case 'ENERGY_RECORD_AGGREGATE':
-      return 'Tong hop daily record';
-    case 'ADMIN_SYNC':
-      return 'Dong bo admin';
-    case 'DEYE_MONTHLY':
-      return 'Deye OpenAPI';
-    case 'SOLARMAN_MONTHLY':
-      return 'SOLARMAN';
-    case 'LUXPOWER_MONTHLY_AGGREGATE':
-      return 'LuxPower';
-    default:
-      return source || 'Khong ro nguon';
-  }
-}
-
-function formatReading(value?: number | null) {
-  return value != null ? value.toLocaleString('vi-VN') : 'Chua ap dung do chi so';
-}
-
-function formatUsage(value?: number | null) {
-  return value != null ? formatNumber(value, 'kWh') : 'Chua cap nhat';
 }
 
 function emptyState(title: string, body: string) {
@@ -106,7 +82,9 @@ export function MonthlyPvBillingTable({
                             record.customerId
                           : 'Ban ghi PV thang'}
                     </h3>
-                    <p className="mt-1 text-sm text-slate-400">{sourceLabel(record.source)}</p>
+                    <p className="mt-1 text-sm text-slate-400">
+                      {monthlyBillingSourceLabel(record.source)}
+                    </p>
                   </div>
                   <StatusPill label={invoiceLabel(record)} />
                 </div>
@@ -114,7 +92,10 @@ export function MonthlyPvBillingTable({
                 <div className="mt-4 grid gap-2 text-sm text-slate-300 sm:grid-cols-2">
                   <p>PV thang: {formatNumber(record.pvGenerationKwh, 'kWh')}</p>
                   {showUsageColumns ? (
-                    <p>Dien tieu thu: {formatUsage(record.periodMetrics?.loadConsumedKwh)}</p>
+                    <p>
+                      Dien tieu thu:{' '}
+                      {formatBillingUsage(record.periodMetrics?.loadConsumedKwh)}
+                    </p>
                   ) : null}
                   <p>Don gia: {formatCurrency(record.unitPrice)}</p>
                   <p>Tien truoc VAT: {formatCurrency(record.subtotalAmount)}</p>
@@ -125,10 +106,16 @@ export function MonthlyPvBillingTable({
                     Tong cong: {formatCurrency(record.totalAmount)}
                   </p>
                   {showUsageColumns ? (
-                    <p>Chi so cu: {formatReading(record.periodMetrics?.previousReading)}</p>
+                    <p>
+                      Chi so cu:{' '}
+                      {formatBillingMeterReading(record.periodMetrics?.previousReading)}
+                    </p>
                   ) : null}
                   {showUsageColumns ? (
-                    <p>Chi so moi: {formatReading(record.periodMetrics?.currentReading)}</p>
+                    <p>
+                      Chi so moi:{' '}
+                      {formatBillingMeterReading(record.periodMetrics?.currentReading)}
+                    </p>
                   ) : null}
                   <p>Sync: {record.syncStatus}</p>
                   <p>Chat luong: {record.dataQualityStatus}</p>
@@ -221,17 +208,17 @@ export function MonthlyPvBillingTable({
                     </td>
                     {showUsageColumns ? (
                       <td className="py-4 pr-4 tabular-nums">
-                        {formatUsage(record.periodMetrics?.loadConsumedKwh)}
+                        {formatBillingUsage(record.periodMetrics?.loadConsumedKwh)}
                       </td>
                     ) : null}
                     {showUsageColumns ? (
                       <td className="py-4 pr-4 tabular-nums">
-                        {formatReading(record.periodMetrics?.previousReading)}
+                        {formatBillingMeterReading(record.periodMetrics?.previousReading)}
                       </td>
                     ) : null}
                     {showUsageColumns ? (
                       <td className="py-4 pr-4 tabular-nums">
-                        {formatReading(record.periodMetrics?.currentReading)}
+                        {formatBillingMeterReading(record.periodMetrics?.currentReading)}
                       </td>
                     ) : null}
                     <td className="py-4 pr-4 tabular-nums whitespace-nowrap">
@@ -261,7 +248,7 @@ export function MonthlyPvBillingTable({
                     </td>
                     <td className="py-4 pr-4">
                       <span className="inline-flex rounded-full border border-white/10 bg-white/[0.04] px-3 py-1 text-xs text-slate-300">
-                        {sourceLabel(record.source)}
+                        {monthlyBillingSourceLabel(record.source)}
                       </span>
                     </td>
                     {actions ? <td className="py-4">{actions(record)}</td> : null}

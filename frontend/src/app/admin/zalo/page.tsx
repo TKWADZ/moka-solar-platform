@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import { FormEvent, useEffect, useState } from 'react';
 import { CheckCircle2, Loader2, Save, SendHorizonal, ShieldCheck } from 'lucide-react';
@@ -47,9 +47,9 @@ function sourceLabel(source?: string | null) {
     case 'env':
       return 'Env fallback';
     case 'default':
-      return 'Máº·c Ä‘á»‹nh há»‡ thá»‘ng';
+      return 'Mặc định hệ thống';
     case 'missing':
-      return 'ChÆ°a cÃ³';
+      return 'Chưa có';
     default:
       return '-';
   }
@@ -58,13 +58,13 @@ function sourceLabel(source?: string | null) {
 function tokenStateLabel(state?: string | null) {
   switch (state) {
     case 'AVAILABLE':
-      return 'Sáºµn sÃ ng';
+      return 'Sẵn sàng';
     case 'EXPIRED':
-      return 'ÄÃ£ háº¿t háº¡n';
+      return 'Đã hết hạn';
     case 'REJECTED':
-      return 'Bá»‹ Zalo tá»« chá»‘i';
+      return 'Bị Zalo từ chối';
     case 'MISSING':
-      return 'ChÆ°a cÃ³ token';
+      return 'Chưa có token';
     default:
       return '-';
   }
@@ -543,7 +543,7 @@ export default function AdminZaloPage() {
                     </span>
                   </p>
                   <p>
-                    Tráº¡ng thÃ¡i access token:{' '}
+                    Trạng thái access token:{' '}
                     <span className="font-medium text-white">
                       {tokenStateLabel(settings?.accessTokenState)}
                     </span>
@@ -551,23 +551,23 @@ export default function AdminZaloPage() {
                   <p>
                     Auto-refresh:{' '}
                     <span className="font-medium text-white">
-                      {settings?.autoRefreshEnabled ? 'Äang báº­t' : 'ChÆ°a sáºµn sÃ ng'}
+                      {settings?.autoRefreshEnabled ? 'Đang bật' : 'Chưa sẵn sàng'}
                     </span>
                   </p>
                   <p>
                     Refresh token:{' '}
                     <span className="font-medium text-white">
-                      {settings?.hasRefreshToken ? 'ÄÃ£ cáº¥u hÃ¬nh' : 'ChÆ°a cÃ³'}
+                      {settings?.hasRefreshToken ? 'Đã cấu hình' : 'Chưa có'}
                     </span>
                   </p>
                   <p>
-                    LÆ°u token sau refresh:{' '}
+                    Lưu token sau refresh:{' '}
                     <span className="font-medium text-white">
                       {settings?.autoRefreshPersistMode === 'database'
-                        ? 'Ghi láº¡i vÃ o database'
+                        ? 'Ghi lại vào database'
                         : settings?.autoRefreshPersistMode === 'env-only'
-                          ? 'Chá»‰ dÃ¹ng táº¡m, env khÃ´ng tá»± cáº­p nháº­t'
-                          : 'Äang táº¯t'}
+                          ? 'Chỉ dùng tạm, env không tự cập nhật'
+                          : 'Đang tắt'}
                     </span>
                   </p>
                   <p>
@@ -577,7 +577,7 @@ export default function AdminZaloPage() {
                     </span>
                   </p>
                   <p>
-                    Access token háº¿t háº¡n:{' '}
+                    Access token hết hạn:{' '}
                     <span className="font-medium text-white">
                       {settings?.accessTokenExpiresAt
                         ? formatDateTime(settings.accessTokenExpiresAt)
@@ -616,13 +616,13 @@ export default function AdminZaloPage() {
                 {settings?.lastRefreshAt ? (
                   <div className="mt-3 rounded-[16px] border border-white/8 bg-black/10 px-3 py-3 text-sm leading-6 text-slate-300">
                     <p>
-                      Láº§n refresh gáº§n nháº¥t:{' '}
+                      Lần refresh gần nhất:{' '}
                       <span className="font-medium text-white">
                         {formatDateTime(settings.lastRefreshAt)}
                       </span>
                     </p>
                     <p>
-                      Káº¿t quáº£ refresh:{' '}
+                      Kết quả refresh:{' '}
                       <span className="font-medium text-white">
                         {settings.lastRefreshStatus || '-'}
                       </span>
@@ -716,7 +716,7 @@ export default function AdminZaloPage() {
                     />
                   </label>
                   <p className="text-xs leading-5 text-slate-500">
-                    Khi nhap so dien thoai, he thong se dung luong gui ZNS qua SÄT va tu dong su dung
+                    Khi nhap so dien thoai, he thong se dung luong gui ZNS qua SĐT va tu dong su dung
                     header `access_token`.
                   </p>
 
@@ -812,9 +812,10 @@ export default function AdminZaloPage() {
               <div className="mt-3 grid gap-2">
                 <p>`thang`: hien thi theo ky billing UI, hien tai la `MM/YYYY`</p>
                 <p>`san_luong_kwh`: vi du `500 kwh`</p>
-                <p>`so_tien`: so thuan, khong dau cham va khong ky tu tien te, vi du `1749600`</p>
+                <p>`so_tien`: so thuần, khong dau cham va khong ky tu tien te, vi du `1749600`</p>
                 <p>`transfer_amount`: so nguyen de gan nut chuyen khoan, vi du `1749600`</p>
                 <p>`bank_transfer_note`: bo dau, viet hoa, bo khoang trang, bo dau gach va ky tu dac biet, chi giu `A-Z` va `0-9`, toi da 40 ky tu</p>
+                <p>`dia_chi`: dia chi cong trinh/he thong, giu nguyen noi dung hien thi de doi chieu voi hoa don</p>
               </div>
             </div>
 
@@ -883,7 +884,7 @@ export default function AdminZaloPage() {
                       {log.invoiceNumber || log.customerName}
                     </p>
                     <p className="mt-1 text-xs text-slate-400">
-                      {log.recipientPhone || '-'} Â· {formatDateTime(log.createdAt)}
+                      {log.recipientPhone || '-'} · {formatDateTime(log.createdAt)}
                     </p>
                   </div>
                   <StatusPill label={log.sendStatus} tone={statusTone(log.sendStatus)} />

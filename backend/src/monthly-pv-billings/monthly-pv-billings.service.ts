@@ -999,11 +999,11 @@ export class MonthlyPvBillingsService {
     );
     let qualitySummary = 'Dang cho doi soat du lieu billing.';
 
-      if (!closedPeriod) {
-        dataQualityStatus = BillingDataQualityStatus.IN_PROGRESS;
-        invoiceStatus = BillingWorkflowStatus.ESTIMATE;
-        qualitySummary =
-          'Ky hien tai chi hien thi san luong va so tien tam tinh cho den khi ket thuc thang.';
+    if (!closedPeriod) {
+      dataQualityStatus = BillingDataQualityStatus.IN_PROGRESS;
+      invoiceStatus = record.invoiceId ? invoiceStatus || BillingWorkflowStatus.DRAFT : BillingWorkflowStatus.ESTIMATE;
+      qualitySummary =
+        'Ky hien tai chi hien thi san luong va so tien tam tinh cho den khi ket thuc thang.';
     } else if (hasManualOverride) {
       dataQualityStatus = BillingDataQualityStatus.MANUAL_OVERRIDE;
       invoiceStatus = invoiceStatus || BillingWorkflowStatus.PENDING_REVIEW;
@@ -1590,29 +1590,8 @@ export class MonthlyPvBillingsService {
   }
 
   private serialize(record: BillingRecordWithRelations) {
-    const currentPeriod = !this.isPastBillingPeriod(record.year, record.month);
-    const derivedInvoiceStatus = currentPeriod
-      ? BillingWorkflowStatus.ESTIMATE
-      : record.invoiceStatus;
-    const derivedDataQualityStatus =
-      currentPeriod && record.dataQualityStatus === BillingDataQualityStatus.OK
-        ? BillingDataQualityStatus.IN_PROGRESS
-        : record.dataQualityStatus;
-    const derivedAutoSendEligible = currentPeriod ? false : record.autoSendEligible;
-    const derivedQualitySummary =
-      currentPeriod &&
-      (!record.qualitySummary ||
-        record.qualitySummary === 'Du du lieu nang luong va da san sang chot hoa don.')
-        ? 'Ky hien tai chi hien thi san luong va so tien tam tinh cho den khi ket thuc thang.'
-        : record.qualitySummary;
-
     return {
       ...record,
-      dataQualityStatus: derivedDataQualityStatus,
-      invoiceStatus: derivedInvoiceStatus,
-      autoSendEligible: derivedAutoSendEligible,
-      qualitySummary: derivedQualitySummary,
-      finalizedAt: currentPeriod ? null : record.finalizedAt,
       pvGenerationKwh: toNumber(record.pvGenerationKwh),
       billableKwh: toNumber(record.billableKwh),
       unitPrice: toNumber(record.unitPrice),
@@ -1682,6 +1661,7 @@ export class MonthlyPvBillingsService {
         name: record.solarSystem.name,
         systemType: record.solarSystem.systemType,
         capacityKwp: toNumber(record.solarSystem.capacityKwp),
+        locationAddress: record.solarSystem.locationAddress,
         stationId: record.solarSystem.stationId,
         stationName: record.solarSystem.stationName,
         sourceSystem: record.solarSystem.sourceSystem,

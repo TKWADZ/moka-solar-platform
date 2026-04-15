@@ -1232,15 +1232,21 @@ export type ContractRecord = {
     name: string;
     capacityKwp: number;
     location?: string | null;
+    locationAddress?: string | null;
+    stationName?: string | null;
     inverterBrand?: string | null;
     inverterModel?: string | null;
   } | null;
   customer?: {
     id: string;
+    customerCode?: string | null;
     companyName?: string | null;
+    installationAddress?: string | null;
+    billingAddress?: string | null;
     user?: {
       fullName?: string | null;
       email?: string | null;
+      phone?: string | null;
     } | null;
   } | null;
   invoices?: Array<{
@@ -1278,10 +1284,14 @@ export type InvoiceRecord = {
   contractId: string;
   customer?: {
     id: string;
+    customerCode?: string | null;
     companyName?: string | null;
+    installationAddress?: string | null;
+    billingAddress?: string | null;
     user?: {
       fullName?: string | null;
       email?: string | null;
+      phone?: string | null;
     } | null;
   } | null;
   contract?: ContractRecord | null;
@@ -1365,15 +1375,20 @@ export type MonthlyPvBillingRecord = {
     systemType?: string | null;
     capacityKwp: number;
     location?: string | null;
+    locationAddress?: string | null;
+    stationName?: string | null;
     status: string;
   } | null;
   customer?: {
     id: string;
     customerCode?: string;
     companyName?: string | null;
+    installationAddress?: string | null;
+    billingAddress?: string | null;
     user?: {
       fullName?: string | null;
       email?: string | null;
+      phone?: string | null;
     } | null;
   } | null;
   contract?: ContractRecord | null;
@@ -1520,7 +1535,7 @@ export type SolarmanDebugSnapshotRecord = {
 export type SolarmanConnectionRecord = {
   id: string;
   accountName: string;
-  providerType?: 'OFFICIAL_OPENAPI' | 'COOKIE_SESSION' | 'MANUAL_IMPORT' | string;
+  providerType?: 'OFFICIAL_OPENAPI' | 'MANUAL_IMPORT' | string;
   usernameOrEmail: string | null;
   customerId?: string | null;
   defaultUnitPrice?: number | null;
@@ -1536,6 +1551,16 @@ export type SolarmanConnectionRecord = {
   accessTokenPreview?: string | null;
   hasStoredPassword?: boolean;
   hasPersistedCookieSession?: boolean;
+  manualImportSummary?: {
+    captureCount: number;
+    stationCount: number;
+    pageTypes: string[];
+    latestImportedAt?: string | null;
+    inboxDir?: string | null;
+    processedDir?: string | null;
+    normalizedDir?: string | null;
+    requiredFlow?: string | null;
+  };
   createdAt: string;
   updatedAt: string;
   deletedAt?: string | null;
@@ -1558,6 +1583,8 @@ export type SolarmanConnectionRecord = {
     lastFailureMessage?: string | null;
     providerType?: string | null;
     authBridgeReady?: boolean;
+    manualImportReady?: boolean;
+    manualImportMessage?: string | null;
     lastErrorCode?: string | null;
     lastErrorMessage?: string | null;
     realtimeAvailable: boolean;
@@ -1584,6 +1611,28 @@ export type SolarmanTestResponse = {
   connection: SolarmanConnectionRecord;
   stations: SolarmanStationRecord[];
   sampleDevices?: SolarmanDeviceRecord[];
+};
+
+export type SolarmanImportFilesSummary = {
+  connectionId: string;
+  processedFiles: number;
+  skippedDuplicates: number;
+  failedFiles: Array<{
+    fileName: string;
+    reason: string;
+  }>;
+  captureCount: number;
+  stationCount: number;
+  pageTypes: string[];
+  latestImportedAt?: string | null;
+  inboxDir: string;
+  processedDir: string;
+  normalizedDir: string;
+};
+
+export type SolarmanImportFilesResponse = {
+  connection: SolarmanConnectionRecord;
+  summary: SolarmanImportFilesSummary;
 };
 
 export type SolarmanSyncResponse = {
