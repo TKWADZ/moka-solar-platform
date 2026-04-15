@@ -28,6 +28,7 @@ import {
 } from '../common/helpers/domain.helper';
 import {
   aggregateOperationalPeriodMetrics,
+  buildCumulativePvReadingLookups,
   buildOperationalPeriodKey,
   extractOperationalPeriodMetrics,
 } from '../common/helpers/operational-period.helper';
@@ -601,16 +602,71 @@ export class MonthlyPvBillingsService {
       return [];
     }
 
-    const periodRecords = await this.prisma.monthlyEnergyRecord.findMany({
-      where: {
-        deletedAt: null,
-        OR: records.map((record) => ({
-          solarSystemId: record.solarSystemId,
-          year: record.year,
-          month: record.month,
-        })),
-      },
-    });
+    const solarSystemIds = Array.from(
+      new Set(
+        records
+          .map((record) => record.solarSystemId)
+          .filter((value): value is string => Boolean(value)),
+      ),
+    );
+
+    const [periodRecords, fullBillingHistory] = await Promise.all([
+      this.prisma.monthlyEnergyRecord.findMany({
+        where: {
+          deletedAt: null,
+          OR: records.map((record) => ({
+            solarSystemId: record.solarSystemId,
+            year: record.year,
+            month: record.month,
+          })),
+        },
+      }),
+      solarSystemIds.length
+        ? this.prisma.monthlyPvBilling.findMany({
+            where: {
+              deletedAt: null,
+              solarSystemId: {
+                in: solarSystemIds,
+              },
+            },
+            select: {
+              id: true,
+              solarSystemId: true,
+              contractId: true,
+              year: true,
+              month: true,
+              pvGenerationKwh: true,
+            },
+            orderBy: [
+              { solarSystemId: 'asc' },
+              { year: 'asc' },
+              { month: 'asc' },
+              { id: 'asc' },
+            ],
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const cumulativeSourceRecords = [...fullBillingHistory];
+    const knownRecordIds = new Set(fullBillingHistory.map((record) => record.id));
+
+    for (const record of records) {
+      if (!record.id || knownRecordIds.has(record.id)) {
+        continue;
+      }
+
+      cumulativeSourceRecords.push({
+        id: record.id,
+        solarSystemId: record.solarSystemId,
+        contractId: record.contractId,
+        year: record.year,
+        month: record.month,
+        pvGenerationKwh: record.pvGenerationKwh,
+      });
+      knownRecordIds.add(record.id);
+    }
+
+    const cumulativeLookups = buildCumulativePvReadingLookups(cumulativeSourceRecords);
 
     const periodMap = new Map(
       periodRecords
@@ -623,22 +679,43 @@ export class MonthlyPvBillingsService {
 
     return records.map((record) => {
       const serialized = this.serialize(record);
+      const recordPeriodKey = buildOperationalPeriodKey(
+        record.solarSystemId,
+        record.year,
+        record.month,
+      );
       const periodRecord =
-        periodMap.get(
-          buildOperationalPeriodKey(record.solarSystemId, record.year, record.month) || '',
-        ) || null;
+        periodMap.get(recordPeriodKey || '') || null;
+      const basePeriodMetrics =
+        aggregateOperationalPeriodMetrics(periodRecord ? [periodRecord] : [], {
+          year: record.year,
+          month: record.month,
+          source: record.source,
+          syncTime: record.syncTime,
+        }) || extractOperationalPeriodMetrics(periodRecord);
+      const cumulativeReading =
+        cumulativeLookups.byRecordId.get(record.id) ||
+        (recordPeriodKey
+          ? cumulativeLookups.bySystemPeriod.get(recordPeriodKey) || null
+          : null);
 
       return {
         ...serialized,
-        periodMetrics: aggregateOperationalPeriodMetrics(
-          periodRecord ? [periodRecord] : [],
-          {
-            year: record.year,
-            month: record.month,
-            source: record.source,
-            syncTime: record.syncTime,
-          },
-        ) || extractOperationalPeriodMetrics(periodRecord),
+        periodMetrics: basePeriodMetrics
+          ? {
+              ...basePeriodMetrics,
+              pvGenerationKwh:
+                serialized.pvGenerationKwh ?? basePeriodMetrics.pvGenerationKwh,
+              previousReading:
+                cumulativeReading?.previousReading ??
+                basePeriodMetrics.previousReading ??
+                null,
+              currentReading:
+                cumulativeReading?.currentReading ??
+                basePeriodMetrics.currentReading ??
+                null,
+            }
+          : null,
       };
     });
   }

@@ -9,6 +9,7 @@ import { buildInvoicePdf } from './invoice-pdf.util';
 import { NotificationsService } from '../notifications/notifications.service';
 import {
   aggregateOperationalPeriodMetrics,
+  buildCumulativePvReadingLookups,
   buildOperationalPeriodKey,
   extractOperationalPeriodMetrics,
 } from '../common/helpers/operational-period.helper';
@@ -232,26 +233,65 @@ export class InvoicesService {
           month: number;
         } => Boolean(item.key && item.customerId && item.year && item.month),
       );
+    const solarSystemIds = Array.from(
+      new Set(systemLookups.map((item) => item.solarSystemId)),
+    );
 
-    const periodRecords = systemLookups.length || customerLookups.length
-      ? await this.prisma.monthlyEnergyRecord.findMany({
-          where: {
-            deletedAt: null,
-            OR: [
-              ...systemLookups.map((item) => ({
-                solarSystemId: item.solarSystemId,
-                year: item.year,
-                month: item.month,
-              })),
-              ...customerLookups.map((item) => ({
-                customerId: item.customerId,
-                year: item.year,
-                month: item.month,
-              })),
-            ],
-          },
-        })
-      : [];
+    const [periodRecords, fullBillingHistory] =
+      systemLookups.length || customerLookups.length
+        ? await Promise.all([
+            this.prisma.monthlyEnergyRecord.findMany({
+              where: {
+                deletedAt: null,
+                OR: [
+                  ...systemLookups.map((item) => ({
+                    solarSystemId: item.solarSystemId,
+                    year: item.year,
+                    month: item.month,
+                  })),
+                  ...customerLookups.map((item) => ({
+                    customerId: item.customerId,
+                    year: item.year,
+                    month: item.month,
+                  })),
+                ],
+              },
+            }),
+            solarSystemIds.length
+              ? this.prisma.monthlyPvBilling.findMany({
+                  where: {
+                    deletedAt: null,
+                    solarSystemId: {
+                      in: solarSystemIds,
+                    },
+                  },
+                  select: {
+                    id: true,
+                    solarSystemId: true,
+                    contractId: true,
+                    year: true,
+                    month: true,
+                    pvGenerationKwh: true,
+                  },
+                  orderBy: [
+                    { solarSystemId: 'asc' },
+                    { year: 'asc' },
+                    { month: 'asc' },
+                    { id: 'asc' },
+                  ],
+                })
+              : Promise.resolve([]),
+          ])
+        : [[], []];
+    const cumulativeLookups = buildCumulativePvReadingLookups(fullBillingHistory);
+    const billingHistoryMap = new Map(
+      fullBillingHistory
+        .map((record) => [
+          buildOperationalPeriodKey(record.solarSystemId, record.year, record.month),
+          record,
+        ] as const)
+        .filter((entry): entry is [string, (typeof fullBillingHistory)[number]] => Boolean(entry[0])),
+    );
 
     const periodRecordMap = new Map<string, any[]>();
     const customerPeriodRecordMap = new Map<string, any[]>();
@@ -289,13 +329,35 @@ export class InvoicesService {
           : '';
       const systemPeriodRecords = periodRecordMap.get(systemKey) || [];
       const customerPeriodRecords = customerPeriodRecordMap.get(customerKey) || [];
-      const periodMetrics = aggregateOperationalPeriodMetrics(
+      const basePeriodMetrics = aggregateOperationalPeriodMetrics(
         systemPeriodRecords.length ? systemPeriodRecords : customerPeriodRecords,
         {
           year: invoice.billingYear,
           month: invoice.billingMonth,
         },
       );
+      const cumulativeReading =
+        (systemKey ? cumulativeLookups.bySystemPeriod.get(systemKey) : null) || null;
+      const billingHistoryRecord =
+        (systemKey ? billingHistoryMap.get(systemKey) : null) || null;
+      const periodMetrics = basePeriodMetrics
+        ? {
+            ...basePeriodMetrics,
+            pvGenerationKwh:
+              billingHistoryRecord?.pvGenerationKwh !== null &&
+              billingHistoryRecord?.pvGenerationKwh !== undefined
+                ? Number(billingHistoryRecord.pvGenerationKwh)
+                : basePeriodMetrics.pvGenerationKwh,
+            previousReading:
+              cumulativeReading?.previousReading ??
+              basePeriodMetrics.previousReading ??
+              null,
+            currentReading:
+              cumulativeReading?.currentReading ??
+              basePeriodMetrics.currentReading ??
+              null,
+          }
+        : null;
 
       return {
         ...invoice,

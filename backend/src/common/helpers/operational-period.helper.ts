@@ -14,6 +14,20 @@ type RecordLike = {
   rawPayload?: unknown;
 };
 
+type CumulativePvReadingRecord = {
+  id: string;
+  solarSystemId?: string | null;
+  contractId?: string | null;
+  year?: number | null;
+  month?: number | null;
+  pvGenerationKwh?: unknown;
+};
+
+type CumulativePvReadingValue = {
+  previousReading: number;
+  currentReading: number;
+};
+
 function maxIsoDate(values: Array<string | null | undefined>) {
   const filtered = values.filter(Boolean) as string[];
 
@@ -65,6 +79,14 @@ function extractNumericField(payload: unknown, aliases: string[]) {
   }
 
   return null;
+}
+
+function normalizeCumulativeValue(value: number) {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+
+  return Number(value.toFixed(6));
 }
 
 export function extractOperationalPeriodMetrics(record: RecordLike | null | undefined) {
@@ -228,6 +250,74 @@ export function aggregateOperationalPeriodMetrics(
     sourceLabel,
     sourceKind,
     syncTime,
+  };
+}
+
+export function buildCumulativePvReadingLookups(
+  records: Array<CumulativePvReadingRecord | null | undefined>,
+) {
+  const byRecordId = new Map<string, CumulativePvReadingValue>();
+  const bySystemPeriod = new Map<string, CumulativePvReadingValue>();
+  const groups = new Map<string, CumulativePvReadingRecord[]>();
+
+  for (const record of records.filter(Boolean) as CumulativePvReadingRecord[]) {
+    const groupKey =
+      record.solarSystemId?.trim() ||
+      (record.contractId?.trim() ? `contract:${record.contractId.trim()}` : null);
+
+    if (!groupKey || !record.year || !record.month || !record.id) {
+      continue;
+    }
+
+    const existing = groups.get(groupKey) || [];
+    existing.push(record);
+    groups.set(groupKey, existing);
+  }
+
+  for (const items of groups.values()) {
+    items.sort((left, right) => {
+      const yearDiff = Number(left.year || 0) - Number(right.year || 0);
+      if (yearDiff !== 0) {
+        return yearDiff;
+      }
+
+      const monthDiff = Number(left.month || 0) - Number(right.month || 0);
+      if (monthDiff !== 0) {
+        return monthDiff;
+      }
+
+      return String(left.id).localeCompare(String(right.id));
+    });
+
+    let cumulative = 0;
+
+    for (const item of items) {
+      const pvGeneration = toNumber(item.pvGenerationKwh) ?? 0;
+      const previousReading = normalizeCumulativeValue(cumulative);
+      cumulative = normalizeCumulativeValue(cumulative + pvGeneration);
+      const currentReading = cumulative;
+      const cumulativeValue = {
+        previousReading,
+        currentReading,
+      };
+
+      byRecordId.set(item.id, cumulativeValue);
+
+      const systemPeriodKey = buildOperationalPeriodKey(
+        item.solarSystemId || null,
+        item.year || null,
+        item.month || null,
+      );
+
+      if (systemPeriodKey) {
+        bySystemPeriod.set(systemPeriodKey, cumulativeValue);
+      }
+    }
+  }
+
+  return {
+    byRecordId,
+    bySystemPeriod,
   };
 }
 
