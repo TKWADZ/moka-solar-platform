@@ -1,9 +1,9 @@
 # Deploy Status
 
-- latest task: Fix remaining customer-portal mojibake and non-accented Vietnamese strings in the live shell/header, notifications panel, install-app card, and daily consumption copy after the previous font deploy
-- local test status: Frontend production build passed (`npm run build`); portal shell, install card, and consumption text patched locally; this follow-up fix has not been redeployed yet
-- build status: Frontend production build passed (`npm run build`) after the mojibake cleanup
-- approval requested or not: requested in this update
-- approved or not: not yet
-- deployed or not: not deployed; waiting for explicit VPS deployment approval for the follow-up text cleanup
-- rollback target if needed: keep current production, or if this follow-up deploy regresses, revert only the mojibake cleanup commit and redeploy the prior successful font-fix revision
+- latest task: Fix billing and meter continuity for customer/admin billing flows so `old_reading` always inherits the previous period `new_reading` unless a confirmed meter reset/replaced/restart flag exists
+- local test status: Backend build passed, frontend build passed, shared continuity helper reproduced the reported broken chain correctly (`03/2026 new = 12593` => `04/2026 old = 12593`), and the new backfill CLI completed a dry-run successfully inside the local backend container
+- build status: Passed (`backend: npm run build`, `frontend: npm run build`)
+- approval requested or not: requested and approved for VPS deployment
+- approved or not: yes
+- deployed or not: deployment is being prepared from this continuity fix revision and will be verified after push
+- rollback target if needed: keep current production unchanged; if this continuity fix is later deployed and regresses, revert the continuity helper/pipeline patch set and redeploy the last stable billing revision

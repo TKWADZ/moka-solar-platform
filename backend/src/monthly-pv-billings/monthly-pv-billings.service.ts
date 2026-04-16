@@ -28,9 +28,10 @@ import {
 } from '../common/helpers/domain.helper';
 import {
   aggregateOperationalPeriodMetrics,
-  buildCumulativePvReadingLookups,
+  buildMeterContinuityLookups,
   buildOperationalPeriodKey,
   extractOperationalPeriodMetrics,
+  resolveMeterContinuityConsumption,
 } from '../common/helpers/operational-period.helper';
 import { NotificationsService } from '../notifications/notifications.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -520,6 +521,14 @@ export class MonthlyPvBillingsService {
           : undefined,
       markAutoRetried: false,
     });
+    const continuity = await this.assessBillingContinuity(latestRecord);
+
+    if (continuity?.hasContinuityError && !continuity.resetApplied) {
+      throw new BadRequestException(
+        continuity.continuityWarning ||
+          'Khong the xuat hoa don vi continuity Chi so cu/Chi so moi dang bi gay. Chi duoc tiep tuc neu admin da xac nhan meter reset.',
+      );
+    }
 
     const contract =
       latestRecord.contract ||
@@ -603,6 +612,154 @@ export class MonthlyPvBillingsService {
     };
   }
 
+  private buildBillingBasePeriodMetrics(
+    record: {
+      year: number;
+      month: number;
+      source?: string | null;
+      syncTime?: Date | string | null;
+    },
+    periodRecord: any,
+    periodMetricsOverride?: ReturnType<typeof extractOperationalPeriodMetrics> | null,
+  ) {
+    return (
+      periodMetricsOverride ||
+      aggregateOperationalPeriodMetrics(periodRecord ? [periodRecord] : [], {
+        year: record.year,
+        month: record.month,
+        source: record.source,
+        syncTime: record.syncTime,
+      }) ||
+      extractOperationalPeriodMetrics(periodRecord)
+    );
+  }
+
+  private buildBillingContinuityEntry(
+    record: {
+      id: string;
+      solarSystemId?: string | null;
+      contractId?: string | null;
+      year: number;
+      month: number;
+      billableKwh?: unknown;
+      pvGenerationKwh?: unknown;
+      source?: string | null;
+      syncTime?: Date | string | null;
+    },
+    periodRecord: any,
+    periodMetricsOverride?: ReturnType<typeof extractOperationalPeriodMetrics> | null,
+  ) {
+    const basePeriodMetrics = this.buildBillingBasePeriodMetrics(
+      record,
+      periodRecord,
+      periodMetricsOverride,
+    );
+    const continuityConsumption = resolveMeterContinuityConsumption({
+      billableKwh: record.billableKwh,
+      loadConsumedKwh: basePeriodMetrics?.loadConsumedKwh,
+      pvGenerationKwh: record.pvGenerationKwh ?? basePeriodMetrics?.pvGenerationKwh,
+    });
+
+    return {
+      id: record.id,
+      solarSystemId: record.solarSystemId,
+      contractId: record.contractId,
+      year: record.year,
+      month: record.month,
+      consumptionKwh: continuityConsumption.value,
+      consumptionSource: continuityConsumption.source,
+      billableKwh: record.billableKwh,
+      loadConsumedKwh: basePeriodMetrics?.loadConsumedKwh,
+      pvGenerationKwh: record.pvGenerationKwh ?? basePeriodMetrics?.pvGenerationKwh,
+      meterReadingStart: basePeriodMetrics?.previousReading,
+      meterReadingEnd: basePeriodMetrics?.currentReading,
+      rawPayload: periodRecord?.rawPayload,
+    };
+  }
+
+  private appendContinuitySummary(
+    baseSummary: string | null | undefined,
+    continuity:
+      | {
+          continuityWarning?: string | null;
+        }
+      | null
+      | undefined,
+  ) {
+    if (!continuity?.continuityWarning) {
+      return baseSummary || null;
+    }
+
+    if (!baseSummary) {
+      return continuity.continuityWarning;
+    }
+
+    return baseSummary.includes(continuity.continuityWarning)
+      ? baseSummary
+      : `${baseSummary} | ${continuity.continuityWarning}`;
+  }
+
+  private async assessBillingContinuity(record: BillingRecordWithRelations) {
+    const [periodRecords, billingHistory] = await Promise.all([
+      this.prisma.monthlyEnergyRecord.findMany({
+        where: {
+          deletedAt: null,
+          solarSystemId: record.solarSystemId,
+        },
+      }),
+      this.prisma.monthlyPvBilling.findMany({
+        where: {
+          deletedAt: null,
+          solarSystemId: record.solarSystemId,
+        },
+        select: {
+          id: true,
+          solarSystemId: true,
+          contractId: true,
+          year: true,
+          month: true,
+          pvGenerationKwh: true,
+          billableKwh: true,
+          source: true,
+          syncTime: true,
+        },
+        orderBy: [
+          { solarSystemId: 'asc' },
+          { year: 'asc' },
+          { month: 'asc' },
+          { id: 'asc' },
+        ],
+      }),
+    ]);
+
+    const periodMap = new Map(
+      periodRecords
+        .map((item) => [
+          buildOperationalPeriodKey(item.solarSystemId, item.year, item.month),
+          item,
+        ] as const)
+        .filter((entry): entry is [string, any] => Boolean(entry[0])),
+    );
+
+    const continuityLookups = buildMeterContinuityLookups(
+      billingHistory.map((item) =>
+        this.buildBillingContinuityEntry(
+          item,
+          periodMap.get(buildOperationalPeriodKey(item.solarSystemId, item.year, item.month) || ''),
+          null,
+        ),
+      ),
+    );
+
+    return (
+      continuityLookups.byRecordId.get(record.id) ||
+      continuityLookups.bySystemPeriod.get(
+        buildOperationalPeriodKey(record.solarSystemId, record.year, record.month) || '',
+      ) ||
+      null
+    );
+  }
+
   private async attachPeriodMetrics(records: BillingRecordWithRelations[]) {
     if (!records.length) {
       return [];
@@ -650,6 +807,9 @@ export class MonthlyPvBillingsService {
               year: true,
               month: true,
               pvGenerationKwh: true,
+              billableKwh: true,
+              source: true,
+              syncTime: true,
             },
             orderBy: [
               { solarSystemId: 'asc' },
@@ -661,7 +821,7 @@ export class MonthlyPvBillingsService {
         : Promise.resolve([]),
     ]);
 
-    const cumulativeSourceMap = new Map(
+    const continuitySourceMap = new Map(
       fullBillingHistory.map((record) => [record.id, record] as const),
     );
 
@@ -670,18 +830,18 @@ export class MonthlyPvBillingsService {
         continue;
       }
 
-      cumulativeSourceMap.set(record.id, {
+      continuitySourceMap.set(record.id, {
         id: record.id,
         solarSystemId: record.solarSystemId,
         contractId: record.contractId,
         year: record.year,
         month: record.month,
         pvGenerationKwh: record.pvGenerationKwh,
+        billableKwh: record.billableKwh,
+        source: record.source,
+        syncTime: record.syncTime,
       });
     }
-
-    const cumulativeSourceRecords = [...cumulativeSourceMap.values()];
-    const cumulativeLookups = buildCumulativePvReadingLookups(cumulativeSourceRecords);
 
     const periodMap = new Map(
       periodRecords
@@ -690,6 +850,16 @@ export class MonthlyPvBillingsService {
           record,
         ] as const)
         .filter((entry): entry is [string, any] => Boolean(entry[0])),
+    );
+
+    const continuityLookups = buildMeterContinuityLookups(
+      [...continuitySourceMap.values()].map((record) =>
+        this.buildBillingContinuityEntry(
+          record,
+          periodMap.get(buildOperationalPeriodKey(record.solarSystemId, record.year, record.month) || ''),
+          periodMetricsOverrideMap.get(record.id) || null,
+        ),
+      ),
     );
 
     return effectiveRecords.map((record) => {
@@ -705,36 +875,40 @@ export class MonthlyPvBillingsService {
         periodMetricsOverrideMap.get(record.id) !== undefined
           ? periodMetricsOverrideMap.get(record.id) || null
           : null;
-      const basePeriodMetrics =
-        periodMetricsOverride ||
-        aggregateOperationalPeriodMetrics(periodRecord ? [periodRecord] : [], {
-          year: record.year,
-          month: record.month,
-          source: record.source,
-          syncTime: record.syncTime,
-        }) ||
-        extractOperationalPeriodMetrics(periodRecord);
-      const cumulativeReading =
-        cumulativeLookups.byRecordId.get(record.id) ||
+      const basePeriodMetrics = this.buildBillingBasePeriodMetrics(
+        record,
+        periodRecord,
+        periodMetricsOverride,
+      );
+      const continuity =
+        continuityLookups.byRecordId.get(record.id) ||
         (recordPeriodKey
-          ? cumulativeLookups.bySystemPeriod.get(recordPeriodKey) || null
+          ? continuityLookups.bySystemPeriod.get(recordPeriodKey) || null
           : null);
 
       return {
         ...serialized,
+        qualitySummary: this.appendContinuitySummary(serialized.qualitySummary, continuity),
         periodMetrics: basePeriodMetrics
           ? {
               ...basePeriodMetrics,
               pvGenerationKwh:
                 serialized.pvGenerationKwh ?? basePeriodMetrics.pvGenerationKwh,
               previousReading:
-                cumulativeReading?.previousReading ??
+                continuity?.previousReading ??
                 basePeriodMetrics.previousReading ??
                 null,
               currentReading:
-                cumulativeReading?.currentReading ??
+                continuity?.currentReading ??
                 basePeriodMetrics.currentReading ??
                 null,
+              continuityStatus: continuity?.continuityStatus ?? null,
+              continuityWarning: continuity?.continuityWarning ?? null,
+              continuitySource: continuity?.consumptionSource ?? null,
+              continuitySourceLabel: continuity?.consumptionSourceLabel ?? null,
+              hasContinuityError: continuity?.hasContinuityError ?? false,
+              resetApplied: continuity?.resetApplied ?? false,
+              expectedPreviousReading: continuity?.expectedPreviousReading ?? null,
             }
           : null,
       };
@@ -1248,6 +1422,7 @@ export class MonthlyPvBillingsService {
     const hasManualOverride =
       record.manualOverrideKwh !== null && record.manualOverrideKwh !== undefined;
     const hasEnergyData = toNumber(record.pvGenerationKwh) > 0;
+    const continuity = await this.assessBillingContinuity(record);
 
     let syncStatus =
       options?.forceSyncStatus ||
@@ -1263,7 +1438,14 @@ export class MonthlyPvBillingsService {
     );
     let qualitySummary = 'Dang cho doi soat du lieu billing.';
 
-    if (!closedPeriod) {
+    if (continuity?.hasContinuityError) {
+      dataQualityStatus = BillingDataQualityStatus.ERROR;
+      invoiceStatus = BillingWorkflowStatus.PENDING_REVIEW;
+      syncStatus = options?.forceSyncStatus || BillingSyncStatus.ERROR;
+      qualitySummary =
+        continuity.continuityWarning ||
+        'Meter continuity sai giua cac ky billing. Vui long doi soat hoac xac nhan meter reset.';
+    } else if (!closedPeriod) {
       dataQualityStatus = BillingDataQualityStatus.IN_PROGRESS;
       invoiceStatus = record.invoiceId ? invoiceStatus || BillingWorkflowStatus.DRAFT : BillingWorkflowStatus.ESTIMATE;
       qualitySummary =
@@ -1295,6 +1477,8 @@ export class MonthlyPvBillingsService {
       syncStatus = options?.forceSyncStatus || BillingSyncStatus.SYNCED;
       qualitySummary = 'Du du lieu nang luong va da san sang chot hoa don.';
     }
+
+    qualitySummary = this.appendContinuitySummary(qualitySummary, continuity);
 
     const autoSendEligible =
       closedPeriod &&

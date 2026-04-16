@@ -17,6 +17,7 @@ import {
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { calculateVatAmount, normalizePercentRate, roundMoney } from '../common/helpers/billing.helper';
 import { toNumber } from '../common/helpers/domain.helper';
+import { buildMeterContinuityLookups } from '../common/helpers/operational-period.helper';
 import { MonthlyPvBillingsService } from '../monthly-pv-billings/monthly-pv-billings.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ImportOperationalDataDto } from './dto/import-operational-data.dto';
@@ -45,6 +46,9 @@ type NormalizedImportRow = {
   systemStatus?: SystemStatus;
   note?: string;
   source?: string;
+  meterReset?: boolean;
+  meterReplaced?: boolean;
+  contractRestart?: boolean;
 };
 
 const MAX_IMPORT_FILE_SIZE = 3 * 1024 * 1024;
@@ -277,6 +281,7 @@ export class OperationalDataService {
     const totalAmount = roundMoney(subtotalAmount + taxAmount - resolvedDiscountAmount);
     const stationId = system.stationId || system.monitoringPlantId || system.systemCode;
     const syncTime = new Date();
+    const continuityFlags = this.buildContinuityFlagsPayload(dto);
 
     const record = await this.prisma.monthlyEnergyRecord.upsert({
       where: {
@@ -325,6 +330,7 @@ export class OperationalDataService {
             dto.meterReadingEnd === undefined || dto.meterReadingEnd === null
               ? null
               : dto.meterReadingEnd,
+          ...continuityFlags,
           ...(options?.rawPayload || {}),
         } as any,
         deletedAt: null,
@@ -371,6 +377,7 @@ export class OperationalDataService {
             dto.meterReadingEnd === undefined || dto.meterReadingEnd === null
               ? null
               : dto.meterReadingEnd,
+          ...continuityFlags,
           ...(options?.rawPayload || {}),
         } as any,
       },
@@ -598,6 +605,9 @@ export class OperationalDataService {
               note: importNoteParts.length ? importNoteParts.join(' | ') : undefined,
               source: rowSource,
               dataSourceNote: `Import tu ${fileName}${sheetName ? ` / ${sheetName}` : ''}`,
+              meterReset: normalized.meterReset,
+              meterReplaced: normalized.meterReplaced,
+              contractRestart: normalized.contractRestart,
             },
             actorId,
             {
@@ -626,6 +636,9 @@ export class OperationalDataService {
                   normalized.meterReadingEnd === undefined
                     ? null
                     : normalized.meterReadingEnd,
+                meterReset: normalized.meterReset ?? null,
+                meterReplaced: normalized.meterReplaced ?? null,
+                contractRestart: normalized.contractRestart ?? null,
               },
             },
           );
@@ -855,6 +868,25 @@ export class OperationalDataService {
       ),
       note: this.toOptionalString(this.pickColumn(normalizedMap, ['note', 'ghichu'])),
       source: this.toOptionalString(this.pickColumn(normalizedMap, ['source', 'nguondulieu'])),
+      meterReset: this.toOptionalBoolean(
+        this.pickColumn(normalizedMap, ['meterreset', 'meter_reset', 'resetdongho', 'resetchisodien']),
+      ),
+      meterReplaced: this.toOptionalBoolean(
+        this.pickColumn(normalizedMap, [
+          'meterreplaced',
+          'meter_replaced',
+          'thaydongho',
+          'thaymoi dongho',
+        ]),
+      ),
+      contractRestart: this.toOptionalBoolean(
+        this.pickColumn(normalizedMap, [
+          'contractrestart',
+          'contract_restart',
+          'khoidonglaihopdong',
+          'restarthopdong',
+        ]),
+      ),
     } satisfies NormalizedImportRow;
   }
 
@@ -1196,6 +1228,56 @@ export class OperationalDataService {
     return Number.isFinite(numeric) ? numeric : undefined;
   }
 
+  private toOptionalBoolean(value: unknown) {
+    if (value === null || value === undefined || String(value).trim() === '') {
+      return undefined;
+    }
+
+    if (typeof value === 'boolean') {
+      return value;
+    }
+
+    if (typeof value === 'number') {
+      return value !== 0;
+    }
+
+    const normalized = String(value).trim().toLowerCase();
+    if (['true', '1', 'yes', 'y', 'co', 'có', 'x', 'checked'].includes(normalized)) {
+      return true;
+    }
+
+    if (['false', '0', 'no', 'n', 'khong', 'không'].includes(normalized)) {
+      return false;
+    }
+
+    return undefined;
+  }
+
+  private buildContinuityFlagsPayload(dto: {
+    meterReset?: boolean;
+    meterReplaced?: boolean;
+    contractRestart?: boolean;
+  }) {
+    const payload: Record<string, boolean> = {};
+
+    if (dto.meterReset !== undefined) {
+      payload.meterReset = dto.meterReset;
+      payload.meter_reset = dto.meterReset;
+    }
+
+    if (dto.meterReplaced !== undefined) {
+      payload.meterReplaced = dto.meterReplaced;
+      payload.meter_replaced = dto.meterReplaced;
+    }
+
+    if (dto.contractRestart !== undefined) {
+      payload.contractRestart = dto.contractRestart;
+      payload.contract_restart = dto.contractRestart;
+    }
+
+    return payload;
+  }
+
   private toOptionalSystemStatus(value: unknown): SystemStatus | undefined {
     const normalized = String(value ?? '')
       .trim()
@@ -1252,64 +1334,37 @@ export class OperationalDataService {
       return;
     }
 
-    let previousEnd: number | null = null;
+    const continuityLookups = buildMeterContinuityLookups(
+      records.map((record) => ({
+        id: record.id,
+        solarSystemId: record.solarSystemId,
+        contractId: null,
+        year: record.year,
+        month: record.month,
+        consumptionKwh: record.loadConsumedKwh,
+        consumptionSource:
+          record.loadConsumedKwh !== null && record.loadConsumedKwh !== undefined
+            ? 'LOAD_CONSUMED_KWH'
+            : null,
+        meterReadingStart: record.meterReadingStart,
+        meterReadingEnd: record.meterReadingEnd,
+        rawPayload: record.rawPayload,
+      })),
+    );
 
-    for (let index = 0; index < records.length; index += 1) {
-      const record = records[index];
-      const rawPreviousReading = this.extractReadingFromPayload(record.rawPayload, [
-        'previousReading',
-        'oldReading',
-        'chiSoCu',
-        'startReading',
-      ]);
-      const rawCurrentReading = this.extractReadingFromPayload(record.rawPayload, [
-        'currentReading',
-        'newReading',
-        'chiSoMoi',
-        'endReading',
-      ]);
-      let explicitStart = this.toOptionalNumber(record.meterReadingStart) ?? rawPreviousReading;
-      let explicitEnd = this.toOptionalNumber(record.meterReadingEnd) ?? rawCurrentReading;
-      let loadConsumed = this.toOptionalNumber(record.loadConsumedKwh);
-      const sourceKind = classifyOperationalSource(record.source);
-      const shouldTreatZerosAsMissing =
-        sourceKind === 'API_PROVIDER' &&
-        explicitStart === 0 &&
-        explicitEnd === 0 &&
-        (loadConsumed === null || loadConsumed === 0);
-
-      if (shouldTreatZerosAsMissing) {
-        explicitStart = null;
-        explicitEnd = null;
-        loadConsumed = null;
-      }
-      let meterReadingStart: number | null;
-
-      if (index === 0) {
-        if (explicitStart !== null) {
-          meterReadingStart = explicitStart;
-        } else if (explicitEnd !== null && loadConsumed !== null) {
-          meterReadingStart = roundMoney(explicitEnd - loadConsumed);
-        } else {
-          meterReadingStart = null;
-        }
-      } else {
-        meterReadingStart = previousEnd ?? explicitStart;
+    for (const record of records) {
+      const continuity = continuityLookups.byRecordId.get(record.id);
+      if (!continuity) {
+        continue;
       }
 
-      if (loadConsumed === null && explicitEnd !== null && meterReadingStart !== null) {
-        loadConsumed = roundMoney(Math.max(explicitEnd - meterReadingStart, 0));
-      }
-
-      const meterReadingEnd =
-        meterReadingStart !== null && loadConsumed !== null
-          ? roundMoney(meterReadingStart + loadConsumed)
-          : explicitEnd !== null
-            ? explicitEnd
-            : meterReadingStart;
-
-      previousEnd = meterReadingEnd ?? previousEnd;
-
+      const meterReadingStart = continuity.previousReading;
+      const meterReadingEnd = continuity.currentReading;
+      const hasConsumptionEvidence =
+        this.toOptionalNumber(record.loadConsumedKwh) !== undefined ||
+        continuity.explicitCurrentReading !== null ||
+        continuity.explicitPreviousReading !== null;
+      const loadConsumed = hasConsumptionEvidence ? continuity.consumptionKwh : null;
       const needsUpdate =
         this.toOptionalNumber(record.meterReadingStart) !== meterReadingStart ||
         this.toOptionalNumber(record.meterReadingEnd) !== meterReadingEnd ||

@@ -4,9 +4,10 @@ import {
   buildOperationalSourceLabel,
 } from '../common/config/operational-data-source';
 import {
-  buildCumulativePvReadingLookups,
+  buildMeterContinuityLookups,
   buildOperationalPeriodKey,
   extractOperationalPeriodMetrics,
+  resolveMeterContinuityConsumption,
 } from '../common/helpers/operational-period.helper';
 import { sumBy } from '../common/helpers/domain.helper';
 
@@ -39,6 +40,7 @@ type SystemPeriodAggregate = {
   period: string;
   operationalPvKwh: number | null;
   billingPvKwh: number | null;
+  billableKwh: number | null;
   loadConsumedKwh: number | null;
   amount: number;
   updatedAt: string | null;
@@ -297,6 +299,10 @@ export class CustomerPortalAggregateService {
         billing.monthlyPvKwh,
         billing.productionKwh,
       );
+      current.billableKwh = this.resolveMetricValue(
+        current.billableKwh,
+        billing.billableKwh,
+      );
       current.amount += this.toNullableNumber(billing.totalAmount) || 0;
       current.updatedAt = this.maxIsoDate([
         current.updatedAt,
@@ -311,12 +317,24 @@ export class CustomerPortalAggregateService {
       systemPeriodMap.set(systemPeriodKey, current);
     }
 
-    const cumulativeLookups = buildCumulativePvReadingLookups(
+    const continuityLookups = buildMeterContinuityLookups(
       [...systemPeriodMap.values()].map((record) => ({
         id: record.id,
         solarSystemId: record.solarSystemId,
         year: record.year,
         month: record.month,
+        consumptionKwh: resolveMeterContinuityConsumption({
+          billableKwh: record.billableKwh,
+          loadConsumedKwh: record.loadConsumedKwh,
+          pvGenerationKwh: this.resolveSystemPeriodProductionKwh(record),
+        }).value,
+        consumptionSource: resolveMeterContinuityConsumption({
+          billableKwh: record.billableKwh,
+          loadConsumedKwh: record.loadConsumedKwh,
+          pvGenerationKwh: this.resolveSystemPeriodProductionKwh(record),
+        }).source,
+        billableKwh: record.billableKwh,
+        loadConsumedKwh: record.loadConsumedKwh,
         pvGenerationKwh: this.resolveSystemPeriodProductionKwh(record),
       })),
     );
@@ -350,7 +368,7 @@ export class CustomerPortalAggregateService {
       let hasReadings = false;
 
       for (const systemPeriodKey of period.systemPeriodKeys) {
-        const reading = cumulativeLookups.byRecordId.get(systemPeriodKey);
+        const reading = continuityLookups.byRecordId.get(systemPeriodKey);
         if (!reading) {
           continue;
         }
@@ -632,6 +650,7 @@ export class CustomerPortalAggregateService {
       period: `${String(month).padStart(2, '0')}/${year}`,
       operationalPvKwh: null,
       billingPvKwh: null,
+      billableKwh: null,
       loadConsumedKwh: null,
       amount: 0,
       updatedAt: null,

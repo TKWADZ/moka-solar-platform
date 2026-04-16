@@ -1,6 +1,7 @@
 import { SystemStatus } from '@prisma/client';
 import { Type } from 'class-transformer';
 import {
+  IsBoolean,
   IsEnum,
   IsInt,
   IsNumber,
@@ -77,4 +78,19 @@ export class UpsertOperationalRecordDto {
   @IsOptional()
   @IsString()
   dataSourceNote?: string;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  meterReset?: boolean;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  meterReplaced?: boolean;
+
+  @IsOptional()
+  @Type(() => Boolean)
+  @IsBoolean()
+  contractRestart?: boolean;
 }

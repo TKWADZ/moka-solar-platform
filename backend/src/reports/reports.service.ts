@@ -7,8 +7,9 @@ import {
 } from '../common/config/operational-data-source';
 import {
   aggregateOperationalPeriodMetrics,
-  buildCumulativePvReadingLookups,
+  buildMeterContinuityLookups,
   buildOperationalPeriodKey,
+  resolveMeterContinuityConsumption,
 } from '../common/helpers/operational-period.helper';
 import { CustomerPortalAggregateService } from './customer-portal-aggregate.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -344,16 +345,6 @@ export class ReportsService {
     const customerMonthlyRecordLookup = new Map<string, any[]>();
     const monthlyBillingLookup = new Map<string, any[]>();
     const customerMonthlyBillingLookup = new Map<string, any[]>();
-    const cumulativeLookups = buildCumulativePvReadingLookups(
-      monthlyPvBillings.map((record) => ({
-        id: record.id,
-        solarSystemId: record.solarSystemId,
-        contractId: record.contractId,
-        year: record.year,
-        month: record.month,
-        pvGenerationKwh: record.pvGenerationKwh,
-      })),
-    );
     const billingHistoryMap = new Map(
       monthlyPvBillings
         .map((record) => [
@@ -402,6 +393,47 @@ export class ReportsService {
         customerMonthlyBillingLookup.set(customerKey, existing);
       }
     }
+
+    const continuityLookups = buildMeterContinuityLookups(
+      monthlyPvBillings.map((record) => {
+        const systemKey =
+          buildOperationalPeriodKey(record.solarSystemId, record.year, record.month) || '';
+        const operationalRecords = monthlyRecordLookup.get(systemKey) || [];
+        const basePeriodMetrics = aggregateOperationalPeriodMetrics(operationalRecords, {
+          year: record.year,
+          month: record.month,
+          source: record.source,
+          syncTime: record.syncTime,
+        });
+        const continuityConsumption = resolveMeterContinuityConsumption({
+          billableKwh: record.billableKwh,
+          loadConsumedKwh: basePeriodMetrics?.loadConsumedKwh,
+          pvGenerationKwh:
+            record.pvGenerationKwh !== null && record.pvGenerationKwh !== undefined
+              ? Number(record.pvGenerationKwh)
+              : basePeriodMetrics?.pvGenerationKwh,
+        });
+
+        return {
+          id: record.id,
+          solarSystemId: record.solarSystemId,
+          contractId: record.contractId,
+          year: record.year,
+          month: record.month,
+          consumptionKwh: continuityConsumption.value,
+          consumptionSource: continuityConsumption.source,
+          billableKwh: record.billableKwh,
+          loadConsumedKwh: basePeriodMetrics?.loadConsumedKwh,
+          pvGenerationKwh:
+            record.pvGenerationKwh !== null && record.pvGenerationKwh !== undefined
+              ? Number(record.pvGenerationKwh)
+              : basePeriodMetrics?.pvGenerationKwh,
+          meterReadingStart: basePeriodMetrics?.previousReading,
+          meterReadingEnd: basePeriodMetrics?.currentReading,
+          rawPayload: operationalRecords[0]?.rawPayload,
+        };
+      }),
+    );
 
     const hasDailyEnergy = recentDailyRecords.some(
       (record) => this.decimalToNullableNumber(record.generationValueKwh) !== null,
@@ -798,8 +830,8 @@ export class ReportsService {
             month: invoice.billingMonth,
           },
         );
-        const cumulativeReading =
-          (systemKey ? cumulativeLookups.bySystemPeriod.get(systemKey) : null) || null;
+        const continuity =
+          (systemKey ? continuityLookups.bySystemPeriod.get(systemKey) : null) || null;
         const billingHistoryRecord =
           (systemKey ? billingHistoryMap.get(systemKey) : null) || null;
         const periodMetrics = basePeriodMetrics
@@ -811,13 +843,20 @@ export class ReportsService {
                   ? Number(billingHistoryRecord.pvGenerationKwh)
                   : basePeriodMetrics.pvGenerationKwh,
               previousReading:
-                cumulativeReading?.previousReading ??
+                continuity?.previousReading ??
                 basePeriodMetrics.previousReading ??
                 null,
               currentReading:
-                cumulativeReading?.currentReading ??
+                continuity?.currentReading ??
                 basePeriodMetrics.currentReading ??
                 null,
+              continuityStatus: continuity?.continuityStatus ?? null,
+              continuityWarning: continuity?.continuityWarning ?? null,
+              continuitySource: continuity?.consumptionSource ?? null,
+              continuitySourceLabel: continuity?.consumptionSourceLabel ?? null,
+              hasContinuityError: continuity?.hasContinuityError ?? false,
+              resetApplied: continuity?.resetApplied ?? false,
+              expectedPreviousReading: continuity?.expectedPreviousReading ?? null,
             }
           : null;
 
