@@ -1,7 +1,8 @@
-import { formatDateTime, formatMonthPeriod } from '@/lib/utils';
+import { formatCurrency, formatDateTime, formatMonthPeriod } from '@/lib/utils';
 import { InvoiceRecord, MonthlyPvBillingRecord } from '@/types';
 
 const BANK_TRANSFER_NOTE_MAX_LENGTH = 40;
+const CONTINUITY_TOLERANCE = 0.05;
 
 function firstNonEmpty(...values: Array<string | null | undefined>) {
   for (const value of values) {
@@ -248,6 +249,429 @@ export function findBillingRecordForInvoice(
   );
 }
 
+type BillingContinuityInput = {
+  id: string;
+  solarSystemId?: string | null;
+  contractId?: string | null;
+  year?: number | null;
+  month?: number | null;
+  billableKwh?: number | null;
+  loadConsumedKwh?: number | null;
+  pvGenerationKwh?: number | null;
+  previousReading?: number | null;
+  currentReading?: number | null;
+  resetApplied?: boolean | null;
+};
+
+type BillingContinuityValue = {
+  previousReading: number;
+  currentReading: number;
+  consumptionKwh: number;
+};
+
+export type CustomerBillingContinuityLookups = {
+  byBillingId: Map<string, BillingContinuityValue>;
+  byInvoiceId: Map<string, BillingContinuityValue>;
+  byPeriodKey: Map<string, BillingContinuityValue>;
+};
+
+type CustomerMeterHistoryLike = {
+  year: number;
+  month: number;
+  previousReading?: number | null;
+  currentReading?: number | null;
+  loadConsumedKwh?: number | null;
+  pvGenerationKwh?: number | null;
+  resetApplied?: boolean | null;
+};
+
+function toFiniteNumber(value?: number | string | null) {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function normalizeContinuityValue(value: number) {
+  return Number(value.toFixed(6));
+}
+
+function normalizeExplicitReading(params: {
+  previousReading?: number | null;
+  currentReading?: number | null;
+  consumptionKwh?: number | null;
+  resetApplied?: boolean | null;
+}) {
+  const previousReading = toFiniteNumber(params.previousReading);
+  const currentReading = toFiniteNumber(params.currentReading);
+  const consumptionKwh = Math.max(toFiniteNumber(params.consumptionKwh) ?? 0, 0);
+
+  const bothZero =
+    previousReading !== null &&
+    currentReading !== null &&
+    Math.abs(previousReading) <= CONTINUITY_TOLERANCE &&
+    Math.abs(currentReading) <= CONTINUITY_TOLERANCE;
+
+  if (!params.resetApplied && bothZero && consumptionKwh > CONTINUITY_TOLERANCE) {
+    return {
+      previousReading: null,
+      currentReading: null,
+    };
+  }
+
+  return {
+    previousReading,
+    currentReading,
+  };
+}
+
+function resolveContinuityConsumption(params: {
+  billableKwh?: number | null;
+  loadConsumedKwh?: number | null;
+  pvGenerationKwh?: number | null;
+}) {
+  const candidates = [
+    toFiniteNumber(params.billableKwh),
+    toFiniteNumber(params.loadConsumedKwh),
+    toFiniteNumber(params.pvGenerationKwh),
+  ];
+
+  for (const candidate of candidates) {
+    if (candidate !== null && candidate !== undefined) {
+      return Math.max(candidate, 0);
+    }
+  }
+
+  return 0;
+}
+
+function buildContinuityGroupKey(
+  solarSystemId?: string | null,
+  contractId?: string | null,
+) {
+  if (solarSystemId && solarSystemId.trim()) {
+    return `system:${solarSystemId.trim()}`;
+  }
+
+  if (contractId && contractId.trim()) {
+    return `contract:${contractId.trim()}`;
+  }
+
+  return null;
+}
+
+function buildContinuityPeriodKey(params: {
+  solarSystemId?: string | null;
+  contractId?: string | null;
+  year?: number | null;
+  month?: number | null;
+}) {
+  const groupKey = buildContinuityGroupKey(params.solarSystemId, params.contractId);
+  if (!groupKey || !params.year || !params.month) {
+    return null;
+  }
+
+  return `${groupKey}:${params.year}:${params.month}`;
+}
+
+function deriveContinuityValues<T extends BillingContinuityInput>(records: T[]) {
+  const byRecordId = new Map<string, BillingContinuityValue>();
+  const byPeriodKey = new Map<string, BillingContinuityValue>();
+  const groups = new Map<string, T[]>();
+
+  for (const record of records) {
+    const groupKey = buildContinuityGroupKey(record.solarSystemId, record.contractId);
+    if (!groupKey || !record.year || !record.month || !record.id) {
+      continue;
+    }
+
+    const items = groups.get(groupKey) || [];
+    items.push(record);
+    groups.set(groupKey, items);
+  }
+
+  for (const items of groups.values()) {
+    items.sort((left, right) => {
+      const yearDiff = Number(left.year || 0) - Number(right.year || 0);
+      if (yearDiff !== 0) {
+        return yearDiff;
+      }
+
+      const monthDiff = Number(left.month || 0) - Number(right.month || 0);
+      if (monthDiff !== 0) {
+        return monthDiff;
+      }
+
+      return String(left.id).localeCompare(String(right.id));
+    });
+
+    let previousCurrentReading: number | null = null;
+
+    for (const item of items) {
+      const consumptionKwh = resolveContinuityConsumption({
+        billableKwh: item.billableKwh,
+        loadConsumedKwh: item.loadConsumedKwh,
+        pvGenerationKwh: item.pvGenerationKwh,
+      });
+      const explicitReadings = normalizeExplicitReading({
+        previousReading: item.previousReading,
+        currentReading: item.currentReading,
+        consumptionKwh,
+        resetApplied: item.resetApplied,
+      });
+      const previousReading = normalizeContinuityValue(
+        previousCurrentReading === null
+          ? explicitReadings.previousReading ?? 0
+          : item.resetApplied
+            ? explicitReadings.previousReading ?? 0
+            : previousCurrentReading,
+      );
+      const currentReading =
+        consumptionKwh > CONTINUITY_TOLERANCE || explicitReadings.currentReading === null
+          ? normalizeContinuityValue(previousReading + consumptionKwh)
+          : normalizeContinuityValue(
+              Math.max(explicitReadings.currentReading, previousReading),
+            );
+      const continuityValue = {
+        previousReading,
+        currentReading,
+        consumptionKwh,
+      } satisfies BillingContinuityValue;
+
+      byRecordId.set(item.id, continuityValue);
+
+      const periodKey = buildContinuityPeriodKey({
+        solarSystemId: item.solarSystemId,
+        contractId: item.contractId,
+        year: item.year,
+        month: item.month,
+      });
+      if (periodKey) {
+        byPeriodKey.set(periodKey, continuityValue);
+      }
+
+      previousCurrentReading = currentReading;
+    }
+  }
+
+  return {
+    byRecordId,
+    byPeriodKey,
+  };
+}
+
+export function buildCustomerBillingContinuityLookups(params: {
+  monthlyBillings: MonthlyPvBillingRecord[];
+  invoices?: InvoiceRecord[];
+}) {
+  const billingRecords = params.monthlyBillings.map((billing) => ({
+    id: billing.id,
+    invoiceId: billing.invoiceId || billing.invoice?.id || null,
+    solarSystemId:
+      billing.solarSystemId ||
+      billing.solarSystem?.id ||
+      billing.contract?.solarSystem?.id ||
+      null,
+    contractId: billing.contractId || billing.contract?.id || null,
+    year: billing.year,
+    month: billing.month,
+    billableKwh: billing.billableKwh,
+    loadConsumedKwh: billing.periodMetrics?.loadConsumedKwh ?? null,
+    pvGenerationKwh: billing.pvGenerationKwh,
+    previousReading: billing.periodMetrics?.previousReading ?? null,
+    currentReading: billing.periodMetrics?.currentReading ?? null,
+    resetApplied: billing.periodMetrics?.resetApplied ?? false,
+  }));
+
+  const existingInvoiceIds = new Set(
+    billingRecords
+      .map((record) => record.invoiceId)
+      .filter((value): value is string => Boolean(value)),
+  );
+
+  const invoiceFallbackRecords = (params.invoices || [])
+    .filter((invoice) => !existingInvoiceIds.has(invoice.id))
+    .map((invoice) => ({
+      id: invoice.id,
+      invoiceId: invoice.id,
+      solarSystemId: invoice.contract?.solarSystem?.id || null,
+      contractId: invoice.contractId || invoice.contract?.id || null,
+      year: invoice.billingYear,
+      month: invoice.billingMonth,
+      billableKwh: null,
+      loadConsumedKwh: invoice.periodMetrics?.loadConsumedKwh ?? null,
+      pvGenerationKwh: invoice.periodMetrics?.pvGenerationKwh ?? null,
+      previousReading: invoice.periodMetrics?.previousReading ?? null,
+      currentReading: invoice.periodMetrics?.currentReading ?? null,
+      resetApplied: invoice.periodMetrics?.resetApplied ?? false,
+    }));
+
+  const continuityRecords = [...billingRecords, ...invoiceFallbackRecords];
+  const derived = deriveContinuityValues(continuityRecords);
+  const byBillingId = new Map<string, BillingContinuityValue>();
+  const byInvoiceId = new Map<string, BillingContinuityValue>();
+
+  for (const record of continuityRecords) {
+    const value = derived.byRecordId.get(record.id);
+    if (!value) {
+      continue;
+    }
+
+    if (params.monthlyBillings.some((billing) => billing.id === record.id)) {
+      byBillingId.set(record.id, value);
+    }
+
+    if (record.invoiceId) {
+      byInvoiceId.set(record.invoiceId, value);
+    }
+  }
+
+  return {
+    byBillingId,
+    byInvoiceId,
+    byPeriodKey: derived.byPeriodKey,
+  } satisfies CustomerBillingContinuityLookups;
+}
+
+function resolveCustomerBillingContinuity(params: {
+  lookups?: CustomerBillingContinuityLookups | null;
+  invoice?: InvoiceRecord | null;
+  billing?: MonthlyPvBillingRecord | null;
+}) {
+  const { lookups, invoice, billing } = params;
+  if (!lookups) {
+    return null;
+  }
+
+  if (billing?.id && lookups.byBillingId.has(billing.id)) {
+    return lookups.byBillingId.get(billing.id) || null;
+  }
+
+  if (invoice?.id && lookups.byInvoiceId.has(invoice.id)) {
+    return lookups.byInvoiceId.get(invoice.id) || null;
+  }
+
+  const periodKey = buildContinuityPeriodKey({
+    solarSystemId:
+      billing?.solarSystemId ||
+      billing?.solarSystem?.id ||
+      billing?.contract?.solarSystem?.id ||
+      invoice?.contract?.solarSystem?.id ||
+      null,
+    contractId: billing?.contractId || billing?.contract?.id || invoice?.contractId || null,
+    year: billing?.year || invoice?.billingYear || null,
+    month: billing?.month || invoice?.billingMonth || null,
+  });
+
+  if (!periodKey) {
+    return null;
+  }
+
+  return lookups.byPeriodKey.get(periodKey) || null;
+}
+
+export function deriveCustomerMeterHistoryReadings<
+  T extends CustomerMeterHistoryLike & Record<string, unknown>,
+>(rows: T[]) {
+  const sorted = [...rows].sort((left, right) => {
+    const yearDiff = Number(left.year || 0) - Number(right.year || 0);
+    if (yearDiff !== 0) {
+      return yearDiff;
+    }
+
+    return Number(left.month || 0) - Number(right.month || 0);
+  });
+
+  let previousCurrentReading: number | null = null;
+  const derivedByPeriod = new Map<string, BillingContinuityValue>();
+
+  for (const row of sorted) {
+    const consumptionKwh = resolveContinuityConsumption({
+      loadConsumedKwh: row.loadConsumedKwh,
+      pvGenerationKwh: row.pvGenerationKwh,
+    });
+    const explicitReadings = normalizeExplicitReading({
+      previousReading: row.previousReading,
+      currentReading: row.currentReading,
+      consumptionKwh,
+      resetApplied: row.resetApplied,
+    });
+    const previousReading = normalizeContinuityValue(
+      previousCurrentReading === null
+        ? explicitReadings.previousReading ?? 0
+        : row.resetApplied
+          ? explicitReadings.previousReading ?? 0
+          : previousCurrentReading,
+    );
+    const currentReading =
+      consumptionKwh > CONTINUITY_TOLERANCE || explicitReadings.currentReading === null
+        ? normalizeContinuityValue(previousReading + consumptionKwh)
+        : normalizeContinuityValue(Math.max(explicitReadings.currentReading, previousReading));
+
+    derivedByPeriod.set(`${row.year}-${row.month}`, {
+      previousReading,
+      currentReading,
+      consumptionKwh,
+    });
+    previousCurrentReading = currentReading;
+  }
+
+  return rows.map((row) => {
+    const continuity = derivedByPeriod.get(`${row.year}-${row.month}`);
+    if (!continuity) {
+      return row;
+    }
+
+    return {
+      ...row,
+      previousReading: continuity.previousReading,
+      currentReading: continuity.currentReading,
+    };
+  });
+}
+
+export function deriveDiscountRatePercent(
+  discountAmount?: number | null,
+  subtotalAmount?: number | null,
+) {
+  const subtotal = toFiniteNumber(subtotalAmount);
+  const discount = toFiniteNumber(discountAmount);
+
+  if (subtotal === null || subtotal <= 0 || discount === null) {
+    return null;
+  }
+
+  return normalizeContinuityValue((discount / subtotal) * 100);
+}
+
+export function formatBillingDiscountLabel(params: {
+  discountAmount?: number | null;
+  subtotalAmount?: number | null;
+}) {
+  const discountAmount = toFiniteNumber(params.discountAmount);
+  const discountRate = deriveDiscountRatePercent(discountAmount, params.subtotalAmount);
+
+  if (discountRate !== null) {
+    const formattedRate = new Intl.NumberFormat('vi-VN', {
+      maximumFractionDigits: 1,
+    }).format(discountRate);
+
+    if (discountAmount !== null && discountAmount > 0) {
+      return `${formattedRate}% (${formatCurrency(discountAmount)})`;
+    }
+
+    return `${formattedRate}%`;
+  }
+
+  if (discountAmount !== null) {
+    return formatCurrency(discountAmount);
+  }
+
+  return '-';
+}
+
 export type CustomerBillingDisplayModel = {
   monthLabel: string;
   headerStatus: string | null;
@@ -266,6 +690,8 @@ export type CustomerBillingDisplayModel = {
   vatRate: number | null;
   taxAmount: number | null;
   discountAmount: number | null;
+  discountRate: number | null;
+  discountLabel: string;
   totalAmount: number | null;
   outstandingAmount: number | null;
   paidAmount: number | null;
@@ -291,9 +717,15 @@ export type CustomerBillingDisplayModel = {
 export function buildCustomerBillingDisplayModel(params: {
   invoice?: InvoiceRecord | null;
   billing?: MonthlyPvBillingRecord | null;
+  continuityLookups?: CustomerBillingContinuityLookups | null;
 }): CustomerBillingDisplayModel {
   const invoice = params.invoice || null;
   const billing = params.billing || null;
+  const derivedContinuity = resolveCustomerBillingContinuity({
+    lookups: params.continuityLookups || null,
+    invoice,
+    billing,
+  });
   const month = invoice?.billingMonth ?? billing?.month ?? null;
   const year = invoice?.billingYear ?? billing?.year ?? null;
   const monthLabel = formatMonthPeriod(month, year);
@@ -328,6 +760,19 @@ export function buildCustomerBillingDisplayModel(params: {
     isCurrentOpenPeriod,
     liveAsOf,
   });
+  const discountAmount =
+    billing?.discountAmount != null
+      ? Number(billing.discountAmount)
+      : invoice?.discountAmount != null
+        ? Number(invoice.discountAmount)
+        : null;
+  const subtotalAmount =
+    billing?.subtotalAmount != null
+      ? Number(billing.subtotalAmount)
+      : invoice?.subtotal != null
+        ? Number(invoice.subtotal)
+        : null;
+  const discountRate = deriveDiscountRatePercent(discountAmount, subtotalAmount);
 
   return {
     monthLabel,
@@ -375,11 +820,7 @@ export function buildCustomerBillingDisplayModel(params: {
             ? Number(invoice.contract.servicePackage.pricePerKwh)
             : null,
     subtotalAmount:
-      billing?.subtotalAmount != null
-        ? Number(billing.subtotalAmount)
-        : invoice?.subtotal != null
-          ? Number(invoice.subtotal)
-          : null,
+      subtotalAmount,
     vatRate:
       billing?.vatRate != null
         ? Number(billing.vatRate)
@@ -392,27 +833,31 @@ export function buildCustomerBillingDisplayModel(params: {
         : invoice?.vatAmount != null
           ? Number(invoice.vatAmount)
           : null,
-    discountAmount:
-      billing?.discountAmount != null
-        ? Number(billing.discountAmount)
-        : invoice?.discountAmount != null
-          ? Number(invoice.discountAmount)
-          : null,
+    discountAmount,
+    discountRate,
+    discountLabel: formatBillingDiscountLabel({
+      discountAmount,
+      subtotalAmount,
+    }),
     totalAmount,
     outstandingAmount,
     paidAmount: invoice?.paidAmount != null ? Number(invoice.paidAmount) : null,
     previousReading:
-      billing?.periodMetrics?.previousReading != null
-        ? Number(billing.periodMetrics.previousReading)
-        : invoice?.periodMetrics?.previousReading != null
-          ? Number(invoice.periodMetrics.previousReading)
-          : null,
+      derivedContinuity?.previousReading != null
+        ? Number(derivedContinuity.previousReading)
+        : billing?.periodMetrics?.previousReading != null
+          ? Number(billing.periodMetrics.previousReading)
+          : invoice?.periodMetrics?.previousReading != null
+            ? Number(invoice.periodMetrics.previousReading)
+            : null,
     currentReading:
-      billing?.periodMetrics?.currentReading != null
-        ? Number(billing.periodMetrics.currentReading)
-        : invoice?.periodMetrics?.currentReading != null
-          ? Number(invoice.periodMetrics.currentReading)
-          : null,
+      derivedContinuity?.currentReading != null
+        ? Number(derivedContinuity.currentReading)
+        : billing?.periodMetrics?.currentReading != null
+          ? Number(billing.periodMetrics.currentReading)
+          : invoice?.periodMetrics?.currentReading != null
+            ? Number(invoice.periodMetrics.currentReading)
+            : null,
     syncStatus: billing?.syncStatus || null,
     dataQualityStatus: billing?.dataQualityStatus || null,
     workflowStatus: visibleWorkflowStatus,

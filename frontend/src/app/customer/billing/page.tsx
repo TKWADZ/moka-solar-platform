@@ -9,6 +9,7 @@ import { SectionCard } from '@/components/section-card';
 import { StatCard } from '@/components/stat-card';
 import { StatusPill } from '@/components/status-pill';
 import {
+  buildCustomerBillingContinuityLookups,
   buildCustomerBillingDisplayModel,
   contractTypeLabel,
   findBillingRecordForInvoice,
@@ -55,10 +56,11 @@ function mapInvoiceStatusToRowStatus(status: InvoiceRecord['status']): InvoiceRo
 function toInvoiceRows(
   invoices: InvoiceRecord[],
   monthlyBillings: MonthlyPvBillingRecord[],
+  continuityLookups?: ReturnType<typeof buildCustomerBillingContinuityLookups>,
 ): InvoiceRow[] {
   return invoices.map((invoice) => {
     const billing = findBillingRecordForInvoice(invoice, monthlyBillings);
-    const display = buildCustomerBillingDisplayModel({ invoice, billing });
+    const display = buildCustomerBillingDisplayModel({ invoice, billing, continuityLookups });
 
     return {
       id: invoice.id,
@@ -93,6 +95,8 @@ function toInvoiceRows(
         vatRate: display.vatRate,
         taxAmount: display.taxAmount,
         discountAmount: display.discountAmount,
+        discountRate: display.discountRate,
+        discountLabel: display.discountLabel,
         totalAmount: display.totalAmount,
         previousReading: display.previousReading,
         currentReading: display.currentReading,
@@ -165,16 +169,18 @@ function BillingSpotlightCard({
   billing,
   helperText,
   actions,
+  continuityLookups,
 }: {
   eyebrow: string;
   invoice?: InvoiceRecord | null;
   billing?: MonthlyPvBillingRecord | null;
   helperText?: string;
   actions?: ReactNode;
+  continuityLookups?: ReturnType<typeof buildCustomerBillingContinuityLookups>;
 }) {
   const { enabled, theme } = useCustomerTheme();
   const dark = enabled && theme === 'dark';
-  const display = buildCustomerBillingDisplayModel({ invoice, billing });
+  const display = buildCustomerBillingDisplayModel({ invoice, billing, continuityLookups });
   const billableKwhVisible =
     display.billableKwh != null &&
     (display.pvGenerationKwh == null ||
@@ -224,7 +230,7 @@ function BillingSpotlightCard({
     },
     {
       label: 'Chiết khấu',
-      value: display.discountAmount != null ? formatCurrency(display.discountAmount) : '-',
+      value: display.discountLabel,
     },
     {
       label: 'Tổng cộng',
@@ -416,6 +422,11 @@ export default function CustomerBillingPage() {
     [monthlyBillings],
   );
 
+  const continuityLookups = useMemo(
+    () => buildCustomerBillingContinuityLookups({ monthlyBillings, invoices }),
+    [invoices, monthlyBillings],
+  );
+
   const currentOpenSnapshotInvoice = useMemo(() => {
     if (!currentOpenBillingRecord) {
       return null;
@@ -464,7 +475,10 @@ export default function CustomerBillingPage() {
     [currentInvoice, monthlyBillings],
   );
 
-  const invoiceRows = useMemo(() => toInvoiceRows(invoices, monthlyBillings), [invoices, monthlyBillings]);
+  const invoiceRows = useMemo(
+    () => toInvoiceRows(invoices, monthlyBillings, continuityLookups),
+    [continuityLookups, invoices, monthlyBillings],
+  );
 
   const stats = useMemo<StatCardItem[]>(() => {
     const outstanding = openInvoices.reduce(
@@ -554,6 +568,7 @@ export default function CustomerBillingPage() {
                 <BillingSpotlightCard
                   eyebrow="Tạm tính tháng này"
                   billing={currentOpenBillingRecord}
+                  continuityLookups={continuityLookups}
                   helperText={
                     currentOpenSnapshotInvoice
                       ? `PDF ${currentOpenSnapshotInvoice.invoiceNumber} vẫn là snapshot export và không khóa số live đang hiển thị trên trang này.`
@@ -587,6 +602,7 @@ export default function CustomerBillingPage() {
                     eyebrow={currentInvoice.invoiceNumber}
                     invoice={currentInvoice}
                     billing={currentInvoiceBilling}
+                    continuityLookups={continuityLookups}
                     helperText={`Kỳ ${formatMonthPeriod(
                       currentInvoice.billingMonth,
                       currentInvoice.billingYear,

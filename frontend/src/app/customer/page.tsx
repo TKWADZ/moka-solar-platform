@@ -14,7 +14,10 @@ import { SectionCard } from '@/components/section-card';
 import { StatCard } from '@/components/stat-card';
 import { useSystemDashboardPresence } from '@/hooks/use-system-dashboard-presence';
 import { customerDashboardRequest } from '@/lib/api';
-import { formatBillingMeterReading } from '@/lib/billing-display';
+import {
+  deriveCustomerMeterHistoryReadings,
+  formatBillingMeterReading,
+} from '@/lib/billing-display';
 import { buildCustomerConsumptionView } from '@/lib/customer-consumption';
 import { cn, formatCurrency, formatDate, formatDateTime, formatNumber } from '@/lib/utils';
 import { CustomerDashboardData, InvoiceRecord, InvoiceRow, StatCardItem } from '@/types';
@@ -96,6 +99,10 @@ export default function CustomerPage() {
   }, []);
 
   const consumptionView = useMemo(() => buildCustomerConsumptionView(dashboard), [dashboard]);
+  const meterHistory = useMemo(
+    () => deriveCustomerMeterHistoryReadings(dashboard?.meterHistory || []),
+    [dashboard?.meterHistory],
+  );
 
   const summaryCards = useMemo<StatCardItem[]>(() => {
     if (!dashboard) {
@@ -172,7 +179,7 @@ export default function CustomerPage() {
     [dashboard],
   );
 
-  const currentPeriod = dashboard?.meterHistory?.[0] || null;
+  const currentPeriod = meterHistory[0] || null;
   const headingText = dark ? 'text-white' : 'text-slate-950';
   const bodyText = dark ? 'text-slate-300' : 'text-slate-600';
   const metricText = dark ? 'text-slate-200' : 'text-slate-700';
@@ -388,7 +395,7 @@ export default function CustomerPage() {
 
       <SectionCard title="Lịch sử chỉ số và thanh toán" eyebrow="6 kỳ gần nhất">
         <div className="space-y-3">
-          {dashboard.meterHistory.slice(0, 6).map((period) => (
+          {meterHistory.slice(0, 6).map((period) => (
             <div key={period.period} className="customer-soft-card p-5">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>

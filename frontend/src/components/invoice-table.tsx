@@ -134,9 +134,8 @@ function renderBillingDetailedCards(rows: InvoiceRow[], dark: boolean) {
           {
             label: 'Chiết khấu',
             value:
-              details?.discountAmount != null
-                ? formatCurrency(details.discountAmount)
-                : '-',
+              details?.discountLabel ||
+              (details?.discountAmount != null ? formatCurrency(details.discountAmount) : '-'),
           },
           {
             label: 'Tổng cộng',

@@ -9,6 +9,7 @@ import {
 import { useCustomerTheme } from '@/components/customer-theme-provider';
 import { SectionCard } from '@/components/section-card';
 import { customerDashboardRequest } from '@/lib/api';
+import { deriveCustomerMeterHistoryReadings } from '@/lib/billing-display';
 import { buildCustomerConsumptionView } from '@/lib/customer-consumption';
 import { cn, formatCurrency, formatDateTime, formatNumber } from '@/lib/utils';
 import { CustomerDashboardData } from '@/types';
@@ -56,6 +57,10 @@ export default function CustomerMetersPage() {
   }, []);
 
   const consumptionView = useMemo(() => buildCustomerConsumptionView(dashboard), [dashboard]);
+  const meterHistory = useMemo(
+    () => deriveCustomerMeterHistoryReadings(dashboard?.meterHistory || []),
+    [dashboard?.meterHistory],
+  );
 
   if (!dashboard) {
     return (
@@ -110,7 +115,7 @@ export default function CustomerMetersPage() {
         eyebrow="Chỉ số, điện tiêu thụ, PV tháng và thanh toán theo kỳ"
       >
         <div className="grid gap-3">
-          {dashboard.meterHistory.map((period) => {
+          {meterHistory.map((period) => {
             const expanded = expandedPeriod === period.period;
 
             return (

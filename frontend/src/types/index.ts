@@ -525,6 +525,8 @@ export type InvoiceRow = {
     vatRate?: number | null;
     taxAmount?: number | null;
     discountAmount?: number | null;
+    discountRate?: number | null;
+    discountLabel?: string | null;
     totalAmount?: number | null;
     previousReading?: number | null;
     currentReading?: number | null;
