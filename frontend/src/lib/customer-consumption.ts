@@ -83,13 +83,13 @@ export function classifyUsageLevel(
 export function usageLevelLabel(level: UsageLevel) {
   switch (level) {
     case 'LOW':
-      return 'Thap';
+      return 'Thấp';
     case 'MEDIUM':
-      return 'Trung binh';
+      return 'Trung bình';
     case 'HIGH':
       return 'Cao';
     default:
-      return 'Chua du du lieu';
+      return 'Chưa đủ dữ liệu';
   }
 }
 
@@ -147,10 +147,10 @@ export function buildCustomerConsumptionView(
   const monthly12 = withUsageLevels(insight?.monthly12 || []);
   const todayUsedKwh = insight?.todayUsedKwh ?? null;
   const updateLabel = insight?.lastUpdatedAt
-    ? `Theo ngay · cap nhat luc ${formatDateTime(insight.lastUpdatedAt)}`
+    ? `Theo ngày · cập nhật lúc ${formatDateTime(insight.lastUpdatedAt)}`
     : insight?.hasDailyData
-      ? 'Theo ngay'
-      : 'Chua co du lieu tieu thu theo ngay';
+      ? 'Theo ngày'
+      : 'Chưa có dữ liệu tiêu thụ theo ngày';
 
   return {
     hasDailyData: Boolean(insight?.hasDailyData),
@@ -171,10 +171,10 @@ export function buildCustomerConsumptionView(
 
 export function formatConsumptionEmptyState(hasDailyData: boolean) {
   return hasDailyData
-    ? 'Dang cho du lieu tieu thu moi nhat tu nguon theo ngay.'
-    : 'Can nguon load meter / smart meter / EMS / EVN theo ngay de hien thi tieu thu.';
+    ? 'Đang chờ dữ liệu tiêu thụ mới nhất từ nguồn theo ngày.'
+    : 'Cần nguồn load meter / smart meter / EMS / EVN theo ngày để hiển thị tiêu thụ.';
 }
 
 export function formatUsageHeadline(value: number | null) {
-  return typeof value === 'number' ? formatNumber(value, 'kWh') : 'Chua co du lieu';
+  return typeof value === 'number' ? formatNumber(value, 'kWh') : 'Chưa có dữ liệu';
 }

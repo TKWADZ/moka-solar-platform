@@ -1,9 +1,9 @@
 # Deploy Status
 
-- latest task: Fix customer portal font/rendering issue by switching the display font to a Vietnamese-capable family and restoring Vietnamese labels/text on billing, overview, payments, support, systems, contracts, loading/error, toast, and status badges
-- local test status: Frontend TypeScript check passed (`npx tsc --noEmit`); Vietnamese text rendering and customer copy patched locally; production font config verified locally on April 16, 2026 23:01 +07
-- build status: Frontend production build passed (`npm run build`) after the font config fix
-- approval requested or not: requested and approved
-- approved or not: approved on April 16, 2026 23:01 +07
-- deployed or not: deploying to VPS via GitHub Action after push to `main`
-- rollback target if needed: revert the local customer-portal font/text patch set and redeploy the previous stable customer portal build if production shows regressions
+- latest task: Fix remaining customer-portal mojibake and non-accented Vietnamese strings in the live shell/header, notifications panel, install-app card, and daily consumption copy after the previous font deploy
+- local test status: Frontend production build passed (`npm run build`); portal shell, install card, and consumption text patched locally; this follow-up fix has not been redeployed yet
+- build status: Frontend production build passed (`npm run build`) after the mojibake cleanup
+- approval requested or not: requested in this update
+- approved or not: not yet
+- deployed or not: not deployed; waiting for explicit VPS deployment approval for the follow-up text cleanup
+- rollback target if needed: keep current production, or if this follow-up deploy regresses, revert only the mojibake cleanup commit and redeploy the prior successful font-fix revision

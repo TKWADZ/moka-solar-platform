@@ -222,7 +222,7 @@ function groupPortalNav(nav: NavItem[]) {
   if (!isAdminNav) {
     return [
       {
-        label: 'Tá»•ng quan dá»‹ch vá»¥',
+        label: 'Tổng quan dịch vụ',
         items: nav.filter((item) =>
           [
             '/customer',
@@ -235,16 +235,16 @@ function groupPortalNav(nav: NavItem[]) {
         ),
       },
       {
-        label: 'TÃ i khoáº£n',
+        label: 'Tài khoản',
         items: nav.filter((item) => ['/customer/profile', '/customer/support'].includes(item.href)),
       },
     ].filter((group) => group.items.length);
   }
 
   const definitions: Array<{ label: string; hrefs: string[] }> = [
-    { label: 'Äiá»u hÃ nh', hrefs: ['/admin', '/admin/reports'] },
+    { label: 'Điều hành', hrefs: ['/admin', '/admin/reports'] },
     {
-      label: 'Kinh doanh vÃ  váº­n hÃ nh',
+      label: 'Kinh doanh và vận hành',
       hrefs: [
         '/admin/customers',
         '/admin/users',
@@ -260,7 +260,7 @@ function groupPortalNav(nav: NavItem[]) {
       ],
     },
     {
-      label: 'Ná»™i dung vÃ  tÄƒng trÆ°á»Ÿng',
+      label: 'Nội dung và tăng trưởng',
       hrefs: [
         '/admin/leads',
         '/admin/website-settings',
@@ -270,7 +270,7 @@ function groupPortalNav(nav: NavItem[]) {
         '/admin/packages',
       ],
     },
-    { label: 'Há»‡ thá»‘ng lÃµi', hrefs: ['/admin/ai', '/admin/audit', '/admin/plugins'] },
+    { label: 'Hệ thống lõi', hrefs: ['/admin/ai', '/admin/audit', '/admin/plugins'] },
   ];
 
   return definitions
@@ -326,7 +326,7 @@ function SidebarContent({
           )}
         >
           <span className="h-2 w-2 rounded-full bg-emerald-300" />
-          Trá»±c tuyáº¿n
+          Trực tuyến
         </div>
       </div>
 
@@ -600,7 +600,7 @@ function NotificationsBell({ light = false }: { light?: boolean }) {
                 maxHeight: `${panelPosition.maxHeight}px`,
               }}
               role="dialog"
-              aria-label="ThÃƒÂ´ng bÃƒÂ¡o"
+              aria-label="Thông báo"
             >
               <div className="flex min-h-0 w-full flex-col">
                 <div
@@ -610,11 +610,11 @@ function NotificationsBell({ light = false }: { light?: boolean }) {
                   )}
                 >
                   <div className="min-w-0">
-              <p className="text-xs uppercase tracking-[0.2em] text-slate-500">ThÃ´ng bÃ¡o</p>
+              <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Thông báo</p>
               <p className={cn('mt-1 text-sm font-semibold', light ? 'text-slate-950' : 'text-white')}>
                 {notificationUnreadCount
-                  ? `${notificationUnreadCount} thÃ´ng bÃ¡o chÆ°a Ä‘á»c`
-                  : 'KhÃ´ng cÃ³ thÃ´ng bÃ¡o má»›i'}
+                  ? `${notificationUnreadCount} thông báo chưa đọc`
+                  : 'Không có thông báo mới'}
               </p>
             </div>
             {notificationUnreadCount ? (
@@ -626,7 +626,7 @@ function NotificationsBell({ light = false }: { light?: boolean }) {
                   light ? 'text-emerald-700 hover:text-emerald-800' : 'text-emerald-200 hover:text-white',
                 )}
               >
-                ÄÃ¡nh dáº¥u Ä‘Ã£ Ä‘á»c
+                Đánh dấu đã đọc
               </button>
             ) : null}
                 </div>
@@ -680,7 +680,7 @@ function NotificationsBell({ light = false }: { light?: boolean }) {
                     : 'border border-white/8 bg-white/[0.03] text-slate-300',
                 )}
               >
-                ChÆ°a cÃ³ thÃ´ng bÃ¡o má»›i. Ticket, pháº£n há»“i vÃ  cáº­p nháº­t tráº¡ng thÃ¡i sáº½ hiá»‡n táº¡i Ä‘Ã¢y.
+                Chưa có thông báo mới. Ticket, phản hồi và cập nhật trạng thái sẽ hiện tại đây.
               </div>
             )}
                 </div>
@@ -747,7 +747,7 @@ function PortalShellContent({
                     {tt(title)}
                   </h1>
                   <p className="mt-2 text-sm text-slate-400 lg:hidden">
-                    {session.user.fullName} â€¢ {tt(session.user.role.replaceAll('_', ' '))}
+                    {session.user.fullName} • {tt(session.user.role.replaceAll('_', ' '))}
                   </p>
                 </div>
 
@@ -759,7 +759,7 @@ function PortalShellContent({
                       'flex h-11 w-11 items-center justify-center',
                       customerLight ? 'customer-icon-button' : 'portal-card-soft',
                     )}
-                    aria-label="Má»Ÿ Ä‘iá»u hÆ°á»›ng"
+                    aria-label="Mở điều hướng"
                   >
                     <Menu className={cn('h-5 w-5', customerLight ? 'text-slate-700' : 'text-slate-100')} />
                   </button>
@@ -779,8 +779,8 @@ function PortalShellContent({
                   )}
                 >
                   <LogOut className="h-4 w-4" />
-                  <span className="hidden sm:inline">ÄÄƒng xuáº¥t</span>
-                  <span className="sm:hidden">ThoÃ¡t</span>
+                  <span className="hidden sm:inline">Đăng xuất</span>
+                  <span className="sm:hidden">Thoát</span>
                 </button>
               </div>
             </div>
@@ -791,23 +791,23 @@ function PortalShellContent({
           <div className="min-w-0 space-y-4 sm:space-y-5">
             {currentNavForbidden ? (
               <div className={cn(isCustomerPortal ? 'customer-surface-card p-6 sm:p-8' : 'portal-card p-6 sm:p-8')}>
-                <p className="eyebrow">Quyen truy cap</p>
+                <p className="eyebrow">Quyền truy cập</p>
                 <h2 className={cn('mt-2 text-xl font-semibold sm:text-2xl', customerLight ? 'text-slate-950' : 'text-white')}>
-                  Ban khong co quyen vao module nay.
+                  Bạn không có quyền vào module này.
                 </h2>
                 <p className={cn('mt-3 max-w-2xl text-sm leading-6', customerLight ? 'text-slate-600' : 'text-slate-300')}>
-                  Tai khoan hien tai chua du permissions cho khu vuc nay. Ban van co
-                  the tiep tuc lam viec o cac module duoc cap quyen khac trong admin.
+                  Tài khoản hiện tại chưa đủ quyền cho khu vực này. Bạn vẫn có
+                  thể tiếp tục làm việc ở các module được cấp quyền khác trong admin.
                 </p>
               </div>
             ) : currentFeatureDisabled ? (
               <div className={cn(isCustomerPortal ? 'customer-surface-card p-6 sm:p-8' : 'portal-card p-6 sm:p-8')}>
-                <p className="eyebrow">Ho tro</p>
+                <p className="eyebrow">Hỗ trợ</p>
                 <h2 className={cn('mt-2 text-xl font-semibold sm:text-2xl', customerLight ? 'text-slate-950' : 'text-white')}>
-                  Module nay hien dang bi tat.
+                  Module này hiện đang bị tắt.
                 </h2>
                 <p className={cn('mt-3 max-w-2xl text-sm leading-6', customerLight ? 'text-slate-600' : 'text-slate-300')}>
-                  Hay bat lai plugin lien quan trong trung tam plugin de mo lai khu vuc lam viec nay.
+                  Hãy bật lại plugin liên quan trong trung tâm plugin để mở lại khu vực làm việc này.
                 </p>
               </div>
             ) : (
@@ -860,7 +860,7 @@ function PortalShellContent({
                       ? 'text-slate-500 hover:bg-slate-100'
                       : 'text-slate-300 hover:bg-white/[0.08]',
                   )}
-                  aria-label="Má»Ÿ thÃªm má»¥c"
+                  aria-label="Mở thêm mục"
                 >
                   <Menu className="h-4.5 w-4.5 shrink-0" />
                   <span className="text-[11px] font-semibold leading-4">Menu</span>
@@ -1024,7 +1024,7 @@ export function PortalShell({ title, kicker, nav, allowedRoles, children }: Port
 
         setFeatureCatalog([]);
         setCatalogWarning(
-          'KhÃ´ng thá»ƒ táº£i danh má»¥c module. Há»‡ thá»‘ng Ä‘ang dÃ¹ng menu máº·c Ä‘á»‹nh Ä‘á»ƒ báº¡n tiáº¿p tá»¥c lÃ m viá»‡c.',
+          'Không thể tải danh mục module. Hệ thống đang dùng menu mặc định để bạn tiếp tục làm việc.',
         );
       });
 
@@ -1075,17 +1075,17 @@ export function PortalShell({ title, kicker, nav, allowedRoles, children }: Port
       <main className={cn(isCustomerPortal ? 'customer-shell flex min-h-screen items-center justify-center px-4 py-6' : 'portal-shell flex min-h-screen items-center justify-center px-4 py-6')}>
         <div className={cn(isCustomerPortal ? 'customer-surface-card max-w-md px-6 py-6 text-center' : 'portal-card max-w-md px-6 py-6 text-center')}>
           <p className="eyebrow text-slate-500">
-            {authState === 'redirecting' ? 'Äang chuyá»ƒn hÆ°á»›ng' : 'Äang xÃ¡c thá»±c'}
+            {authState === 'redirecting' ? 'Đang chuyển hướng' : 'Đang xác thực'}
           </p>
           <h1 className={cn('mt-3 text-xl font-semibold', isCustomerPortal ? 'text-slate-950' : 'text-white')}>
             {authState === 'redirecting'
-              ? 'Há»‡ thá»‘ng Ä‘ang Ä‘Æ°a báº¡n Ä‘áº¿n Ä‘Ãºng cá»•ng lÃ m viá»‡c.'
-              : 'Äang chuáº©n bá»‹ khÃ´ng gian lÃ m viá»‡c cá»§a báº¡n.'}
+              ? 'Hệ thống đang đưa bạn đến đúng cổng làm việc.'
+              : 'Đang chuẩn bị không gian làm việc của bạn.'}
           </h1>
           <p className={cn('mt-3 text-sm leading-6', isCustomerPortal ? 'text-slate-600' : 'text-slate-300')}>
             {authState === 'redirecting'
-              ? 'Náº¿u trang khÃ´ng tá»± chuyá»ƒn, báº¡n cÃ³ thá»ƒ má»Ÿ trang Ä‘Äƒng nháº­p thá»§ cÃ´ng.'
-              : 'ThÃ´ng tin phiÃªn Ä‘Äƒng nháº­p Ä‘ang Ä‘Æ°á»£c kiá»ƒm tra Ä‘á»ƒ táº£i Ä‘Ãºng quyá»n truy cáº­p.'}
+              ? 'Nếu trang không tự chuyển, bạn có thể mở trang đăng nhập thủ công.'
+              : 'Thông tin phiên đăng nhập đang được kiểm tra để tải đúng quyền truy cập.'}
           </p>
           {authState === 'redirecting' ? (
             <Link
@@ -1097,7 +1097,7 @@ export function PortalShell({ title, kicker, nav, allowedRoles, children }: Port
                   : 'btn-ghost',
               )}
             >
-              Má»Ÿ trang Ä‘Äƒng nháº­p
+              Mở trang đăng nhập
             </Link>
           ) : null}
         </div>

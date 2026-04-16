@@ -93,7 +93,7 @@ export function CustomerDailyUsageCard({
               dark ? 'text-slate-500' : 'text-slate-400',
             )}
           >
-            Cap nhat
+            Cập nhật
           </p>
           <p
             className={cn(
@@ -102,7 +102,7 @@ export function CustomerDailyUsageCard({
             )}
           >
             <Clock3 className={cn('h-4 w-4', dark ? 'text-slate-500' : 'text-slate-400')} />
-            {lastUpdatedAt ? formatDateTime(lastUpdatedAt) : 'Chua co moc cap nhat'}
+            {lastUpdatedAt ? formatDateTime(lastUpdatedAt) : 'Chưa có mốc cập nhật'}
           </p>
         </div>
         <div className="customer-soft-card-muted px-4 py-4">
@@ -112,7 +112,7 @@ export function CustomerDailyUsageCard({
               dark ? 'text-slate-500' : 'text-slate-400',
             )}
           >
-            Nguon du lieu
+            Nguồn dữ liệu
           </p>
           <p
             className={cn(
@@ -121,7 +121,7 @@ export function CustomerDailyUsageCard({
             )}
           >
             <CalendarDays className={cn('h-4 w-4', dark ? 'text-slate-500' : 'text-slate-400')} />
-            {hasDailyData ? 'Theo ngay' : 'Chua san sang'}
+            {hasDailyData ? 'Theo ngày' : 'Chưa sẵn sàng'}
           </p>
         </div>
       </div>
@@ -229,15 +229,15 @@ export function CustomerConsumptionChartCard({
                   const point = payload?.payload as ConsumptionChartPoint & { chartValue: number };
 
                   if (!point || point.value == null) {
-                    return ['Chua co du lieu', 'Tieu thu'];
+                    return ['Chưa có dữ liệu', 'Tiêu thụ'];
                   }
 
-                  return [`${formatNumber(point.value, 'kWh')} · ${usageLevelLabel(point.level)}`, 'Tieu thu'];
+                  return [`${formatNumber(point.value, 'kWh')} · ${usageLevelLabel(point.level)}`, 'Tiêu thụ'];
                 }}
                 labelFormatter={(label, payload) => {
                   const point = payload?.[0]?.payload as ConsumptionChartPoint | undefined;
                   return point?.updatedAt
-                    ? `${label} · cap nhat ${formatDateTime(point.updatedAt)}`
+                    ? `${label} · cập nhật ${formatDateTime(point.updatedAt)}`
                     : String(label);
                 }}
                 contentStyle={{

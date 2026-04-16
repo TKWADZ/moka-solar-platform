@@ -104,7 +104,7 @@ export function CustomerAppInstallCard({ className }: { className?: string }) {
               dark ? 'text-emerald-200/80' : 'text-emerald-700/80',
             )}
           >
-            Ung dung khach hang
+            Ứng dụng khách hàng
           </p>
           <h2
             className={cn(
@@ -112,7 +112,7 @@ export function CustomerAppInstallCard({ className }: { className?: string }) {
               dark ? 'text-white' : 'text-slate-950',
             )}
           >
-            Cai Moka Solar len dien thoai de mo nhanh nhu mot app.
+            Cài Moka Solar lên điện thoại để mở nhanh như một app.
           </h2>
           <p
             className={cn(
@@ -120,7 +120,7 @@ export function CustomerAppInstallCard({ className }: { className?: string }) {
               dark ? 'text-slate-300' : 'text-slate-600',
             )}
           >
-            Theo doi san luong, hoa don, thanh toan va ho tro chi voi mot cham tu man hinh chinh.
+            Theo dõi sản lượng, hóa đơn, thanh toán và hỗ trợ chỉ với một chạm từ màn hình chính.
           </p>
 
           {showIosHint ? (
@@ -130,9 +130,9 @@ export function CustomerAppInstallCard({ className }: { className?: string }) {
                 dark ? 'text-slate-300' : 'text-slate-600',
               )}
             >
-              Tren iPhone, hay cham nut Chia se trong Safari roi chon{' '}
+              Trên iPhone, hãy chạm nút Chia sẻ trong Safari rồi chọn{' '}
               <span className={cn('font-semibold', dark ? 'text-white' : 'text-slate-950')}>
-                Them vao Man hinh chinh
+                Thêm vào Màn hình chính
               </span>
               .
             </p>
@@ -147,7 +147,7 @@ export function CustomerAppInstallCard({ className }: { className?: string }) {
                 className="btn-primary min-h-[46px] flex-1 sm:min-h-[48px]"
               >
                 <ArrowDownToLine className="h-4 w-4" />
-                {isInstalling ? 'Dang chuan bi' : 'Cai ung dung'}
+                {isInstalling ? 'Đang chuẩn bị' : 'Cài ứng dụng'}
               </button>
             ) : null}
             <button
@@ -160,7 +160,7 @@ export function CustomerAppInstallCard({ className }: { className?: string }) {
                   : 'border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50',
               )}
             >
-              De sau
+              Để sau
             </button>
           </div>
         </div>
