@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   BarChart3,
   Bell,
@@ -80,6 +81,14 @@ type PortalShellContentProps = {
   currentFeatureDisabled: boolean;
   currentNavForbidden: boolean;
   children: React.ReactNode;
+};
+
+type NotificationPanelPosition = {
+  top: number;
+  left: number;
+  width: number;
+  maxHeight: number;
+  mobile: boolean;
 };
 
 const navIconMap: Record<string, LucideIcon> = {
@@ -383,16 +392,117 @@ function NotificationsBell() {
     markAllNotificationsRead,
     markNotificationRead,
   } = usePortalLive();
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const panelRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
+  const [panelPosition, setPanelPosition] = useState<NotificationPanelPosition | null>(null);
 
   const totalBadge = notificationUnreadCount + ticketUnreadCount;
+
+  useEffect(() => {
+    if (!open) {
+      setPanelPosition(null);
+      return;
+    }
+
+    let frameId: number | null = null;
+
+    const updatePosition = () => {
+      const button = buttonRef.current;
+      if (!button) {
+        return;
+      }
+
+      const rect = button.getBoundingClientRect();
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+      const mobile = viewportWidth < 640;
+      const horizontalMargin = mobile ? 16 : 12;
+      const verticalMargin = mobile ? 16 : 12;
+      const gap = 12;
+      const maxWidth = Math.max(280, viewportWidth - horizontalMargin * 2);
+      const width = mobile ? maxWidth : Math.min(384, maxWidth);
+      const rawLeft = mobile ? horizontalMargin : rect.right - width;
+      const left = Math.min(
+        Math.max(horizontalMargin, rawLeft),
+        Math.max(horizontalMargin, viewportWidth - width - horizontalMargin),
+      );
+      const top = Math.min(
+        Math.max(verticalMargin, rect.bottom + gap),
+        Math.max(verticalMargin, viewportHeight - verticalMargin - 220),
+      );
+      const availableHeight = Math.max(0, viewportHeight - top - verticalMargin);
+      const preferredMaxHeight = mobile ? Math.floor(viewportHeight * 0.7) : 560;
+      const maxHeight =
+        availableHeight < 180 ? availableHeight : Math.min(preferredMaxHeight, availableHeight);
+
+      setPanelPosition({
+        top,
+        left,
+        width,
+        maxHeight,
+        mobile,
+      });
+    };
+
+    const schedulePositionUpdate = () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+
+      frameId = window.requestAnimationFrame(() => {
+        frameId = null;
+        updatePosition();
+      });
+    };
+
+    const handlePointerDown = (event: MouseEvent | TouchEvent) => {
+      const target = event.target as Node | null;
+      if (!target) {
+        return;
+      }
+
+      if (panelRef.current?.contains(target) || buttonRef.current?.contains(target)) {
+        return;
+      }
+
+      setOpen(false);
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setOpen(false);
+      }
+    };
+
+    updatePosition();
+    window.addEventListener('resize', schedulePositionUpdate);
+    window.addEventListener('scroll', schedulePositionUpdate, true);
+    document.addEventListener('mousedown', handlePointerDown);
+    document.addEventListener('touchstart', handlePointerDown);
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      if (frameId !== null) {
+        window.cancelAnimationFrame(frameId);
+      }
+      window.removeEventListener('resize', schedulePositionUpdate);
+      window.removeEventListener('scroll', schedulePositionUpdate, true);
+      document.removeEventListener('mousedown', handlePointerDown);
+      document.removeEventListener('touchstart', handlePointerDown);
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [open]);
 
   return (
     <div className="relative">
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => setOpen((current) => !current)}
         className="portal-card-soft relative flex h-11 w-11 items-center justify-center"
+        aria-expanded={open}
+        aria-haspopup="dialog"
         aria-label="Mở thông báo"
       >
         <Bell className="h-5 w-5 text-slate-200" />
@@ -409,10 +519,26 @@ function NotificationsBell() {
         />
       </button>
 
-      {open ? (
-        <div className="absolute right-0 z-30 mt-3 w-[min(92vw,24rem)] overflow-hidden rounded-[24px] border border-white/10 bg-[#08111f]/97 shadow-[0_24px_80px_rgba(2,6,23,0.44)] backdrop-blur-xl">
-          <div className="flex items-center justify-between gap-3 border-b border-white/8 px-4 py-4">
-            <div>
+      {open && panelPosition
+        ? createPortal(
+            <div
+              ref={panelRef}
+              className={cn(
+                'fixed z-[60] flex overflow-hidden rounded-[24px] border border-white/10 bg-[#08111f]/97 shadow-[0_24px_80px_rgba(2,6,23,0.44)] backdrop-blur-xl',
+                panelPosition.mobile && 'rounded-[22px]',
+              )}
+              style={{
+                top: `${panelPosition.top}px`,
+                left: `${panelPosition.left}px`,
+                width: `${panelPosition.width}px`,
+                maxHeight: `${panelPosition.maxHeight}px`,
+              }}
+              role="dialog"
+              aria-label="Thông báo"
+            >
+              <div className="flex min-h-0 w-full flex-col">
+                <div className="flex items-center justify-between gap-3 border-b border-white/8 px-4 py-4">
+                  <div className="min-w-0">
               <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Thông báo</p>
               <p className="mt-1 text-sm font-semibold text-white">
                 {notificationUnreadCount
@@ -424,14 +550,14 @@ function NotificationsBell() {
               <button
                 type="button"
                 onClick={() => void markAllNotificationsRead()}
-                className="text-xs font-semibold text-emerald-200 transition hover:text-white"
+                className="shrink-0 text-xs font-semibold text-emerald-200 transition hover:text-white"
               >
                 Đánh dấu đã đọc
               </button>
             ) : null}
-          </div>
+                </div>
 
-          <div className="max-h-[24rem] overflow-y-auto px-3 py-3">
+                <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
             {notifications.length ? (
               <div className="space-y-2">
                 {notifications.map((item) => (
@@ -470,9 +596,12 @@ function NotificationsBell() {
                 Chưa có thông báo mới. Ticket, phản hồi và cập nhật trạng thái sẽ hiện tại đây.
               </div>
             )}
-          </div>
-        </div>
-      ) : null}
+                </div>
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
