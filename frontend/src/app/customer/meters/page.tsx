@@ -2,7 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
-import { CustomerConsumptionChartCard, CustomerDailyUsageCard } from '@/components/customer-consumption-cards';
+import {
+  CustomerConsumptionChartCard,
+  CustomerDailyUsageCard,
+} from '@/components/customer-consumption-cards';
 import { useCustomerTheme } from '@/components/customer-theme-provider';
 import { SectionCard } from '@/components/section-card';
 import { customerDashboardRequest } from '@/lib/api';
@@ -12,7 +15,7 @@ import { CustomerDashboardData } from '@/types';
 
 function formatMeterReading(value?: number | null) {
   if (value == null) {
-    return 'Chua ap dung do chi so';
+    return 'Chưa áp dụng đo chỉ số';
   }
 
   return new Intl.NumberFormat('vi-VN', {
@@ -21,7 +24,7 @@ function formatMeterReading(value?: number | null) {
 }
 
 function formatUsage(value?: number | null) {
-  return value != null ? formatNumber(value, 'kWh') : 'Chua co du lieu';
+  return value != null ? formatNumber(value, 'kWh') : 'Chưa có dữ liệu';
 }
 
 export default function CustomerMetersPage() {
@@ -47,21 +50,18 @@ export default function CustomerMetersPage() {
         setError(
           requestError instanceof Error
             ? requestError.message
-            : 'Khong the tai lich su chi so dien.',
+            : 'Không thể tải lịch sử chỉ số điện.',
         ),
       );
   }, []);
 
-  const consumptionView = useMemo(
-    () => buildCustomerConsumptionView(dashboard),
-    [dashboard],
-  );
+  const consumptionView = useMemo(() => buildCustomerConsumptionView(dashboard), [dashboard]);
 
   if (!dashboard) {
     return (
       <SectionCard title="Lịch sử chỉ số điện" eyebrow="Tổng hợp theo từng kỳ">
         <p className={error ? 'text-sm text-rose-500' : cn('text-sm', bodyText)}>
-          {error || 'Dang tai lich su chi so...'}
+          {error || 'Đang tải lịch sử chỉ số...'}
         </p>
       </SectionCard>
     );
@@ -132,14 +132,13 @@ export default function CustomerMetersPage() {
                       {formatCurrency(period.amount)}
                     </h3>
                     <p className={cn('mt-2 text-sm', dark ? 'text-slate-400' : 'text-slate-500')}>
-                      {formatUsage(period.loadConsumedKwh)} · PV {formatNumber(period.pvGenerationKwh, 'kWh')}
+                      {formatUsage(period.loadConsumedKwh)} · PV{' '}
+                      {formatNumber(period.pvGenerationKwh, 'kWh')}
                     </p>
                   </div>
 
                   <div className="flex items-center gap-3">
-                    <div className={badgeClass}>
-                      {period.paymentStatus}
-                    </div>
+                    <div className={badgeClass}>{period.paymentStatus}</div>
                     <span className="customer-icon-button h-10 w-10">
                       {expanded ? (
                         <ChevronUp className="h-4.5 w-4.5" />
@@ -178,11 +177,11 @@ export default function CustomerMetersPage() {
                         label: 'Đồng bộ',
                         value: period.updatedAt
                           ? formatDateTime(period.updatedAt)
-                          : 'Chua cap nhat',
+                          : 'Chưa cập nhật',
                       },
                       {
                         label: 'Nguồn dữ liệu',
-                        value: period.sourceLabel || 'Dang cap nhat',
+                        value: period.sourceLabel || 'Đang cập nhật',
                       },
                     ].map((item) => (
                       <div key={item.label} className="customer-soft-card-muted px-4 py-3">

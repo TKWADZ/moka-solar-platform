@@ -28,7 +28,7 @@ export default function CustomerSystemsPage() {
         setError(
           requestError instanceof Error
             ? requestError.message
-            : 'Khong the tai du lieu he thong dien.',
+            : 'Không thể tải dữ liệu hệ thống điện.',
         ),
       );
   }, []);
@@ -36,8 +36,12 @@ export default function CustomerSystemsPage() {
   if (!dashboard) {
     return (
       <SectionCard title="Hệ thống điện mặt trời" eyebrow="Tài sản và kỳ dữ liệu đang theo dõi">
-        <p className={error ? 'text-sm text-rose-500' : cn('text-sm', dark ? 'text-slate-300' : 'text-slate-600')}>
-          {error || 'Dang tai du lieu he thong dien...'}
+        <p
+          className={
+            error ? 'text-sm text-rose-500' : cn('text-sm', dark ? 'text-slate-300' : 'text-slate-600')
+          }
+        >
+          {error || 'Đang tải dữ liệu hệ thống điện...'}
         </p>
       </SectionCard>
     );

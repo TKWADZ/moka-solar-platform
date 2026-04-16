@@ -31,10 +31,10 @@ export default function CustomerLoading() {
         </div>
         <p className="mt-5 text-[11px] uppercase tracking-[0.28em] text-slate-500">Moka Solar</p>
         <h1 className={cn('mt-3 text-xl font-semibold', dark ? 'text-white' : 'text-slate-950')}>
-          Dang mo cong khach hang
+          Đang mở cổng khách hàng
         </h1>
         <p className={cn('mt-3 text-sm leading-6', dark ? 'text-slate-300' : 'text-slate-600')}>
-          He thong dang chuan bi du lieu san luong, hoa don va trang thai van hanh gan nhat cho ban.
+          Hệ thống đang chuẩn bị dữ liệu sản lượng, hóa đơn và trạng thái vận hành gần nhất cho bạn.
         </p>
       </div>
     </main>

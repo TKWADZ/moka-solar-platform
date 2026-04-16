@@ -182,99 +182,99 @@ function BillingSpotlightCard({
 
   const detailFields: DetailField[] = [
     {
-      label: 'PV thang',
+      label: 'PV tháng',
       value:
         display.pvGenerationKwh != null
           ? formatNumber(display.pvGenerationKwh, 'kWh')
-          : 'Chua cap nhat',
+          : 'Chưa cập nhật',
     },
     {
-      label: 'Dien tieu thu',
+      label: 'Điện tiêu thụ',
       value: formatBillingUsage(display.loadConsumedKwh),
     },
     ...(billableKwhVisible
       ? [
           {
-            label: 'San luong kWh',
+            label: 'Sản lượng kWh',
             value:
               display.billableKwh != null
                 ? formatNumber(display.billableKwh, 'kWh')
-                : 'Chua cap nhat',
+                : 'Chưa cập nhật',
           } satisfies DetailField,
         ]
       : []),
     {
-      label: 'Don gia',
-      value: display.unitPrice != null ? formatCurrency(display.unitPrice) : 'Chua cau hinh',
+      label: 'Đơn giá',
+      value: display.unitPrice != null ? formatCurrency(display.unitPrice) : 'Chưa cấu hình',
     },
     {
-      label: 'Tien truoc VAT',
+      label: 'Tiền trước VAT',
       value:
         display.subtotalAmount != null
           ? formatCurrency(display.subtotalAmount)
-          : 'Chua cap nhat',
+          : 'Chưa cập nhật',
     },
     {
       label: 'VAT',
       value: display.vatRate != null ? `${display.vatRate}%` : '-',
     },
     {
-      label: 'Tien VAT',
+      label: 'Tiền VAT',
       value: display.taxAmount != null ? formatCurrency(display.taxAmount) : '-',
     },
     {
-      label: 'Chiet khau',
+      label: 'Chiết khấu',
       value: display.discountAmount != null ? formatCurrency(display.discountAmount) : '-',
     },
     {
-      label: 'Tong cong',
-      value: display.totalAmount != null ? formatCurrency(display.totalAmount) : 'Chua cap nhat',
+      label: 'Tổng cộng',
+      value: display.totalAmount != null ? formatCurrency(display.totalAmount) : 'Chưa cập nhật',
       emphasis: true,
     },
     ...(invoice
       ? [
           {
-            label: 'So du can thanh toan',
+            label: 'Số dư cần thanh toán',
             value: formatCurrency(display.outstandingAmount || 0),
             emphasis: true,
           } satisfies DetailField,
           {
-            label: 'Da thanh toan',
+            label: 'Đã thanh toán',
             value: formatCurrency(display.paidAmount || 0),
           } satisfies DetailField,
         ]
       : []),
     {
-      label: 'Chi so cu',
+      label: 'Chỉ số cũ',
       value: formatBillingMeterReading(display.previousReading),
     },
     {
-      label: 'Chi so moi',
+      label: 'Chỉ số mới',
       value: formatBillingMeterReading(display.currentReading),
     },
     {
       label: 'Sync',
-      value: display.syncStatus || 'Chua cap nhat',
+      value: display.syncStatus || 'Chưa cập nhật',
     },
     {
-      label: 'Chat luong',
-      value: display.dataQualityStatus || 'Chua cap nhat',
+      label: 'Chất lượng',
+      value: display.dataQualityStatus || 'Chưa cập nhật',
     },
     {
-      label: 'Hoa don',
-      value: display.workflowStatus || 'Chua cap nhat',
+      label: 'Hóa đơn',
+      value: display.workflowStatus || 'Chưa cập nhật',
     },
     {
-      label: 'Loai hoa don',
+      label: 'Loại hóa đơn',
       value: contractTypeLabel(display.contractType),
     },
     {
-      label: 'Dong bo',
-      value: display.syncTime ? formatDateTime(display.syncTime) : 'Chua cap nhat',
+      label: 'Đồng bộ',
+      value: display.syncTime ? formatDateTime(display.syncTime) : 'Chưa cập nhật',
     },
     {
-      label: 'Nguon du lieu',
-      value: display.sourceLabel || 'Chua cap nhat',
+      label: 'Nguồn dữ liệu',
+      value: display.sourceLabel || 'Chưa cập nhật',
     },
     ...(display.transferAmount != null
       ? [
@@ -310,8 +310,8 @@ function BillingSpotlightCard({
           </h3>
           <div className={cn('mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm', dark ? 'text-slate-400' : 'text-slate-500')}>
             {display.address ? <span>{display.address}</span> : null}
-            {display.contractNumber ? <span>Ma HD: {display.contractNumber}</span> : null}
-            {display.customerName ? <span>Khach hang: {display.customerName}</span> : null}
+            {display.contractNumber ? <span>Mã HĐ: {display.contractNumber}</span> : null}
+            {display.customerName ? <span>Khách hàng: {display.customerName}</span> : null}
           </div>
           {helperText ? (
             <p className={cn('mt-3 text-sm leading-6', dark ? 'text-slate-300' : 'text-slate-600')}>
@@ -321,13 +321,13 @@ function BillingSpotlightCard({
         </div>
 
         <div className="customer-soft-card-muted px-4 py-3 text-right">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Gia tri hien tai</p>
+          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Giá trị hiện tại</p>
           <p className={cn('mt-2 text-xl font-semibold', dark ? 'text-white' : 'text-slate-950')}>
-            {display.totalAmount != null ? formatCurrency(display.totalAmount) : 'Chua cap nhat'}
+            {display.totalAmount != null ? formatCurrency(display.totalAmount) : 'Chưa cập nhật'}
           </p>
           {invoice?.dueDate ? (
             <p className={cn('mt-2 text-xs', dark ? 'text-slate-400' : 'text-slate-500')}>
-              Den han {formatDate(invoice.dueDate)}
+              Đến hạn {formatDate(invoice.dueDate)}
             </p>
           ) : null}
         </div>
@@ -398,7 +398,7 @@ export default function CustomerBillingPage() {
         setError(
           nextError instanceof Error
             ? nextError.message
-            : 'Khong the tai du lieu hoa don.',
+            : 'Không thể tải dữ liệu hóa đơn.',
         ),
       )
       .finally(() => setLoading(false));
@@ -480,36 +480,36 @@ export default function CustomerBillingPage() {
 
     return [
       {
-        title: 'Hoa don da phat hanh',
+        title: 'Hóa đơn đã phát hành',
         value: String(invoices.length),
-        subtitle: 'Tong so ky hoa don dang duoc luu tru',
-        delta: `${paidCount} ky da hoan tat`,
+        subtitle: 'Tổng số kỳ hóa đơn đang được lưu trữ',
+        delta: `${paidCount} kỳ đã hoàn tất`,
         trend: 'up',
       },
       {
-        title: 'Can thanh toan',
+        title: 'Cần thanh toán',
         value: formatCurrency(outstanding),
         subtitle: openInvoices.length
-          ? `${openInvoices.length} hoa don chua thanh toan`
+          ? `${openInvoices.length} hóa đơn chưa thanh toán`
           : currentOpenBillingRecord
-            ? 'Trong thang chi hien thi tam tinh, chua phat hanh hoa don chinh thuc'
-            : 'Khong con du no can doi soat',
+            ? 'Trong tháng chỉ hiển thị tạm tính, chưa phát hành hóa đơn chính thức'
+            : 'Không còn dư nợ cần đối soát',
         delta: nearestDueInvoice
-          ? `${nearestDueInvoice.invoiceNumber} · den han ${formatDate(nearestDueInvoice.dueDate)}`
+          ? `${nearestDueInvoice.invoiceNumber} · đến hạn ${formatDate(nearestDueInvoice.dueDate)}`
           : overdueCount
-            ? `${overdueCount} hoa don qua han`
+            ? `${overdueCount} hóa đơn quá hạn`
             : currentOpenBillingRecord
-              ? `Tam tinh ${formatCurrency(currentOpenBillingRecord.totalAmount)}`
-              : 'Danh muc dang on dinh',
+              ? `Tạm tính ${formatCurrency(currentOpenBillingRecord.totalAmount)}`
+              : 'Danh mục đang ổn định',
         trend: outstanding > 0 ? 'neutral' : 'up',
       },
       {
-        title: 'Hoa don can uu tien',
-        value: currentInvoice ? currentInvoice.invoiceNumber : 'Chua phat sinh',
+        title: 'Hóa đơn cần ưu tiên',
+        value: currentInvoice ? currentInvoice.invoiceNumber : 'Chưa phát sinh',
         subtitle: currentInvoice
-          ? `Den han ${formatDate(currentInvoice.dueDate)}`
-          : 'He thong chua co hoa don can xu ly',
-        delta: currentInvoice ? invoiceStatusLabel(currentInvoice.status) : 'Danh muc dang on dinh',
+          ? `Đến hạn ${formatDate(currentInvoice.dueDate)}`
+          : 'Hệ thống chưa có hóa đơn cần xử lý',
+        delta: currentInvoice ? invoiceStatusLabel(currentInvoice.status) : 'Danh mục đang ổn định',
         trend: currentInvoice?.status === 'OVERDUE' ? 'down' : 'neutral',
       },
     ];
@@ -517,9 +517,9 @@ export default function CustomerBillingPage() {
 
   if (loading) {
     return (
-      <SectionCard title="Hoa don dien" eyebrow="Doi soat va luu tru">
+      <SectionCard title="Hóa đơn điện" eyebrow="Đối soát và lưu trữ">
         <p className={cn('text-sm', dark ? 'text-slate-300' : 'text-slate-600')}>
-          Dang tai du lieu hoa don...
+          Đang tải dữ liệu hóa đơn...
         </p>
       </SectionCard>
     );
@@ -534,7 +534,7 @@ export default function CustomerBillingPage() {
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.08fr)_minmax(340px,0.92fr)]">
-        <SectionCard title="Lich su hoa don" eyebrow="Ma hoa don, ky doi soat va PDF">
+        <SectionCard title="Lịch sử hóa đơn" eyebrow="Mã hóa đơn, kỳ đối soát và PDF">
           {error ? (
             <div className="mb-4 rounded-[20px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
               {error}
@@ -545,19 +545,19 @@ export default function CustomerBillingPage() {
         </SectionCard>
 
         <SectionCard
-          title="Tom tat ky dang theo doi"
-          eyebrow="Giu layout moi nhung mo rong noi dung hoa don theo du lieu admin"
+          title="Tóm tắt kỳ đang theo dõi"
+          eyebrow="Giữ layout mới nhưng mở rộng nội dung hóa đơn theo dữ liệu admin"
         >
           {currentOpenBillingRecord || pendingReviewRecord || currentInvoice ? (
             <div className="space-y-4">
               {currentOpenBillingRecord ? (
                 <BillingSpotlightCard
-                  eyebrow="Tam tinh thang nay"
+                  eyebrow="Tạm tính tháng này"
                   billing={currentOpenBillingRecord}
                   helperText={
                     currentOpenSnapshotInvoice
-                      ? `PDF ${currentOpenSnapshotInvoice.invoiceNumber} van la snapshot export va khong khoa so live dang hien thi tren trang nay.`
-                      : 'Trong thang he thong chi hien thi san luong va so tien tam tinh theo du lieu live tu daily energy. Hoa don chinh thuc se duoc chot sau khi hoan tat doi soat du lieu thang.'
+                      ? `PDF ${currentOpenSnapshotInvoice.invoiceNumber} vẫn là snapshot export và không khóa số live đang hiển thị trên trang này.`
+                      : 'Trong tháng hệ thống chỉ hiển thị sản lượng và số tiền tạm tính theo dữ liệu live từ daily energy. Hóa đơn chính thức sẽ được chốt sau khi hoàn tất đối soát dữ liệu tháng.'
                   }
                   actions={
                     currentOpenSnapshotInvoice ? (
@@ -567,7 +567,7 @@ export default function CustomerBillingPage() {
                         className="btn-secondary-light inline-flex items-center gap-2"
                       >
                         <FileDown className="h-4 w-4" />
-                        Tai PDF snapshot
+                        Tải PDF snapshot
                       </button>
                     ) : undefined
                   }
@@ -576,8 +576,8 @@ export default function CustomerBillingPage() {
 
               {pendingReviewRecord ? (
                 <div className="rounded-[24px] border border-amber-200 bg-amber-50 px-5 py-4 text-sm leading-6 text-amber-700">
-                  Du lieu ky {String(pendingReviewRecord.month).padStart(2, '0')}/{pendingReviewRecord.year} dang cho doi soat.
-                  He thong se khong tu phat hanh hoac gui Zalo cho den khi du lieu dat trang thai san sang.
+                  Dữ liệu kỳ {String(pendingReviewRecord.month).padStart(2, '0')}/{pendingReviewRecord.year} đang chờ đối soát.
+                  Hệ thống sẽ không tự phát hành hoặc gửi Zalo cho đến khi dữ liệu đạt trạng thái sẵn sàng.
                 </div>
               ) : null}
 
@@ -587,10 +587,10 @@ export default function CustomerBillingPage() {
                     eyebrow={currentInvoice.invoiceNumber}
                     invoice={currentInvoice}
                     billing={currentInvoiceBilling}
-                    helperText={`Ky ${formatMonthPeriod(
+                    helperText={`Kỳ ${formatMonthPeriod(
                       currentInvoice.billingMonth,
                       currentInvoice.billingYear,
-                    )} · Den han ${formatDate(currentInvoice.dueDate)}`}
+                    )} · Đến hạn ${formatDate(currentInvoice.dueDate)}`}
                     actions={
                       <>
                         <button
@@ -599,14 +599,14 @@ export default function CustomerBillingPage() {
                           className="btn-primary inline-flex items-center gap-2"
                         >
                           <FileDown className="h-4 w-4" />
-                          Tai PDF hoa don
+                          Tải PDF hóa đơn
                         </button>
 
                         <Link
                           href="/customer/payments"
                           className="btn-secondary-light inline-flex items-center gap-2"
                         >
-                          Di toi thanh toan
+                          Đi tới thanh toán
                           <ArrowUpRight className="h-4 w-4" />
                         </Link>
                       </>
@@ -617,7 +617,7 @@ export default function CustomerBillingPage() {
                     <div className="flex items-center gap-2">
                       <ReceiptText className="h-4.5 w-4.5 text-slate-400" />
                       <p className={cn('text-sm font-semibold', dark ? 'text-white' : 'text-slate-950')}>
-                        Chi tiet hang muc
+                        Chi tiết hạng mục
                       </p>
                     </div>
                     <div className="mt-4 space-y-3">
@@ -635,7 +635,7 @@ export default function CustomerBillingPage() {
                                 {invoiceItemLabel(item.description)}
                               </p>
                               <p className="mt-1 text-xs text-slate-500">
-                                So luong {item.quantity} · Don gia {formatCurrency(Number(item.unitPrice))}
+                                Số lượng {item.quantity} · Đơn giá {formatCurrency(Number(item.unitPrice))}
                               </p>
                             </div>
                             <span className={cn('shrink-0 font-semibold', dark ? 'text-white' : 'text-slate-950')}>
@@ -645,7 +645,7 @@ export default function CustomerBillingPage() {
                         ))
                       ) : (
                         <p className={cn('text-sm leading-6', dark ? 'text-slate-300' : 'text-slate-600')}>
-                          Hoa don nay chua co danh sach hang muc chi tiet.
+                          Hóa đơn này chưa có danh sách hạng mục chi tiết.
                         </p>
                       )}
                     </div>
@@ -656,10 +656,10 @@ export default function CustomerBillingPage() {
           ) : (
             <div className="customer-soft-card p-5">
               <p className={cn('text-base font-semibold', dark ? 'text-white' : 'text-slate-950')}>
-                Chua co hoa don can hien thi
+                Chưa có hóa đơn cần hiển thị
               </p>
               <p className={cn('mt-2 text-sm leading-6', dark ? 'text-slate-300' : 'text-slate-600')}>
-                He thong se tu dong cap nhat hoa don theo chu ky hop dong sau khi hoan tat doi soat dien nang.
+                Hệ thống sẽ tự động cập nhật hóa đơn theo chu kỳ hợp đồng sau khi hoàn tất đối soát điện năng.
               </p>
             </div>
           )}

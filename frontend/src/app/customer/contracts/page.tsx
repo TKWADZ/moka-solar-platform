@@ -14,15 +14,15 @@ import { ContractRecord, StatCardItem } from '@/types';
 function contractTypeLabel(type: string) {
   switch (type) {
     case 'PPA_KWH':
-      return 'Ban dien theo kWh';
+      return 'Bán điện theo kWh';
     case 'LEASE':
-      return 'Thue he thong';
+      return 'Thuê hệ thống';
     case 'INSTALLMENT':
-      return 'Tra gop';
+      return 'Trả góp';
     case 'HYBRID':
-      return 'Mo hinh ket hop';
+      return 'Mô hình kết hợp';
     case 'SALE':
-      return 'Mua dut';
+      return 'Mua đứt';
     default:
       return type;
   }
@@ -30,15 +30,15 @@ function contractTypeLabel(type: string) {
 
 function contractStatusLabel(status: string) {
   if (status === 'ACTIVE') {
-    return 'Dang hieu luc';
+    return 'Đang hiệu lực';
   }
 
   if (status === 'EXPIRED') {
-    return 'Da het han';
+    return 'Đã hết hạn';
   }
 
   if (status === 'PENDING') {
-    return 'Cho kich hoat';
+    return 'Chờ kích hoạt';
   }
 
   return status;
@@ -54,7 +54,7 @@ function priceSummary(contract: ContractRecord) {
   }
 
   if (contract.type === 'INSTALLMENT') {
-    return `${formatCurrency(Number(contract.fixedMonthlyFee || 0))} / thang`;
+    return `${formatCurrency(Number(contract.fixedMonthlyFee || 0))} / tháng`;
   }
 
   return formatCurrency(
@@ -85,17 +85,17 @@ export default function CustomerContractsPage() {
 
     return [
       {
-        title: 'Hop dong dang hieu luc',
+        title: 'Hợp đồng đang hiệu lực',
         value: String(activeCount),
-        subtitle: 'Cac dieu khoan hien dang ap dung cho tai san cua ban',
-        delta: nextRenewal ? `Moc gan nhat ${formatDate(nextRenewal)}` : 'Chua co moc gia han',
+        subtitle: 'Các điều khoản hiện đang áp dụng cho tài sản của bạn',
+        delta: nextRenewal ? `Mốc gần nhất ${formatDate(nextRenewal)}` : 'Chưa có mốc gia hạn',
         trend: 'up',
       },
       {
-        title: 'Mo hinh dich vu',
-        value: contracts[0] ? contractTypeLabel(contracts[0].type) : 'Chua co du lieu',
-        subtitle: 'Hinh thuc thuong mai hien tai cua danh muc',
-        delta: contracts[0]?.servicePackage?.name || 'Chua gan goi dich vu',
+        title: 'Mô hình dịch vụ',
+        value: contracts[0] ? contractTypeLabel(contracts[0].type) : 'Chưa có dữ liệu',
+        subtitle: 'Hình thức thương mại hiện tại của danh mục',
+        delta: contracts[0]?.servicePackage?.name || 'Chưa gắn gói dịch vụ',
         trend: 'neutral',
       },
     ];
@@ -103,8 +103,8 @@ export default function CustomerContractsPage() {
 
   if (loading) {
     return (
-      <SectionCard title="Hop dong" eyebrow="Dieu khoan thuong mai">
-        <p className={cn('text-sm', bodyText)}>Dang tai hop dong...</p>
+      <SectionCard title="Hợp đồng" eyebrow="Điều khoản thương mại">
+        <p className={cn('text-sm', bodyText)}>Đang tải hợp đồng...</p>
       </SectionCard>
     );
   }
@@ -132,14 +132,14 @@ export default function CustomerContractsPage() {
                       <StatusPill
                         label={
                           contract.status === 'ACTIVE'
-                            ? 'Dang hoat dong'
+                            ? 'Đang hoạt động'
                             : contractStatusLabel(contract.status)
                         }
                       />
                       <StatusPill label={contractTypeLabel(contract.type)} />
                     </div>
                     <p className={cn('mt-3 text-sm leading-6', bodyText)}>
-                      Hop dong nay dieu phoi cau truc gia dien, thoi han cam ket va trach nhiem van hanh cho he thong dang trien khai.
+                      Hợp đồng này điều phối cấu trúc giá điện, thời hạn cam kết và trách nhiệm vận hành cho hệ thống đang triển khai.
                     </p>
                   </div>
 
@@ -150,28 +150,28 @@ export default function CustomerContractsPage() {
                       className="btn-secondary-light inline-flex items-center gap-2"
                     >
                       <FileText className="h-4 w-4" />
-                      Mo tep hop dong
+                      Mở tệp hợp đồng
                       <ExternalLink className="h-4 w-4" />
                     </Link>
                   ) : null}
                 </div>
 
                 <div className={cn('grid gap-3 text-sm sm:grid-cols-2 xl:grid-cols-3', bodyText)}>
-                  <p>Thoi han: {contract.termMonths ? `${contract.termMonths} thang` : '-'}</p>
-                  <p>Ngay bat dau: {formatDate(contract.startDate)}</p>
-                  <p>Ngay ket thuc: {formatDate(contract.endDate)}</p>
-                  <p>Don gia ap dung: {priceSummary(contract)}</p>
-                  <p>Goi dich vu: {contract.servicePackage?.name || '-'}</p>
-                  <p>VAT cau hinh: {contract.vatRate != null ? `${contract.vatRate}%` : '-'}</p>
+                  <p>Thời hạn: {contract.termMonths ? `${contract.termMonths} tháng` : '-'}</p>
+                  <p>Ngày bắt đầu: {formatDate(contract.startDate)}</p>
+                  <p>Ngày kết thúc: {formatDate(contract.endDate)}</p>
+                  <p>Đơn giá áp dụng: {priceSummary(contract)}</p>
+                  <p>Gói dịch vụ: {contract.servicePackage?.name || '-'}</p>
+                  <p>VAT cấu hình: {contract.vatRate != null ? `${contract.vatRate}%` : '-'}</p>
                 </div>
 
                 <div className="customer-soft-card p-5">
                   <div className={cn('grid gap-3 text-sm sm:grid-cols-2', bodyText)}>
-                    <p>He thong ap dung: {contract.solarSystem?.name || '-'}</p>
-                    <p>Vi tri lap dat: {contract.solarSystem?.location || '-'}</p>
-                    <p>Ma tai san: {contract.solarSystem?.systemCode || '-'}</p>
+                    <p>Hệ thống áp dụng: {contract.solarSystem?.name || '-'}</p>
+                    <p>Vị trí lắp đặt: {contract.solarSystem?.location || '-'}</p>
+                    <p>Mã tài sản: {contract.solarSystem?.systemCode || '-'}</p>
                     <p>
-                      Cong suat:{' '}
+                      Công suất:{' '}
                       {contract.solarSystem?.capacityKwp
                         ? `${contract.solarSystem.capacityKwp} kWp`
                         : '-'}
@@ -182,13 +182,13 @@ export default function CustomerContractsPage() {
             </SectionCard>
           ))
         ) : (
-          <SectionCard title="Hop dong" eyebrow="Dieu khoan thuong mai">
+          <SectionCard title="Hợp đồng" eyebrow="Điều khoản thương mại">
             <div className="customer-soft-card p-5">
               <p className={cn('text-base font-semibold', headingText)}>
-                Chua co hop dong nao duoc gan cho tai khoan nay
+                Chưa có hợp đồng nào được gắn cho tài khoản này
               </p>
               <p className={cn('mt-2 text-sm leading-6', bodyText)}>
-                Khi doi ngu van hanh hoan tat onboarding, hop dong va tep dinh kem se xuat hien tai day.
+                Khi đội ngũ vận hành hoàn tất onboarding, hợp đồng và tệp đính kèm sẽ xuất hiện tại đây.
               </p>
             </div>
           </SectionCard>

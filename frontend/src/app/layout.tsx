@@ -1,6 +1,6 @@
 import './globals.css';
 import type { Metadata, Viewport } from 'next';
-import { Manrope, Sora } from 'next/font/google';
+import { Be_Vietnam_Pro, Manrope } from 'next/font/google';
 import { FloatingChat } from '@/components/floating-chat';
 import { PwaBootstrap } from '@/components/pwa-bootstrap';
 import { PublicSiteProvider } from '@/components/public-site-provider';
@@ -13,8 +13,9 @@ const manrope = Manrope({
   display: 'swap',
 });
 
-const sora = Sora({
-  subsets: ['latin', 'latin-ext'],
+const beVietnamPro = Be_Vietnam_Pro({
+  subsets: ['latin', 'vietnamese'],
+  weight: ['400', '500', '600', '700', '800'],
   variable: '--font-display',
   display: 'swap',
 });
@@ -66,7 +67,7 @@ export const viewport: Viewport = {
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="vi" suppressHydrationWarning>
-      <body className={`${manrope.variable} ${sora.variable}`}>
+      <body className={`${manrope.variable} ${beVietnamPro.variable}`}>
         <I18nProvider>
           <PublicSiteProvider>
             <PwaBootstrap />

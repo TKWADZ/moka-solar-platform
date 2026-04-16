@@ -2,7 +2,10 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { DatabaseZap, Scale } from 'lucide-react';
-import { CustomerConsumptionChartCard, CustomerDailyUsageCard } from '@/components/customer-consumption-cards';
+import {
+  CustomerConsumptionChartCard,
+  CustomerDailyUsageCard,
+} from '@/components/customer-consumption-cards';
 import { useCustomerTheme } from '@/components/customer-theme-provider';
 import { CustomerSystemCard } from '@/components/customer-system-card';
 import { EnergyChart } from '@/components/energy-chart';
@@ -39,7 +42,7 @@ function toInvoiceRows(invoices: Array<Record<string, unknown>>) {
       model:
         typedInvoice.contract?.servicePackage?.name ||
         typedInvoice.contract?.type ||
-        'Hop dong dang ap dung',
+        'Hợp đồng đang áp dụng',
       loadConsumedKwh:
         typeof typedInvoice.periodMetrics?.loadConsumedKwh === 'number'
           ? typedInvoice.periodMetrics.loadConsumedKwh
@@ -62,11 +65,11 @@ function toInvoiceRows(invoices: Array<Record<string, unknown>>) {
 }
 
 function formatUsage(value?: number | null) {
-  return value != null ? formatNumber(value, 'kWh') : 'Chua co du lieu';
+  return value != null ? formatNumber(value, 'kWh') : 'Chưa có dữ liệu';
 }
 
 function formatMeterReading(value?: number | null) {
-  return value != null ? formatBillingMeterReading(value) : 'Chua ap dung chi so';
+  return value != null ? formatBillingMeterReading(value) : 'Chưa áp dụng chỉ số';
 }
 
 export default function CustomerPage() {
@@ -87,15 +90,12 @@ export default function CustomerPage() {
         setError(
           requestError instanceof Error
             ? requestError.message
-            : 'Khong the tai du lieu cong khach hang.',
+            : 'Không thể tải dữ liệu cổng khách hàng.',
         ),
       );
   }, []);
 
-  const consumptionView = useMemo(
-    () => buildCustomerConsumptionView(dashboard),
-    [dashboard],
-  );
+  const consumptionView = useMemo(() => buildCustomerConsumptionView(dashboard), [dashboard]);
 
   const summaryCards = useMemo<StatCardItem[]>(() => {
     if (!dashboard) {
@@ -108,12 +108,12 @@ export default function CustomerPage() {
         value:
           dashboard.summary.solarGenerated != null
             ? formatNumber(dashboard.summary.solarGenerated, 'kWh')
-            : 'Chua cap nhat',
+            : 'Chưa cập nhật',
         subtitle: 'Tổng sản lượng từ khi vận hành của tất cả hệ thống.',
         delta:
           dashboard.summary.systemsTracked != null
             ? `${dashboard.summary.systemsTracked} hệ thống đang được theo dõi`
-            : 'Dang cap nhat danh muc',
+            : 'Đang cập nhật danh mục',
         trend: 'up',
       },
       {
@@ -121,7 +121,7 @@ export default function CustomerPage() {
         value:
           consumptionView.currentMonthConsumptionKwh != null
             ? formatNumber(consumptionView.currentMonthConsumptionKwh, 'kWh')
-            : 'Chua cap nhat',
+            : 'Chưa cập nhật',
         subtitle: dashboard.summary.latestDataPeriod
           ? `Tổng điện tiêu thụ của kỳ ${dashboard.summary.latestDataPeriod}`
           : 'Tổng điện tiêu thụ của kỳ hiện tại.',
@@ -133,7 +133,7 @@ export default function CustomerPage() {
         value:
           consumptionView.todayUsedKwh != null
             ? formatNumber(consumptionView.todayUsedKwh, 'kWh')
-            : 'Chua co du lieu',
+            : 'Chưa có dữ liệu',
         subtitle: consumptionView.hasDailyData
           ? 'Dữ liệu tiêu thụ theo ngày cho portal khách hàng.'
           : 'Cần load meter / smart meter / EMS / EVN theo ngày.',
@@ -144,22 +144,28 @@ export default function CustomerPage() {
         title: 'Cần thanh toán',
         value: formatCurrency(dashboard.summary.currentBillingAmount || 0),
         subtitle:
-          dashboard.summary.currentBillingLabel === 'Táº¡m tÃ­nh ká»³ nÃ y'
+          dashboard.summary.currentBillingLabel === 'Tạm tính kỳ này'
             ? 'Kỳ hiện tại đang được tạm tính, hóa đơn chính thức sẽ cập nhật sau đối soát.'
             : dashboard.summary.outstandingInvoiceCount &&
                 dashboard.summary.outstandingInvoiceCount > 0
               ? `${dashboard.summary.outstandingInvoiceCount} hóa đơn chưa thanh toán / chờ thanh toán`
-              : 'Khong co hoa don dang mo',
+              : 'Không có hóa đơn đang mở',
         delta:
           dashboard.summary.nearestDueInvoiceNumber && dashboard.summary.nearestDueInvoiceDate
-            ? `${dashboard.summary.nearestDueInvoiceNumber} · den han ${formatDate(
+            ? `${dashboard.summary.nearestDueInvoiceNumber} · đến hạn ${formatDate(
                 dashboard.summary.nearestDueInvoiceDate,
               )}`
-            : 'Danh muc dang on dinh',
+            : 'Danh mục đang ổn định',
         trend: (dashboard.summary.currentBillingAmount || 0) > 0 ? 'neutral' : 'up',
       },
     ];
-  }, [consumptionView.currentMonthConsumptionKwh, consumptionView.hasDailyData, consumptionView.todayUsedKwh, consumptionView.updateLabel, dashboard]);
+  }, [
+    consumptionView.currentMonthConsumptionKwh,
+    consumptionView.hasDailyData,
+    consumptionView.todayUsedKwh,
+    consumptionView.updateLabel,
+    dashboard,
+  ]);
 
   const invoiceRows = useMemo(
     () => (dashboard ? toInvoiceRows(dashboard.invoices.slice(0, 6)) : []),
@@ -178,7 +184,7 @@ export default function CustomerPage() {
     return (
       <SectionCard title="Tổng quan khách hàng" eyebrow="Điện năng và thanh toán">
         <p className={error ? 'text-sm text-rose-500' : cn('text-sm', bodyText)}>
-          {error || 'Dang tai du lieu cong khach hang...'}
+          {error || 'Đang tải dữ liệu cổng khách hàng...'}
         </p>
       </SectionCard>
     );
@@ -218,13 +224,11 @@ export default function CustomerPage() {
                     </h3>
                     <p className={cn('mt-2 text-sm', dark ? 'text-slate-400' : 'text-slate-500')}>
                       {currentPeriod.unpaidAmount > 0
-                        ? `Con ${formatCurrency(currentPeriod.unpaidAmount)} chua thanh toan`
-                        : 'Khong con cong no cua ky nay'}
+                        ? `Còn ${formatCurrency(currentPeriod.unpaidAmount)} chưa thanh toán`
+                        : 'Không còn công nợ của kỳ này'}
                     </p>
                   </div>
-                  <div className={badgeClass}>
-                    {currentPeriod.paymentStatus}
-                  </div>
+                  <div className={badgeClass}>{currentPeriod.paymentStatus}</div>
                 </div>
               </div>
 
@@ -248,13 +252,13 @@ export default function CustomerPage() {
                   },
                   {
                     label: 'Nguồn dữ liệu',
-                    value: currentPeriod.sourceLabel || 'Dang cap nhat',
+                    value: currentPeriod.sourceLabel || 'Đang cập nhật',
                   },
                   {
                     label: 'Lần cập nhật',
                     value: currentPeriod.updatedAt
                       ? formatDateTime(currentPeriod.updatedAt)
-                      : 'Chua cap nhat',
+                      : 'Chưa cập nhật',
                   },
                 ].map((item) => (
                   <div key={item.label} className="customer-soft-card-muted px-4 py-3">
@@ -319,10 +323,11 @@ export default function CustomerPage() {
                 <DatabaseZap className="mt-0.5 h-4.5 w-4.5 text-slate-400" />
                 <div>
                   <p className={cn('text-sm font-semibold', headingText)}>
-                    {dashboard.syncStatus?.statusLabel || 'Dang cap nhat'}
+                    {dashboard.syncStatus?.statusLabel || 'Đang cập nhật'}
                   </p>
                   <p className={cn('mt-2 text-sm leading-6', bodyText)}>
-                    Portal hiển thị dữ liệu đã đối soát. Nếu chưa có dữ liệu tiêu thụ theo ngày, hệ thống sẽ báo rõ trạng thái thay vì hiển thị số ước lượng giả.
+                    Portal hiển thị dữ liệu đã đối soát. Nếu chưa có dữ liệu tiêu thụ theo ngày,
+                    hệ thống sẽ báo rõ trạng thái thay vì hiển thị số ước lượng giả.
                   </p>
                 </div>
               </div>
@@ -335,17 +340,17 @@ export default function CustomerPage() {
                   value:
                     dashboard.syncStatus?.sourceLabel ||
                     dashboard.summary.latestDataSourceLabel ||
-                    'Dang cap nhat',
+                    'Đang cập nhật',
                 },
                 {
                   label: 'Lần cập nhật gần nhất',
                   value: dashboard.syncStatus?.latestUpdatedAt
                     ? formatDateTime(dashboard.syncStatus.latestUpdatedAt)
-                    : 'Chua cap nhat',
+                    : 'Chưa cập nhật',
                 },
                 {
                   label: 'Kỳ đang theo dõi',
-                  value: dashboard.summary.latestDataPeriod || 'Dang cap nhat',
+                  value: dashboard.summary.latestDataPeriod || 'Đang cập nhật',
                 },
                 {
                   label: 'Hệ thống đã có dữ liệu kỳ này',
@@ -394,7 +399,7 @@ export default function CustomerPage() {
                     {formatCurrency(period.amount)}
                   </h3>
                   <p className={cn('mt-2 text-sm', dark ? 'text-slate-400' : 'text-slate-500')}>
-                    {period.systemsCount} hệ thống · {period.sourceLabel || 'Dang cap nhat'}
+                    {period.systemsCount} hệ thống · {period.sourceLabel || 'Đang cập nhật'}
                   </p>
                 </div>
                 <div className={cn('inline-flex items-center gap-2', badgeClass)}>
@@ -418,7 +423,8 @@ export default function CustomerPage() {
                     Điện tiêu thụ / PV tháng
                   </p>
                   <p className={cn('mt-2 text-sm leading-6', metricText)}>
-                    {formatUsage(period.loadConsumedKwh)} / {formatNumber(period.pvGenerationKwh, 'kWh')}
+                    {formatUsage(period.loadConsumedKwh)} /{' '}
+                    {formatNumber(period.pvGenerationKwh, 'kWh')}
                   </p>
                 </div>
                 <div className="customer-soft-card-muted px-4 py-3">
@@ -426,7 +432,7 @@ export default function CustomerPage() {
                     Đồng bộ
                   </p>
                   <p className={cn('mt-2 text-sm leading-6', metricText)}>
-                    {period.updatedAt ? formatDateTime(period.updatedAt) : 'Chua cap nhat'}
+                    {period.updatedAt ? formatDateTime(period.updatedAt) : 'Chưa cập nhật'}
                   </p>
                 </div>
               </div>

@@ -112,7 +112,7 @@ export function CustomerToastViewport({
               ? 'text-slate-400 hover:bg-white/8 hover:text-slate-100'
               : 'text-slate-400 hover:bg-slate-100 hover:text-slate-700',
           )}
-          aria-label="Dong thong bao"
+          aria-label="Đóng thông báo"
         >
           <X className="h-4 w-4" />
         </button>

@@ -27,37 +27,37 @@ import { cn, formatDateTime } from '@/lib/utils';
 import { CustomerSystemMonitor, StatCardItem, SupportTicketRecord } from '@/types';
 
 const CATEGORY_OPTIONS = [
-  { value: 'GENERAL', label: 'Yeu cau chung' },
-  { value: 'SYSTEM', label: 'He thong dien' },
-  { value: 'MONITORING', label: 'Giam sat / du lieu' },
-  { value: 'BILLING', label: 'Hoa don' },
-  { value: 'PAYMENT', label: 'Thanh toan' },
-  { value: 'MAINTENANCE', label: 'Bao tri' },
-  { value: 'CONTRACT', label: 'Hop dong' },
-  { value: 'OTHER', label: 'Khac' },
+  { value: 'GENERAL', label: 'Yêu cầu chung' },
+  { value: 'SYSTEM', label: 'Hệ thống điện' },
+  { value: 'MONITORING', label: 'Giám sát / dữ liệu' },
+  { value: 'BILLING', label: 'Hóa đơn' },
+  { value: 'PAYMENT', label: 'Thanh toán' },
+  { value: 'MAINTENANCE', label: 'Bảo trì' },
+  { value: 'CONTRACT', label: 'Hợp đồng' },
+  { value: 'OTHER', label: 'Khác' },
 ] as const;
 
 const PRIORITY_OPTIONS = [
-  { value: 'LOW', label: 'Thap' },
-  { value: 'MEDIUM', label: 'Trung binh' },
+  { value: 'LOW', label: 'Thấp' },
+  { value: 'MEDIUM', label: 'Trung bình' },
   { value: 'HIGH', label: 'Cao' },
-  { value: 'URGENT', label: 'Khan cap' },
+  { value: 'URGENT', label: 'Khẩn cấp' },
 ] as const;
 
 function categoryLabel(value?: string | null) {
-  return CATEGORY_OPTIONS.find((item) => item.value === value)?.label || 'Yeu cau chung';
+  return CATEGORY_OPTIONS.find((item) => item.value === value)?.label || 'Yêu cầu chung';
 }
 
 function senderRoleLabel(role?: string | null) {
   if (role === 'SUPER_ADMIN' || role === 'ADMIN' || role === 'STAFF' || role === 'MANAGER') {
-    return 'Doi van hanh';
+    return 'Đội vận hành';
   }
 
   if (role === 'CUSTOMER') {
-    return 'Khach hang';
+    return 'Khách hàng';
   }
 
-  return 'He thong';
+  return 'Hệ thống';
 }
 
 export default function CustomerSupportPage() {
@@ -102,7 +102,7 @@ export default function CustomerSupportPage() {
 
   useEffect(() => {
     loadData().catch(() => {
-      setError('Khong the tai khu vuc ho tro luc nay.');
+      setError('Không thể tải khu vực hỗ trợ lúc này.');
       setLoading(false);
     });
   }, []);
@@ -139,19 +139,19 @@ export default function CustomerSupportPage() {
 
     return [
       {
-        title: 'Ticket dang mo',
+        title: 'Ticket đang mở',
         value: String(openCount),
-        subtitle: 'Cac yeu cau dang cho xu ly hoac con trao doi them',
+        subtitle: 'Các yêu cầu đang chờ xử lý hoặc còn trao đổi thêm',
         delta: unreadCount
-          ? `${unreadCount} ticket co phan hoi moi`
-          : 'Khong co phan hoi moi',
+          ? `${unreadCount} ticket có phản hồi mới`
+          : 'Không có phản hồi mới',
         trend: unreadCount ? 'up' : 'neutral',
       },
       {
-        title: 'Cap nhat gan nhat',
-        value: lastTouch ? formatDateTime(lastTouch) : 'Chua co',
-        subtitle: 'Moc trao doi moi nhat giua khach hang va doi van hanh',
-        delta: tickets.length ? `${tickets.length} ticket trong lich su` : 'Chua co ticket nao',
+        title: 'Cập nhật gần nhất',
+        value: lastTouch ? formatDateTime(lastTouch) : 'Chưa có',
+        subtitle: 'Mốc trao đổi mới nhất giữa khách hàng và đội vận hành',
+        delta: tickets.length ? `${tickets.length} ticket trong lịch sử` : 'Chưa có ticket nào',
         trend: 'neutral',
       },
     ];
@@ -159,7 +159,7 @@ export default function CustomerSupportPage() {
 
   async function handleCreateTicket() {
     if (!subject.trim() || !message.trim()) {
-      setError('Vui long nhap chu de va noi dung ticket.');
+      setError('Vui lòng nhập chủ đề và nội dung ticket.');
       return;
     }
 
@@ -185,9 +185,9 @@ export default function CustomerSupportPage() {
       setCreateAttachments([]);
       await loadData(created.id);
       await refreshTicketUnread();
-      setFeedback('Da gui ticket moi thanh cong.');
+      setFeedback('Đã gửi ticket mới thành công.');
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : 'Khong the tao ticket.');
+      setError(nextError instanceof Error ? nextError.message : 'Không thể tạo ticket.');
     } finally {
       setSubmitting(false);
     }
@@ -195,7 +195,7 @@ export default function CustomerSupportPage() {
 
   async function handleReply() {
     if (!selectedTicket || !replyMessage.trim()) {
-      setError('Vui long nhap noi dung phan hoi.');
+      setError('Vui lòng nhập nội dung phản hồi.');
       return;
     }
 
@@ -213,9 +213,9 @@ export default function CustomerSupportPage() {
       setReplyAttachments([]);
       await loadData(selectedTicket.id);
       await refreshTicketUnread();
-      setFeedback('Da gui phan hoi cho ticket.');
+      setFeedback('Đã gửi phản hồi cho ticket.');
     } catch (nextError) {
-      setError(nextError instanceof Error ? nextError.message : 'Khong the gui phan hoi.');
+      setError(nextError instanceof Error ? nextError.message : 'Không thể gửi phản hồi.');
     } finally {
       setSubmitting(false);
     }
@@ -223,8 +223,8 @@ export default function CustomerSupportPage() {
 
   if (loading) {
     return (
-      <SectionCard title="Ho tro van hanh" eyebrow="Ticket va trao doi voi doi ngu Moka Solar">
-        <p className={cn('text-sm', bodyText)}>Dang tai du lieu ticket...</p>
+      <SectionCard title="Hỗ trợ vận hành" eyebrow="Ticket và trao đổi với đội ngũ Moka Solar">
+        <p className={cn('text-sm', bodyText)}>Đang tải dữ liệu ticket...</p>
       </SectionCard>
     );
   }
@@ -239,12 +239,12 @@ export default function CustomerSupportPage() {
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]">
         <SectionCard
-          title="Tao ticket moi"
-          eyebrow="Mo ta ro van de de doi van hanh xu ly nhanh hon"
+          title="Tạo ticket mới"
+          eyebrow="Mô tả rõ vấn đề để đội vận hành xử lý nhanh hơn"
         >
           <div className="grid gap-4">
             <label className={cn('grid gap-2 text-sm', bodyText)}>
-              <span>Hang muc</span>
+              <span>Hạng mục</span>
               <select
                 className="customer-field"
                 value={category}
@@ -260,7 +260,7 @@ export default function CustomerSupportPage() {
 
             <div className="grid gap-4 md:grid-cols-2">
               <label className={cn('grid gap-2 text-sm', bodyText)}>
-                <span>Muc uu tien</span>
+                <span>Mức ưu tiên</span>
                 <select
                   className="customer-field"
                   value={priority}
@@ -275,13 +275,13 @@ export default function CustomerSupportPage() {
               </label>
 
               <label className={cn('grid gap-2 text-sm', bodyText)}>
-                <span>He thong lien quan</span>
+                <span>Hệ thống liên quan</span>
                 <select
                   className="customer-field"
                   value={systemId}
                   onChange={(event) => setSystemId(event.target.value)}
                 >
-                  <option value="">Chon sau</option>
+                  <option value="">Chọn sau</option>
                   {systems.map((system) => (
                     <option key={system.id} value={system.id}>
                       {system.name}
@@ -292,20 +292,20 @@ export default function CustomerSupportPage() {
             </div>
 
             <label className={cn('grid gap-2 text-sm', bodyText)}>
-              <span>Chu de</span>
+              <span>Chủ đề</span>
               <input
                 className="customer-field"
-                placeholder="Vi du: Can kiem tra san luong bat thuong"
+                placeholder="Ví dụ: Cần kiểm tra sản lượng bất thường"
                 value={subject}
                 onChange={(event) => setSubject(event.target.value)}
               />
             </label>
 
             <label className={cn('grid gap-2 text-sm', bodyText)}>
-              <span>Noi dung</span>
+              <span>Nội dung</span>
               <textarea
                 className="customer-field min-h-[200px]"
-                placeholder="Mo ta ro thoi diem phat sinh, he thong lien quan, anh huong thuc te va ky vong ho tro."
+                placeholder="Mô tả rõ thời điểm phát sinh, hệ thống liên quan, ảnh hưởng thực tế và kỳ vọng hỗ trợ."
                 value={message}
                 onChange={(event) => setMessage(event.target.value)}
               />
@@ -321,7 +321,8 @@ export default function CustomerSupportPage() {
               />
               {createAttachments.length ? (
                 <p className="text-xs text-slate-500">
-                  {createAttachments.length} file da chon: {createAttachments.map((file) => file.name).join(', ')}
+                  {createAttachments.length} file đã chọn:{' '}
+                  {createAttachments.map((file) => file.name).join(', ')}
                 </p>
               ) : null}
             </label>
@@ -333,7 +334,7 @@ export default function CustomerSupportPage() {
               disabled={submitting}
             >
               <PlusCircle className="h-4 w-4" />
-              {submitting ? 'Dang gui...' : 'Tao ticket'}
+              {submitting ? 'Đang gửi...' : 'Tạo ticket'}
             </button>
 
             {feedback ? (
@@ -351,8 +352,8 @@ export default function CustomerSupportPage() {
         </SectionCard>
 
         <SectionCard
-          title="Trao doi trong ticket"
-          eyebrow="Theo doi trang thai va phan hoi moi nhat"
+          title="Trao đổi trong ticket"
+          eyebrow="Theo dõi trạng thái và phản hồi mới nhất"
         >
           <div className="grid gap-5 xl:grid-cols-[minmax(0,0.46fr)_minmax(0,0.54fr)]">
             <div className="space-y-3">
@@ -365,7 +366,13 @@ export default function CustomerSupportPage() {
                       key={ticket.id}
                       type="button"
                       onClick={() => setSelectedTicketId(ticket.id)}
-                      className={`w-full text-left ${active ? dark ? 'customer-soft-card ring-2 ring-white/10' : 'customer-soft-card ring-2 ring-slate-950/8' : 'customer-soft-card-muted'} p-4 transition`}
+                      className={`w-full text-left ${
+                        active
+                          ? dark
+                            ? 'customer-soft-card ring-2 ring-white/10'
+                            : 'customer-soft-card ring-2 ring-slate-950/8'
+                          : 'customer-soft-card-muted'
+                      } p-4 transition`}
                     >
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div className="min-w-0">
@@ -392,7 +399,8 @@ export default function CustomerSupportPage() {
                 })
               ) : (
                 <div className={cn('customer-soft-card p-5 text-sm leading-6', bodyText)}>
-                  Ban chua co ticket nao. Khi can ho tro van hanh, hoa don hoac du lieu he thong, hay tao ticket moi o cot ben trai.
+                  Bạn chưa có ticket nào. Khi cần hỗ trợ vận hành, hóa đơn hoặc dữ liệu hệ thống,
+                  hãy tạo ticket mới ở cột bên trái.
                 </div>
               )}
             </div>
@@ -403,7 +411,7 @@ export default function CustomerSupportPage() {
                   <div className="flex flex-wrap items-start justify-between gap-4">
                     <div className="min-w-0">
                       <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
-                        {selectedTicket.ticketNumber || 'Ticket ho tro'}
+                        {selectedTicket.ticketNumber || 'Ticket hỗ trợ'}
                       </p>
                       <h3 className={cn('mt-2 text-xl font-semibold', headingText)}>
                         {selectedTicket.title}
@@ -420,15 +428,15 @@ export default function CustomerSupportPage() {
 
                   <div className={cn('mt-4 grid gap-3 text-sm md:grid-cols-2', bodyText)}>
                     <div className="customer-soft-card-muted px-4 py-3">
-                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Hang muc</p>
+                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Hạng mục</p>
                       <p className={cn('mt-2 font-medium', headingText)}>
                         {categoryLabel(selectedTicket.category)}
                       </p>
                     </div>
                     <div className="customer-soft-card-muted px-4 py-3">
-                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">He thong</p>
+                      <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Hệ thống</p>
                       <p className={cn('mt-2 font-medium', headingText)}>
-                        {selectedTicket.solarSystem?.name || 'Chua gan he thong cu the'}
+                        {selectedTicket.solarSystem?.name || 'Chưa gắn hệ thống cụ thể'}
                       </p>
                     </div>
                   </div>
@@ -461,7 +469,7 @@ export default function CustomerSupportPage() {
                                   attachment.id,
                                   attachment.originalName,
                                 ).catch(() =>
-                                  setError('Khong the tai attachment cua ticket luc nay.'),
+                                  setError('Không thể tải attachment của ticket lúc này.'),
                                 )
                               }
                               className="btn-secondary-light inline-flex items-center gap-2 !min-h-[40px] px-3 py-2 text-xs"
@@ -483,9 +491,9 @@ export default function CustomerSupportPage() {
                   <div className="customer-soft-card p-5">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0">
-                        <p className={cn('text-sm font-semibold', headingText)}>Gui phan hoi</p>
+                        <p className={cn('text-sm font-semibold', headingText)}>Gửi phản hồi</p>
                         <p className={cn('mt-1 text-sm', dark ? 'text-slate-400' : 'text-slate-500')}>
-                          Noi dung moi se duoc gui ngay cho doi van hanh.
+                          Nội dung mới sẽ được gửi ngay cho đội vận hành.
                         </p>
                       </div>
                       <button
@@ -494,13 +502,13 @@ export default function CustomerSupportPage() {
                         onClick={() => loadData(selectedTicket.id).catch(() => undefined)}
                       >
                         <RefreshCcw className="h-3.5 w-3.5" />
-                        Lam moi
+                        Làm mới
                       </button>
                     </div>
 
                     <textarea
                       className="customer-field mt-4 min-h-[140px]"
-                      placeholder="Bo sung them chi tiet, hinh anh hoac cap nhat moi lien quan den ticket nay."
+                      placeholder="Bổ sung thêm chi tiết, hình ảnh hoặc cập nhật mới liên quan đến ticket này."
                       value={replyMessage}
                       onChange={(event) => setReplyMessage(event.target.value)}
                     />
@@ -523,28 +531,31 @@ export default function CustomerSupportPage() {
                         disabled={submitting}
                       >
                         <SendHorizonal className="h-4 w-4" />
-                        {submitting ? 'Dang gui...' : 'Gui phan hoi'}
+                        {submitting ? 'Đang gửi...' : 'Gửi phản hồi'}
                       </button>
                     </div>
 
                     {replyAttachments.length ? (
                       <p className="mt-3 text-xs text-slate-500">
-                        {replyAttachments.length} file da chon: {replyAttachments.map((file) => file.name).join(', ')}
+                        {replyAttachments.length} file đã chọn:{' '}
+                        {replyAttachments.map((file) => file.name).join(', ')}
                       </p>
                     ) : null}
                   </div>
                 ) : (
                   <div className="rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-4 text-sm leading-6 text-amber-700">
-                    Ticket nay da dong. Neu can ho tro tiep, ban co the tao ticket moi de doi van hanh theo doi de hon.
+                    Ticket này đã đóng. Nếu cần hỗ trợ tiếp, bạn có thể tạo ticket mới để đội vận hành theo dõi dễ hơn.
                   </div>
                 )}
               </div>
             ) : (
               <div className="customer-soft-card p-6 text-center">
                 <LifeBuoy className="mx-auto h-10 w-10 text-slate-500" />
-                <p className={cn('mt-4 text-lg font-semibold', headingText)}>Chon mot ticket de xem chi tiet</p>
+                <p className={cn('mt-4 text-lg font-semibold', headingText)}>
+                  Chọn một ticket để xem chi tiết
+                </p>
                 <p className={cn('mt-2 text-sm leading-6', bodyText)}>
-                  Moi phan hoi, attachment va trang thai xu ly se hien thi tai day.
+                  Mọi phản hồi, attachment và trạng thái xử lý sẽ hiển thị tại đây.
                 </p>
               </div>
             )}

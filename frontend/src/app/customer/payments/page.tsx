@@ -78,11 +78,11 @@ function gatewayLabel(value?: string | null) {
   }
 
   if (value === 'MANUAL') {
-    return 'Doi soat thu cong';
+    return 'Đối soát thủ công';
   }
 
   if (value === 'MOCK') {
-    return 'Sandbox noi bo';
+    return 'Sandbox nội bộ';
   }
 
   return value;
@@ -96,8 +96,8 @@ function paymentMethodLabel(method: string | null | undefined, rails: ResolvedPa
   return (
     rails.find((item) => item.channelKey === method)?.label ||
     {
-      BANK_TRANSFER: 'Chuyen khoan ngan hang',
-      MOMO_QR: 'Vi MoMo',
+      BANK_TRANSFER: 'Chuyển khoản ngân hàng',
+      MOMO_QR: 'Ví MoMo',
       VNPAY_QR: 'QR VNPay',
     }[method] ||
     method
@@ -106,18 +106,18 @@ function paymentMethodLabel(method: string | null | undefined, rails: ResolvedPa
 
 function paymentStatusLabel(status: PaymentRecord['status']) {
   if (status === 'SUCCESS') {
-    return 'Da xac nhan';
+    return 'Đã xác nhận';
   }
 
   if (status === 'FAILED') {
-    return 'Tu choi';
+    return 'Từ chối';
   }
 
   if (status === 'REFUNDED') {
-    return 'Hoan tien';
+    return 'Hoàn tiền';
   }
 
-  return 'Cho xac nhan';
+  return 'Chờ xác nhận';
 }
 
 function buildTransferNote(
@@ -162,11 +162,11 @@ function invoiceOutstanding(invoice: InvoiceRecord | null) {
 }
 
 function formatReading(value?: number | null) {
-  return value != null ? value.toLocaleString('vi-VN') : 'Chua ap dung do chi so';
+  return value != null ? value.toLocaleString('vi-VN') : 'Chưa áp dụng đo chỉ số';
 }
 
 function formatUsage(value?: number | null) {
-  return value != null ? formatNumber(value, 'kWh') : 'Chua cap nhat';
+  return value != null ? formatNumber(value, 'kWh') : 'Chưa cập nhật';
 }
 
 function nearestDueInvoice(invoices: InvoiceRecord[]) {
@@ -224,7 +224,7 @@ export default function CustomerPaymentsPage() {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : 'Khong the tai du lieu thanh toan.',
+          : 'Không thể tải dữ liệu thanh toán.',
       );
       setLoading(false);
     });
@@ -304,36 +304,36 @@ export default function CustomerPaymentsPage() {
 
     return [
       {
-        title: 'Can thanh toan',
+        title: 'Cần thanh toán',
         value: formatCurrency(outstanding),
         subtitle: unpaidInvoices.length
-          ? `${unpaidInvoices.length} hoa don dang mo`
-          : 'Khong con khoan doi soat nao',
+          ? `${unpaidInvoices.length} hóa đơn đang mở`
+          : 'Không còn khoản đối soát nào',
         delta: nearestOpenInvoice
-          ? `${nearestOpenInvoice.invoiceNumber} · den han ${formatDate(nearestOpenInvoice.dueDate)}`
-          : 'Danh muc da duoc doi soat',
+          ? `${nearestOpenInvoice.invoiceNumber} · đến hạn ${formatDate(nearestOpenInvoice.dueDate)}`
+          : 'Danh mục đã được đối soát',
         trend: outstanding > 0 ? 'neutral' : 'up',
       },
       {
-        title: 'Bien lai da nop',
+        title: 'Biên lai đã nộp',
         value: String(payments.length),
-        subtitle: 'Lich su giao dich va minh chung duoc luu tren he thong.',
+        subtitle: 'Lịch sử giao dịch và minh chứng được lưu trên hệ thống.',
         delta: pendingProofCount
-          ? `${pendingProofCount} giao dich cho xac nhan`
-          : 'Khong co bien lai cho duyet',
+          ? `${pendingProofCount} giao dịch chờ xác nhận`
+          : 'Không có biên lai chờ duyệt',
         trend: pendingProofCount ? 'neutral' : 'up',
       },
       {
-        title: 'Kenh thanh toan',
-        value: selectedRail?.label || 'Chua cau hinh',
+        title: 'Kênh thanh toán',
+        value: selectedRail?.label || 'Chưa cấu hình',
         subtitle: paymentRails.length
-          ? 'Chi cac kenh dang bat moi hien thi cho khach hang.'
-          : 'Doi van hanh chua bat kenh thanh toan nao.',
+          ? 'Chỉ các kênh đang bật mới hiển thị cho khách hàng.'
+          : 'Đội vận hành chưa bật kênh thanh toán nào.',
         delta: selectedRail?.supportsVietQr
-          ? 'Co VietQR theo hoa don'
+          ? 'Có VietQR theo hóa đơn'
           : customerCheckoutEnabled
-            ? 'Co them sandbox kiem tra nhanh'
-            : 'Doi soat theo bien lai thu cong',
+            ? 'Có thêm sandbox kiểm tra nhanh'
+            : 'Đối soát theo biên lai thủ công',
         trend: 'neutral',
       },
     ];
@@ -347,29 +347,29 @@ export default function CustomerPaymentsPage() {
     try {
       await navigator.clipboard.writeText(value);
       setCopiedValue(label);
-      setMessage(`Da sao chep ${label.toLowerCase()}.`);
+      setMessage(`Đã sao chép ${label.toLowerCase()}.`);
       setError('');
       window.setTimeout(() => {
         setCopiedValue((current) => (current === label ? '' : current));
       }, 1800);
     } catch {
-      setError('Khong the sao chep tu dong. Vui long copy thu cong.');
+      setError('Không thể sao chép tự động. Vui lòng copy thủ công.');
     }
   }
 
   async function handleManualSubmit() {
     if (!selectedInvoice) {
-      setError('Chua co hoa don nao de nop bien lai.');
+      setError('Chưa có hóa đơn nào để nộp biên lai.');
       return;
     }
 
     if (!proofFile) {
-      setError('Vui long chon anh hoac PDF bien lai truoc khi gui.');
+      setError('Vui lòng chọn ảnh hoặc PDF biên lai trước khi gửi.');
       return;
     }
 
     if (!selectedRail) {
-      setError('Chua co kenh thanh toan nao duoc bat.');
+      setError('Chưa có kênh thanh toán nào được bật.');
       return;
     }
 
@@ -390,13 +390,13 @@ export default function CustomerPaymentsPage() {
       setProofFile(null);
       setReferenceNote('');
       setMessage(
-        `Da gui bien lai cho hoa don ${selectedInvoice.invoiceNumber}. Doi van hanh se xac nhan som nhat.`,
+        `Đã gửi biên lai cho hóa đơn ${selectedInvoice.invoiceNumber}. Đội vận hành sẽ xác nhận sớm nhất.`,
       );
     } catch (requestError) {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : 'Khong the gui bien lai thanh toan.',
+          : 'Không thể gửi biên lai thanh toán.',
       );
     } finally {
       setSubmittingProof(false);
@@ -405,7 +405,7 @@ export default function CustomerPaymentsPage() {
 
   async function handlePay(invoiceId: string) {
     if (!selectedRail) {
-      setError('Chua co kenh thanh toan nao duoc bat.');
+      setError('Chưa có kênh thanh toán nào được bật.');
       return;
     }
 
@@ -416,10 +416,10 @@ export default function CustomerPaymentsPage() {
     try {
       await mockPayInvoiceRequest(invoiceId, selectedRail.channelKey);
       await loadData();
-      setMessage('Da ghi nhan thanh toan sandbox thanh cong.');
+      setMessage('Đã ghi nhận thanh toán sandbox thành công.');
     } catch (requestError) {
       setError(
-        requestError instanceof Error ? requestError.message : 'Khong the xu ly thanh toan.',
+        requestError instanceof Error ? requestError.message : 'Không thể xử lý thanh toán.',
       );
     } finally {
       setPayingId('');
@@ -437,7 +437,7 @@ export default function CustomerPaymentsPage() {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : 'Khong the tai bien lai thanh toan.',
+          : 'Không thể tải biên lai thanh toán.',
       );
     } finally {
       setProofLoadingId('');
@@ -446,8 +446,8 @@ export default function CustomerPaymentsPage() {
 
   if (loading) {
     return (
-      <SectionCard title="Thanh toan" eyebrow="Giao dich va doi soat">
-        <p className={cn('text-sm', bodyText)}>Dang tai du lieu thanh toan...</p>
+      <SectionCard title="Thanh toán" eyebrow="Giao dịch và đối soát">
+        <p className={cn('text-sm', bodyText)}>Đang tải dữ liệu thanh toán...</p>
       </SectionCard>
     );
   }
@@ -462,17 +462,17 @@ export default function CustomerPaymentsPage() {
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
         <SectionCard
-          title="Thanh toan va doi soat thu cong"
-          eyebrow="Kenh thanh toan dang bat, QR theo hoa don va bien lai doi soat"
+          title="Thanh toán và đối soát thủ công"
+          eyebrow="Kênh thanh toán đang bật, QR theo hóa đơn và biên lai đối soát"
         >
           <div className="grid gap-4">
             <div className="customer-soft-card p-5">
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0">
-                  <p className={cn('text-sm font-semibold', strongText)}>Kenh thanh toan</p>
+                  <p className={cn('text-sm font-semibold', strongText)}>Kênh thanh toán</p>
                   <p className={cn('mt-2 text-sm leading-6', bodyText)}>
-                    Chi nhung kenh dang duoc doi van hanh bat moi xuat hien tai day. Khach hang co
-                    the quet VietQR voi hoa don cu the hoac chuyen khoan theo noi dung goi y.
+                    Chỉ những kênh đang được đội vận hành bật mới xuất hiện tại đây. Khách hàng có
+                    thể quét VietQR với hóa đơn cụ thể hoặc chuyển khoản theo nội dung gợi ý.
                   </p>
                 </div>
                 <Wallet className={cn('h-5 w-5 shrink-0', mutedText)} />
@@ -480,7 +480,7 @@ export default function CustomerPaymentsPage() {
 
               {paymentRails.length ? (
                 <label className={cn('mt-4 grid gap-2 text-sm', bodyText)}>
-                  <span>Phuong thuc thanh toan</span>
+                  <span>Phương thức thanh toán</span>
                   <select
                     className="customer-field"
                     value={selectedMethod}
@@ -495,7 +495,7 @@ export default function CustomerPaymentsPage() {
                 </label>
               ) : (
                 <div className="mt-4 rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-700">
-                  Chua co kenh thanh toan nao duoc bat. Vui long lien he doi van hanh de duoc ho tro.
+                  Chưa có kênh thanh toán nào được bật. Vui lòng liên hệ đội vận hành để được hỗ trợ.
                 </div>
               )}
 
@@ -503,7 +503,7 @@ export default function CustomerPaymentsPage() {
                 <div className="flex items-start gap-3">
                   <ShieldCheck className="mt-0.5 h-4.5 w-4.5 shrink-0" />
                   <div>
-                    <p className="font-semibold">Doi soat bang bien lai</p>
+                    <p className="font-semibold">Đối soát bằng biên lai</p>
                     <p className="mt-1 leading-6">{siteConfig.payments.manual.description}</p>
                   </div>
                 </div>
@@ -553,22 +553,25 @@ export default function CustomerPaymentsPage() {
 
                     <div className="mt-4 grid gap-3">
                       {[
-                        { label: 'Ten don vi nhan tien', value: rail.accountName },
+                        { label: 'Tên đơn vị nhận tiền', value: rail.accountName },
                         {
                           label:
                             rail.providerName.toLowerCase().includes('momo')
-                              ? 'So vi / so dien thoai'
-                              : 'So tai khoan',
+                              ? 'Số ví / số điện thoại'
+                              : 'Số tài khoản',
                           value: rail.accountNumber,
                         },
-                        { label: 'Ngan hang / nha cung cap', value: rail.providerName },
-                        { label: 'Chi nhanh / ghi chu', value: rail.branch || 'Khong yeu cau' },
+                        { label: 'Ngân hàng / nhà cung cấp', value: rail.providerName },
+                        { label: 'Chi nhánh / ghi chú', value: rail.branch || 'Không yêu cầu' },
                         {
-                          label: 'Noi dung chuyen khoan',
-                          value: transferContent || 'Chua co mau',
+                          label: 'Nội dung chuyển khoản',
+                          value: transferContent || 'Chưa có mẫu',
                         },
                       ].map((item) => (
-                        <div key={`${rail.channelKey}-${item.label}`} className="customer-soft-card-muted px-4 py-3">
+                        <div
+                          key={`${rail.channelKey}-${item.label}`}
+                          className="customer-soft-card-muted px-4 py-3"
+                        >
                           <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
                             {item.label}
                           </p>
@@ -583,13 +586,13 @@ export default function CustomerPaymentsPage() {
                                   ? 'border-white/10 text-slate-300 hover:bg-white/10'
                                   : 'border-slate-200 text-slate-600 hover:bg-slate-100',
                               )}
-                              aria-label={`Sao chep ${item.label}`}
+                              aria-label={`Sao chép ${item.label}`}
                             >
                               <Copy className="h-4 w-4" />
                             </button>
                           </div>
                           {copiedValue === item.label ? (
-                            <p className="mt-2 text-xs text-emerald-600">Da sao chep.</p>
+                            <p className="mt-2 text-xs text-emerald-600">Đã sao chép.</p>
                           ) : null}
                         </div>
                       ))}
@@ -600,11 +603,11 @@ export default function CustomerPaymentsPage() {
                         <div className="flex items-center justify-between gap-3">
                           <div className="min-w-0">
                             <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                              VietQR theo hoa don
+                              VietQR theo hóa đơn
                             </p>
                             <p className={cn('mt-2 text-sm leading-6', bodyText)}>
-                              Quet bang app ngan hang de tu dien san so tien va noi dung chuyen
-                              khoan cho {selectedInvoice?.invoiceNumber || 'ky dang chon'}.
+                              Quét bằng app ngân hàng để tự điền sẵn số tiền và nội dung chuyển
+                              khoản cho {selectedInvoice?.invoiceNumber || 'kỳ đang chọn'}.
                             </p>
                           </div>
                           <QrCode className={cn('h-5 w-5 shrink-0', mutedText)} />
@@ -618,7 +621,7 @@ export default function CustomerPaymentsPage() {
                     ) : rail.qrImage ? (
                       <div className="customer-soft-card-muted mt-4 p-4">
                         <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                          QR thanh toan
+                          QR thanh toán
                         </p>
                         <img
                           src={rail.qrImage}
@@ -637,16 +640,17 @@ export default function CustomerPaymentsPage() {
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div className="min-w-0">
                     <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                      Hoa don uu tien thanh toan
+                      Hóa đơn ưu tiên thanh toán
                     </p>
                     <h3 className={cn('mt-2 text-xl font-semibold', strongText)}>
                       {selectedInvoice.invoiceNumber}
                     </h3>
                     <div className={cn('mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm', mutedText)}>
                       <span>
-                        Ky {String(selectedInvoice.billingMonth).padStart(2, '0')}/{selectedInvoice.billingYear}
+                        Kỳ {String(selectedInvoice.billingMonth).padStart(2, '0')}/
+                        {selectedInvoice.billingYear}
                       </span>
-                      <span>Han thanh toan {formatDate(selectedInvoice.dueDate)}</span>
+                      <span>Hạn thanh toán {formatDate(selectedInvoice.dueDate)}</span>
                     </div>
                   </div>
 
@@ -654,19 +658,22 @@ export default function CustomerPaymentsPage() {
                 </div>
 
                 <div className={cn('mt-4 grid gap-3 text-sm sm:grid-cols-2', bodyText)}>
-                  <p>So du can thanh toan: {formatCurrency(invoiceOutstanding(selectedInvoice))}</p>
+                  <p>Số dư cần thanh toán: {formatCurrency(invoiceOutstanding(selectedInvoice))}</p>
                   <p>VAT: {selectedInvoice.vatRate != null ? `${selectedInvoice.vatRate}%` : '-'}</p>
-                  <p>Da thanh toan: {formatCurrency(Number(selectedInvoice.paidAmount || 0))}</p>
-                  <p>Tong cong: {formatCurrency(Number(selectedInvoice.totalAmount || 0))}</p>
-                  <p>Dien tieu thu: {formatUsage(selectedInvoice.periodMetrics?.loadConsumedKwh)}</p>
-                  <p>Nguon du lieu: {selectedInvoice.periodMetrics?.sourceLabel || 'Chua cap nhat'}</p>
-                  <p>Chi so cu: {formatReading(selectedInvoice.periodMetrics?.previousReading)}</p>
-                  <p>Chi so moi: {formatReading(selectedInvoice.periodMetrics?.currentReading)}</p>
+                  <p>Đã thanh toán: {formatCurrency(Number(selectedInvoice.paidAmount || 0))}</p>
+                  <p>Tổng cộng: {formatCurrency(Number(selectedInvoice.totalAmount || 0))}</p>
+                  <p>Điện tiêu thụ: {formatUsage(selectedInvoice.periodMetrics?.loadConsumedKwh)}</p>
+                  <p>
+                    Nguồn dữ liệu:{' '}
+                    {selectedInvoice.periodMetrics?.sourceLabel || 'Chưa cập nhật'}
+                  </p>
+                  <p>Chỉ số cũ: {formatReading(selectedInvoice.periodMetrics?.previousReading)}</p>
+                  <p>Chỉ số mới: {formatReading(selectedInvoice.periodMetrics?.currentReading)}</p>
                 </div>
 
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
                   <label className={cn('grid gap-2 text-sm', bodyText)}>
-                    <span>Hoa don can nop bien lai</span>
+                    <span>Hóa đơn cần nộp biên lai</span>
                     <select
                       className="customer-field"
                       value={selectedInvoiceId}
@@ -674,14 +681,15 @@ export default function CustomerPaymentsPage() {
                     >
                       {unpaidInvoices.map((invoice) => (
                         <option key={invoice.id} value={invoice.id}>
-                          {invoice.invoiceNumber} · {String(invoice.billingMonth).padStart(2, '0')}/{invoice.billingYear}
+                          {invoice.invoiceNumber} ·{' '}
+                          {String(invoice.billingMonth).padStart(2, '0')}/{invoice.billingYear}
                         </option>
                       ))}
                     </select>
                   </label>
 
                   <label className={cn('grid gap-2 text-sm', bodyText)}>
-                    <span>So tien chuyen khoan</span>
+                    <span>Số tiền chuyển khoản</span>
                     <input
                       type="number"
                       min="0"
@@ -692,17 +700,17 @@ export default function CustomerPaymentsPage() {
                   </label>
 
                   <label className={cn('grid gap-2 text-sm md:col-span-2', bodyText)}>
-                    <span>Noi dung tham chieu / ghi chu</span>
+                    <span>Nội dung tham chiếu / ghi chú</span>
                     <textarea
                       className="customer-field min-h-[120px]"
                       value={referenceNote}
                       onChange={(event) => setReferenceNote(event.target.value)}
-                      placeholder="Vi du: da chuyen khoan tu tai khoan cong ty, gui luc 09:30."
+                      placeholder="Ví dụ: đã chuyển khoản từ tài khoản công ty, gửi lúc 09:30."
                     />
                   </label>
 
                   <label className={cn('grid gap-2 text-sm md:col-span-2', bodyText)}>
-                    <span>Bien lai hoac file xac nhan</span>
+                    <span>Biên lai hoặc file xác nhận</span>
                     <input
                       type="file"
                       accept=".png,.jpg,.jpeg,.webp,.pdf"
@@ -710,10 +718,10 @@ export default function CustomerPaymentsPage() {
                       onChange={(event) => setProofFile(event.target.files?.[0] || null)}
                     />
                     <span className="text-xs text-slate-500">
-                      Ho tro JPG, PNG, WEBP hoac PDF. Dung luong toi da 8 MB.
+                      Hỗ trợ JPG, PNG, WEBP hoặc PDF. Dung lượng tối đa 8 MB.
                     </span>
                     {proofFile ? (
-                      <span className="text-xs text-emerald-600">Da chon: {proofFile.name}</span>
+                      <span className="text-xs text-emerald-600">Đã chọn: {proofFile.name}</span>
                     ) : null}
                   </label>
                 </div>
@@ -726,7 +734,7 @@ export default function CustomerPaymentsPage() {
                     onClick={() => void handleManualSubmit()}
                   >
                     <FileUp className="h-4 w-4" />
-                    {submittingProof ? 'Dang gui bien lai...' : 'Gui bien lai thanh toan'}
+                    {submittingProof ? 'Đang gửi biên lai...' : 'Gửi biên lai thanh toán'}
                   </button>
 
                   {customerCheckoutEnabled ? (
@@ -738,17 +746,20 @@ export default function CustomerPaymentsPage() {
                     >
                       <CreditCard className="h-4 w-4" />
                       {payingId === selectedInvoice.id
-                        ? 'Dang xu ly sandbox...'
-                        : 'Thanh toan sandbox'}
+                        ? 'Đang xử lý sandbox...'
+                        : 'Thanh toán sandbox'}
                     </button>
                   ) : null}
                 </div>
               </div>
             ) : (
               <div className="customer-soft-card p-5">
-                <p className={cn('text-base font-semibold', strongText)}>Khong co hoa don cho thanh toan</p>
+                <p className={cn('text-base font-semibold', strongText)}>
+                  Không có hóa đơn chờ thanh toán
+                </p>
                 <p className={cn('mt-2 text-sm leading-6', bodyText)}>
-                  Danh muc thanh toan dang sach. Khi co hoa don moi, khu vuc nop bien lai se hien tai day.
+                  Danh mục thanh toán đang sạch. Khi có hóa đơn mới, khu vực nộp biên lai sẽ hiện
+                  tại đây.
                 </p>
               </div>
             )}
@@ -777,8 +788,8 @@ export default function CustomerPaymentsPage() {
         </SectionCard>
 
         <SectionCard
-          title="Lich su giao dich"
-          eyebrow="Theo doi minh chung, doi soat va ket qua xac nhan"
+          title="Lịch sử giao dịch"
+          eyebrow="Theo dõi minh chứng, đối soát và kết quả xác nhận"
         >
           <div className="space-y-3">
             {payments.length ? (
@@ -788,17 +799,17 @@ export default function CustomerPaymentsPage() {
                   : null;
                 const reviewLabel = payment.reviewedAt
                   ? formatDateTime(payment.reviewedAt)
-                  : 'Cho doi soat';
+                  : 'Chờ đối soát';
 
                 return (
                   <div key={payment.id} className="customer-soft-card p-5">
                     <div className="flex flex-wrap items-start justify-between gap-4">
                       <div className="min-w-0">
                         <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                          Giao dich {payment.paymentCode}
+                          Giao dịch {payment.paymentCode}
                         </p>
                         <h3 className={cn('mt-2 text-lg font-semibold', strongText)}>
-                          {relatedInvoice?.invoiceNumber || 'Bien lai thu cong'}
+                          {relatedInvoice?.invoiceNumber || 'Biên lai thủ công'}
                         </h3>
                         <div className={cn('mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm', mutedText)}>
                           <span>{paymentMethodLabel(payment.method, paymentRails)}</span>
@@ -811,20 +822,23 @@ export default function CustomerPaymentsPage() {
                     </div>
 
                     <div className={cn('mt-4 grid gap-3 text-sm sm:grid-cols-2', bodyText)}>
-                      <p>So tien: {formatCurrency(Number(payment.amount || 0))}</p>
+                      <p>Số tiền: {formatCurrency(Number(payment.amount || 0))}</p>
                       <p>
-                        Hoa don:{' '}
+                        Hóa đơn:{' '}
                         {relatedInvoice
                           ? `${relatedInvoice.invoiceNumber} · ${String(relatedInvoice.billingMonth).padStart(2, '0')}/${relatedInvoice.billingYear}`
-                          : 'Khong gan hoa don'}
+                          : 'Không gắn hóa đơn'}
                       </p>
                       <p>
-                        Thoi gian gui:{' '}
-                        {payment.createdAt ? formatDateTime(payment.createdAt) : 'Chua cap nhat'}
+                        Thời gian gửi:{' '}
+                        {payment.createdAt ? formatDateTime(payment.createdAt) : 'Chưa cập nhật'}
                       </p>
-                      <p>Ghi chu chuyen khoan: {payment.referenceNote || 'Khong co'}</p>
-                      <p>Trang thai duyet: {payment.reviewNote || paymentStatusLabel(payment.status)}</p>
-                      <p>Tep minh chung: {payment.proofOriginalName || 'Khong co tep dinh kem'}</p>
+                      <p>Ghi chú chuyển khoản: {payment.referenceNote || 'Không có'}</p>
+                      <p>
+                        Trạng thái duyệt:{' '}
+                        {payment.reviewNote || paymentStatusLabel(payment.status)}
+                      </p>
+                      <p>Tệp minh chứng: {payment.proofOriginalName || 'Không có tệp đính kèm'}</p>
                     </div>
 
                     <div className="mt-4 flex flex-wrap gap-3">
@@ -836,7 +850,7 @@ export default function CustomerPaymentsPage() {
                           onClick={() => void handleOpenProof(payment.id)}
                         >
                           <FileCheck2 className="h-4 w-4" />
-                          {proofLoadingId === payment.id ? 'Dang tai...' : 'Tai bien lai'}
+                          {proofLoadingId === payment.id ? 'Đang tải...' : 'Tải biên lai'}
                         </button>
                       ) : null}
                     </div>
@@ -845,7 +859,8 @@ export default function CustomerPaymentsPage() {
               })
             ) : (
               <div className={cn('customer-soft-card p-5 text-sm leading-6', bodyText)}>
-                Chua co giao dich nao duoc ghi nhan. Sau khi gui bien lai, lich su doi soat se xuat hien tai day.
+                Chưa có giao dịch nào được ghi nhận. Sau khi gửi biên lai, lịch sử đối soát sẽ
+                xuất hiện tại đây.
               </div>
             )}
           </div>
