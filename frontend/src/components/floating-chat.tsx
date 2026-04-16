@@ -34,6 +34,10 @@ function isPortalPath(pathname: string) {
   );
 }
 
+function isAuthPath(pathname: string) {
+  return pathname === '/login' || pathname === '/register' || pathname === '/forgot-password';
+}
+
 function createVisitorId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
     return crypto.randomUUID();
@@ -116,7 +120,7 @@ export function FloatingChat() {
   }, [siteConfig.chat.maxFreeMessages]);
 
   useEffect(() => {
-    if (isPortalPath(pathname)) {
+    if (isPortalPath(pathname) || isAuthPath(pathname)) {
       return;
     }
 
@@ -211,7 +215,7 @@ export function FloatingChat() {
     };
   }, [isOpen]);
 
-  if (!siteConfig.chat.enabled || isPortalPath(pathname)) {
+  if (!siteConfig.chat.enabled || isPortalPath(pathname) || isAuthPath(pathname)) {
     return null;
   }
 
@@ -587,11 +591,11 @@ export function FloatingChat() {
   }
 
   return (
-    <div className="fixed inset-x-2 bottom-4 z-[110] flex justify-end sm:inset-x-auto sm:bottom-5 sm:right-5">
+    <div className="pointer-events-none fixed inset-x-2 bottom-4 z-[110] flex justify-end sm:inset-x-auto sm:bottom-5 sm:right-5">
       <button
         type="button"
         onClick={() => openPublicChat('contact')}
-        className="group flex items-center gap-3 rounded-full border border-amber-300/20 bg-[linear-gradient(135deg,rgba(255,255,255,0.95),rgba(253,230,138,0.96))] px-4 py-3 text-left shadow-[0_18px_45px_rgba(15,23,42,0.35)] transition hover:-translate-y-0.5"
+        className="pointer-events-auto group flex items-center gap-3 rounded-full border border-amber-300/20 bg-[linear-gradient(135deg,rgba(255,255,255,0.95),rgba(253,230,138,0.96))] px-4 py-3 text-left shadow-[0_18px_45px_rgba(15,23,42,0.35)] transition hover:-translate-y-0.5"
       >
         <span className="flex h-11 w-11 items-center justify-center rounded-full bg-slate-950 text-amber-200">
           <MessageCircleMore className="h-5 w-5" />
