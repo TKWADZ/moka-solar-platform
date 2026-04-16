@@ -70,7 +70,7 @@ type PortalShellContentProps = {
   title: string;
   kicker: string;
   session: SessionPayload;
-  pathname: string;
+  activeNavKey: string | null;
   navGroups: NavGroup[];
   catalogWarning: string;
   mobileNavOpen: boolean;
@@ -156,8 +156,48 @@ function canAccessNavItem(session: SessionPayload | null, item: NavItem) {
   return hasPermission(session, requiredPermission);
 }
 
-function isActivePath(pathname: string, href: string) {
-  return pathname === href || pathname.startsWith(`${href}/`);
+const customerNavActivePaths: Record<string, string[]> = {
+  '/customer': ['/customer', '/customer/overview'],
+  '/customer/meters': ['/customer/meters', '/customer/meter', '/customer/chi-so-dien'],
+  '/customer/billing': ['/customer/billing', '/customer/invoices'],
+  '/customer/payments': ['/customer/payments'],
+  '/customer/systems': ['/customer/systems', '/customer/system'],
+  '/customer/contracts': ['/customer/contracts'],
+  '/customer/profile': ['/customer/profile'],
+  '/customer/support': ['/customer/support'],
+};
+
+function normalizePathname(pathname: string) {
+  const normalized = pathname.replace(/\/+$/, '');
+  return normalized || '/';
+}
+
+function resolveNavActiveKey(params: {
+  pathname: string;
+  nav: NavItem[];
+  isCustomerPortal: boolean;
+}) {
+  const normalizedPathname = normalizePathname(params.pathname);
+
+  if (params.isCustomerPortal) {
+    for (const item of params.nav) {
+      const activePaths = customerNavActivePaths[item.href] || [item.href];
+      if (activePaths.includes(normalizedPathname)) {
+        return item.href;
+      }
+    }
+
+    return null;
+  }
+
+  const matchedItem = [...params.nav]
+    .sort((left, right) => right.href.length - left.href.length)
+    .find((item) => {
+      const normalizedHref = normalizePathname(item.href);
+      return normalizedPathname === normalizedHref || normalizedPathname.startsWith(`${normalizedHref}/`);
+    });
+
+  return matchedItem?.href || null;
 }
 
 function groupPortalNav(nav: NavItem[]) {
@@ -227,13 +267,13 @@ function groupPortalNav(nav: NavItem[]) {
 
 function SidebarContent({
   session,
-  pathname,
+  activeNavKey,
   navGroups,
   catalogWarning,
   ticketUnreadCount,
 }: {
   session: SessionPayload;
-  pathname: string;
+  activeNavKey: string | null;
   navGroups: NavGroup[];
   catalogWarning: string;
   ticketUnreadCount: number;
@@ -266,7 +306,7 @@ function SidebarContent({
             <p className="px-2 text-[11px] uppercase tracking-[0.22em] text-slate-500">{group.label}</p>
             <div className="mt-3 space-y-2">
               {group.items.map((item) => {
-                const active = isActivePath(pathname, item.href);
+                const active = item.href === activeNavKey;
                 const Icon = navIconMap[item.href] || ChevronRight;
                 const supportBadgeCount =
                   (item.href === '/admin/support' || item.href === '/customer/support') &&
@@ -441,7 +481,7 @@ function PortalShellContent({
   title,
   kicker,
   session,
-  pathname,
+  activeNavKey,
   navGroups,
   catalogWarning,
   mobileNavOpen,
@@ -466,7 +506,7 @@ function PortalShellContent({
         <aside className="portal-card hidden p-5 lg:block">
           <SidebarContent
             session={session}
-            pathname={pathname}
+            activeNavKey={activeNavKey}
             navGroups={navGroups}
             catalogWarning={catalogWarning}
             ticketUnreadCount={ticketUnreadCount}
@@ -549,11 +589,11 @@ function PortalShellContent({
           style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.35rem)' }}
         >
           <div className="mx-auto max-w-3xl px-2">
-            <div className="rounded-[28px] border border-white/10 bg-[#08111f]/92 p-2 shadow-[0_24px_80px_rgba(2,6,23,0.46)] backdrop-blur-xl">
-              <div className="grid grid-cols-5 gap-1">
-                {customerPrimaryNav.map((item) => {
-                  const active = isActivePath(pathname, item.href);
-                  const Icon = navIconMap[item.href] || LayoutDashboard;
+              <div className="rounded-[28px] border border-white/10 bg-[#08111f]/92 p-2 shadow-[0_24px_80px_rgba(2,6,23,0.46)] backdrop-blur-xl">
+                <div className="grid grid-cols-5 gap-1">
+                  {customerPrimaryNav.map((item) => {
+                    const active = item.href === activeNavKey;
+                    const Icon = navIconMap[item.href] || LayoutDashboard;
 
                   return (
                     <Link
@@ -620,7 +660,7 @@ function PortalShellContent({
             <div className="min-h-0 flex-1 overflow-y-auto pr-1">
               <SidebarContent
                 session={session}
-                pathname={pathname}
+                activeNavKey={activeNavKey}
                 navGroups={navGroups}
                 catalogWarning={catalogWarning}
                 ticketUnreadCount={ticketUnreadCount}
@@ -742,9 +782,18 @@ export function PortalShell({ title, kicker, nav, allowedRoles, children }: Port
     () => (isCustomerPortal ? getCustomerPrimaryNav(visibleNav) : []),
     [isCustomerPortal, visibleNav],
   );
+  const activeNavKey = useMemo(
+    () =>
+      resolveNavActiveKey({
+        pathname,
+        nav,
+        isCustomerPortal,
+      }),
+    [isCustomerPortal, nav, pathname],
+  );
 
-  const requestedNavItem = nav.find((item) => isActivePath(pathname, item.href));
-  const currentNavItem = visibleNav.find((item) => isActivePath(pathname, item.href));
+  const requestedNavItem = nav.find((item) => item.href === activeNavKey) || null;
+  const currentNavItem = visibleNav.find((item) => item.href === activeNavKey) || null;
   const currentNavForbidden = Boolean(
     session && requestedNavItem && !canAccessNavItem(session, requestedNavItem),
   );
@@ -786,7 +835,7 @@ export function PortalShell({ title, kicker, nav, allowedRoles, children }: Port
         title={title}
         kicker={kicker}
         session={session}
-        pathname={pathname}
+        activeNavKey={activeNavKey}
         navGroups={navGroups}
         catalogWarning={catalogWarning}
         mobileNavOpen={mobileNavOpen}
