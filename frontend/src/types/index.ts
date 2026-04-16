@@ -1034,6 +1034,34 @@ export type CustomerDashboardData = {
   generationTrendScope?: 'HOURLY' | 'DAILY' | 'MONTHLY' | 'EMPTY';
   generationTrendUnit?: 'kW' | 'kWh';
   generationTrendDescription?: string;
+  consumptionInsight?: {
+    todayUsedKwh: number | null;
+    currentMonthConsumptionKwh: number | null;
+    lastUpdatedAt?: string | null;
+    hasDailyData: boolean;
+    hasMonthlyData: boolean;
+    daily7: Array<{
+      key: string;
+      label: string;
+      value: number | null;
+      updatedAt?: string | null;
+      isCurrentPeriod?: boolean;
+    }>;
+    daily30: Array<{
+      key: string;
+      label: string;
+      value: number | null;
+      updatedAt?: string | null;
+      isCurrentPeriod?: boolean;
+    }>;
+    monthly12: Array<{
+      key: string;
+      label: string;
+      value: number | null;
+      updatedAt?: string | null;
+      isCurrentPeriod?: boolean;
+    }>;
+  } | null;
   systems: CustomerSystemMonitor[];
   liveSnapshots: MonitorSnapshot[];
   meterHistory: Array<{
@@ -1345,6 +1373,7 @@ export type InvoiceRecord = {
     sourceKind?: string | null;
     syncTime?: string | null;
   } | null;
+  billingDetails?: InvoiceRow['billingDetails'];
 };
 
 export type MonthlyPvBillingRecord = {

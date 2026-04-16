@@ -97,7 +97,13 @@ export function monthlyBillingSourceLabel(source?: string | null) {
 }
 
 export function formatBillingMeterReading(value?: number | null) {
-  return value != null ? value.toLocaleString('vi-VN') : 'Chưa áp dụng đo chỉ số';
+  if (value == null) {
+    return 'Chưa áp dụng đo chỉ số';
+  }
+
+  return new Intl.NumberFormat('vi-VN', {
+    maximumFractionDigits: 1,
+  }).format(value);
 }
 
 export function formatBillingUsage(value?: number | null) {

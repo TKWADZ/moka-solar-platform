@@ -46,6 +46,25 @@ type SystemPeriodAggregate = {
   sourceLabel: string | null;
 };
 
+type ConsumptionSeriesPoint = {
+  key: string;
+  label: string;
+  value: number | null;
+  updatedAt: string | null;
+  isCurrentPeriod: boolean;
+};
+
+type ConsumptionInsight = {
+  todayUsedKwh: number | null;
+  currentMonthConsumptionKwh: number | null;
+  lastUpdatedAt: string | null;
+  hasDailyData: boolean;
+  hasMonthlyData: boolean;
+  daily7: ConsumptionSeriesPoint[];
+  daily30: ConsumptionSeriesPoint[];
+  monthly12: ConsumptionSeriesPoint[];
+};
+
 @Injectable()
 export class CustomerPortalAggregateService {
   build(params: { systems: any[]; invoices: any[] }) {
@@ -131,12 +150,17 @@ export class CustomerPortalAggregateService {
       month: targetPeriod?.month,
       syncTime: targetPeriod?.updatedAt || latestUpdatedAt,
     });
+    const consumptionInsight = this.buildConsumptionInsight(systems, now);
 
     return {
       summary: {
         totalGenerationLifetime: this.roundMetric(lifetimeGeneration),
         totalConsumptionCurrentMonth:
-          currentMonthConsumption !== null ? this.roundMetric(currentMonthConsumption) : null,
+          consumptionInsight.currentMonthConsumptionKwh !== null
+            ? this.roundMetric(consumptionInsight.currentMonthConsumptionKwh)
+            : currentMonthConsumption !== null
+              ? this.roundMetric(currentMonthConsumption)
+              : null,
         totalUnpaidAmount: this.roundMoney(totalUnpaidAmount),
         latestMeterReading:
           targetPeriod?.currentReading !== null && targetPeriod?.currentReading !== undefined
@@ -188,6 +212,7 @@ export class CustomerPortalAggregateService {
         statusLabel: syncFreshness.label,
         statusCode: syncFreshness.code,
       },
+      consumptionInsight,
     };
   }
 
@@ -304,9 +329,7 @@ export class CustomerPortalAggregateService {
       const loadConsumedKwh =
         record.loadConsumedKwh !== null && record.loadConsumedKwh !== undefined
           ? record.loadConsumedKwh
-          : resolvedProductionKwh > 0
-            ? resolvedProductionKwh
-            : null;
+          : null;
 
       current.pvGenerationKwh += resolvedProductionKwh;
       current.loadConsumedKwh =
@@ -370,13 +393,6 @@ export class CustomerPortalAggregateService {
       .sort((left, right) => right.year - left.year || right.month - left.month)
       .map((period) => ({
         ...period,
-        loadConsumedKwh:
-          period.loadConsumedKwh === null && period.pvGenerationKwh > 0
-            ? period.pvGenerationKwh
-            : period.loadConsumedKwh,
-      }))
-      .map((period) => ({
-        ...period,
         pvGenerationKwh: this.roundMetric(period.pvGenerationKwh),
         loadConsumedKwh:
           period.loadConsumedKwh !== null ? this.roundMetric(period.loadConsumedKwh) : null,
@@ -387,6 +403,199 @@ export class CustomerPortalAggregateService {
         amount: this.roundMoney(period.amount),
         unpaidAmount: this.roundMoney(period.unpaidAmount),
       }));
+  }
+
+  private buildConsumptionInsight(systems: any[], now: Date): ConsumptionInsight {
+    const todayKey = this.formatDateKey(now);
+    const currentMonthKey = `${this.getYearKey(now)}-${String(this.getMonthKey(now)).padStart(2, '0')}`;
+    const dailyMap = new Map<
+      string,
+      { value: number; hasValue: boolean; updatedAt: string | null }
+    >();
+    const monthlyMap = new Map<
+      string,
+      { value: number; hasValue: boolean; updatedAt: string | null }
+    >();
+
+    for (const system of systems) {
+      const dailyUpdatedAt = this.toIsoDate(system.lastDailySyncAt);
+      const monthlyUpdatedAt =
+        this.toIsoDate(system.lastMonthlySyncAt) ||
+        this.toIsoDate(system.latestMonthlySyncTime);
+
+      for (const record of system.deyeDailyRecords || []) {
+        const consumptionValue = this.toNullableNumber(record.consumptionValueKwh);
+        if (consumptionValue === null) {
+          continue;
+        }
+
+        const dateKey = this.formatDateKey(record.recordDate);
+        if (!dateKey) {
+          continue;
+        }
+        const current =
+          dailyMap.get(dateKey) || { value: 0, hasValue: false, updatedAt: null };
+
+        current.value += consumptionValue;
+        current.hasValue = true;
+        current.updatedAt = this.maxIsoDate([
+          current.updatedAt,
+          dailyUpdatedAt,
+          this.toIsoDate(record.recordDate),
+        ]);
+
+        dailyMap.set(dateKey, current);
+      }
+
+      for (const record of system.monthlyEnergyRecords || []) {
+        const consumptionValue = this.toNullableNumber(record.loadConsumedKwh);
+        if (consumptionValue === null) {
+          continue;
+        }
+
+        const monthKey = `${record.year}-${String(record.month).padStart(2, '0')}`;
+        const current =
+          monthlyMap.get(monthKey) || { value: 0, hasValue: false, updatedAt: null };
+
+        current.value += consumptionValue;
+        current.hasValue = true;
+        current.updatedAt = this.maxIsoDate([
+          current.updatedAt,
+          monthlyUpdatedAt,
+          this.toIsoDate(record.syncTime),
+        ]);
+
+        monthlyMap.set(monthKey, current);
+      }
+    }
+
+    const dailyKeysAsc = [...dailyMap.keys()].sort((left, right) => left.localeCompare(right));
+    const latestDailyKey = dailyKeysAsc.at(-1) || null;
+    const latestDailyUpdatedAt = this.maxIsoDate(
+      [...dailyMap.values()].map((entry) => entry.updatedAt),
+    );
+    const dailyWindowEndKey = dailyMap.has(todayKey) ? todayKey : latestDailyKey;
+    const daily7 = this.buildTrailingDailySeries({
+      endKey: dailyWindowEndKey,
+      days: 7,
+      dailyMap,
+      todayKey,
+    });
+    const daily30 = this.buildTrailingDailySeries({
+      endKey: dailyWindowEndKey,
+      days: 30,
+      dailyMap,
+      todayKey,
+    });
+    const todayUsedKwh = dailyMap.get(todayKey)?.hasValue
+      ? this.roundMetric(dailyMap.get(todayKey)!.value)
+      : null;
+
+    const currentMonthDailyEntries = [...dailyMap.entries()].filter(
+      ([key, entry]) => entry.hasValue && key.startsWith(currentMonthKey),
+    );
+    if (currentMonthDailyEntries.length) {
+      monthlyMap.set(currentMonthKey, {
+        value: this.roundMetric(
+          sumBy(
+            currentMonthDailyEntries.map(([, entry]) => entry.value),
+            (value) => value,
+          ),
+        ),
+        hasValue: true,
+        updatedAt: latestDailyUpdatedAt,
+      });
+    }
+
+    const monthlyKeysAsc = [...monthlyMap.keys()].sort((left, right) =>
+      left.localeCompare(right),
+    );
+    const latestMonthlyKey = monthlyKeysAsc.at(-1) || currentMonthKey;
+    const monthly12 = this.buildTrailingMonthlySeries({
+      endKey: latestMonthlyKey,
+      months: 12,
+      monthlyMap,
+      currentMonthKey,
+    });
+    const currentMonthConsumptionKwh = monthlyMap.get(currentMonthKey)?.hasValue
+      ? this.roundMetric(monthlyMap.get(currentMonthKey)!.value)
+      : null;
+
+    return {
+      todayUsedKwh,
+      currentMonthConsumptionKwh,
+      lastUpdatedAt: this.maxIsoDate([
+        latestDailyUpdatedAt,
+        ...[...monthlyMap.values()].map((entry) => entry.updatedAt),
+      ]),
+      hasDailyData: daily30.some((item) => item.value !== null),
+      hasMonthlyData: monthly12.some((item) => item.value !== null),
+      daily7,
+      daily30,
+      monthly12,
+    };
+  }
+
+  private buildTrailingDailySeries(params: {
+    endKey: string | null;
+    days: number;
+    dailyMap: Map<string, { value: number; hasValue: boolean; updatedAt: string | null }>;
+    todayKey: string;
+  }) {
+    if (!params.endKey) {
+      return [];
+    }
+
+    const endDate = this.parseDateKey(params.endKey);
+    const points: ConsumptionSeriesPoint[] = [];
+
+    for (let index = params.days - 1; index >= 0; index -= 1) {
+      const currentDate = new Date(endDate);
+      currentDate.setUTCDate(endDate.getUTCDate() - index);
+      const key = this.formatDateKey(currentDate);
+      const entry = params.dailyMap.get(key);
+
+      points.push({
+        key,
+        label: this.formatDayLabel(key),
+        value: entry?.hasValue ? this.roundMetric(entry.value) : null,
+        updatedAt: entry?.updatedAt || null,
+        isCurrentPeriod: key === params.todayKey,
+      });
+    }
+
+    return points;
+  }
+
+  private buildTrailingMonthlySeries(params: {
+    endKey: string;
+    months: number;
+    monthlyMap: Map<string, { value: number; hasValue: boolean; updatedAt: string | null }>;
+    currentMonthKey: string;
+  }) {
+    const [yearText, monthText] = params.endKey.split('-');
+    const endYear = Number(yearText);
+    const endMonth = Number(monthText);
+    const points: ConsumptionSeriesPoint[] = [];
+
+    for (let index = params.months - 1; index >= 0; index -= 1) {
+      const currentDate = new Date(Date.UTC(endYear, endMonth - 1, 1));
+      currentDate.setUTCMonth(currentDate.getUTCMonth() - index);
+      const year = currentDate.getUTCFullYear();
+      const month = currentDate.getUTCMonth() + 1;
+      const key = `${year}-${String(month).padStart(2, '0')}`;
+      const entry = params.monthlyMap.get(key);
+
+      points.push({
+        key,
+        label: `${String(month).padStart(2, '0')}/${String(year).slice(-2)}`,
+        value: entry?.hasValue ? this.roundMetric(entry.value) : null,
+        updatedAt: entry?.updatedAt || null,
+        isCurrentPeriod: key === params.currentMonthKey,
+      });
+    }
+
+    return points;
   }
 
   private createPeriodAccumulator(year: number, month: number): PeriodGroupAccumulator {
@@ -501,6 +710,56 @@ export class CustomerPortalAggregateService {
     }
 
     return value instanceof Date ? value.toISOString() : null;
+  }
+
+  private parseDateKey(value: string) {
+    return new Date(`${value}T00:00:00.000Z`);
+  }
+
+  private formatDateKey(value: unknown) {
+    const date =
+      value instanceof Date
+        ? value
+        : typeof value === 'string' || typeof value === 'number'
+          ? new Date(value)
+          : null;
+
+    if (!date || Number.isNaN(date.getTime())) {
+      return null;
+    }
+
+    return new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(date);
+  }
+
+  private formatDayLabel(dateKey: string) {
+    return new Intl.DateTimeFormat('vi-VN', {
+      timeZone: 'Asia/Ho_Chi_Minh',
+      day: '2-digit',
+      month: '2-digit',
+    }).format(this.parseDateKey(dateKey));
+  }
+
+  private getYearKey(date: Date) {
+    return Number(
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Ho_Chi_Minh',
+        year: 'numeric',
+      }).format(date),
+    );
+  }
+
+  private getMonthKey(date: Date) {
+    return Number(
+      new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Asia/Ho_Chi_Minh',
+        month: '2-digit',
+      }).format(date),
+    );
   }
 
   private roundMetric(value: number) {

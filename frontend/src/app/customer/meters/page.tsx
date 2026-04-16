@@ -1,14 +1,17 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { ChevronDown, ChevronUp } from 'lucide-react';
+import { CustomerConsumptionChartCard, CustomerDailyUsageCard } from '@/components/customer-consumption-cards';
 import { SectionCard } from '@/components/section-card';
 import { customerDashboardRequest } from '@/lib/api';
+import { buildCustomerConsumptionView } from '@/lib/customer-consumption';
 import { formatCurrency, formatDateTime, formatNumber } from '@/lib/utils';
 import { CustomerDashboardData } from '@/types';
 
 function formatMeterReading(value?: number | null) {
   if (value == null) {
-    return 'Chưa áp dụng đo chỉ số';
+    return 'Chua ap dung do chi so';
   }
 
   return new Intl.NumberFormat('vi-VN', {
@@ -16,76 +19,177 @@ function formatMeterReading(value?: number | null) {
   }).format(value);
 }
 
+function formatUsage(value?: number | null) {
+  return value != null ? formatNumber(value, 'kWh') : 'Chua co du lieu';
+}
+
 export default function CustomerMetersPage() {
   const [dashboard, setDashboard] = useState<CustomerDashboardData | null>(null);
   const [error, setError] = useState('');
+  const [expandedPeriod, setExpandedPeriod] = useState<string | null>(null);
 
   useEffect(() => {
     customerDashboardRequest()
-      .then(setDashboard)
+      .then((nextDashboard) => {
+        setDashboard(nextDashboard);
+        setExpandedPeriod(nextDashboard.meterHistory[0]?.period || null);
+      })
       .catch((requestError) =>
         setError(
           requestError instanceof Error
             ? requestError.message
-            : 'Không thể tải lịch sử chỉ số điện.',
+            : 'Khong the tai lich su chi so dien.',
         ),
       );
   }, []);
 
+  const consumptionView = useMemo(
+    () => buildCustomerConsumptionView(dashboard),
+    [dashboard],
+  );
+
   if (!dashboard) {
     return (
-      <SectionCard title="Lịch sử chỉ số điện" eyebrow="Tổng hợp theo từng kỳ" dark>
-        <p className={error ? 'text-sm text-rose-300' : 'text-sm text-slate-300'}>
-          {error || 'Đang tải lịch sử chỉ số...'}
+      <SectionCard title="Lịch sử chỉ số điện" eyebrow="Tổng hợp theo từng kỳ">
+        <p className={error ? 'text-sm text-rose-500' : 'text-sm text-slate-600'}>
+          {error || 'Dang tai lich su chi so...'}
         </p>
       </SectionCard>
     );
   }
 
   return (
-    <SectionCard
-      title="Lịch sử chỉ số điện"
-      eyebrow="Chỉ số, điện tiêu thụ tính tiền, sản lượng và thanh toán theo kỳ"
-      dark
-    >
-      <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-white/8 text-sm text-slate-200">
-          <thead className="text-left text-[11px] uppercase tracking-[0.16em] text-slate-500">
-            <tr>
-              <th className="px-3 py-3">Kỳ</th>
-              <th className="px-3 py-3">Chỉ số cũ</th>
-              <th className="px-3 py-3">Chỉ số mới</th>
-              <th className="px-3 py-3">Điện tiêu thụ</th>
-              <th className="px-3 py-3">Điện tạo ra</th>
-              <th className="px-3 py-3">Số tiền</th>
-              <th className="px-3 py-3">Trạng thái</th>
-              <th className="px-3 py-3">Cập nhật</th>
-              <th className="px-3 py-3">Nguồn dữ liệu</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-white/6">
-            {dashboard.meterHistory.map((period) => (
-              <tr key={period.period} className="align-top">
-                <td className="px-3 py-4 font-semibold text-white">{period.period}</td>
-                <td className="px-3 py-4">{formatMeterReading(period.previousReading)}</td>
-                <td className="px-3 py-4">{formatMeterReading(period.currentReading)}</td>
-                <td className="px-3 py-4">
-                  {period.loadConsumedKwh != null
-                    ? formatNumber(period.loadConsumedKwh, 'kWh')
-                    : 'Chưa cập nhật'}
-                </td>
-                <td className="px-3 py-4">{formatNumber(period.pvGenerationKwh, 'kWh')}</td>
-                <td className="px-3 py-4">{formatCurrency(period.amount)}</td>
-                <td className="px-3 py-4">{period.paymentStatus}</td>
-                <td className="px-3 py-4">
-                  {period.updatedAt ? formatDateTime(period.updatedAt) : 'Chưa cập nhật'}
-                </td>
-                <td className="px-3 py-4">{period.sourceLabel || 'Đang cập nhật'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+    <div className="space-y-5">
+      <CustomerDailyUsageCard
+        todayUsedKwh={consumptionView.todayUsedKwh}
+        lastUpdatedAt={consumptionView.lastUpdatedAt}
+        updateLabel={consumptionView.updateLabel}
+        level={consumptionView.todayLevel}
+        hasDailyData={consumptionView.hasDailyData}
+      />
+
+      <div className="grid gap-5 xl:grid-cols-2">
+        <CustomerConsumptionChartCard
+          title="Tiêu thụ 7 ngày"
+          eyebrow="Theo ngày"
+          description="Mức xanh-vàng-đỏ được tính theo lịch sử 30 ngày gần nhất của khách hàng này, không dùng ngưỡng cứng toàn hệ thống."
+          points={consumptionView.daily7}
+          emptyTitle="Chưa có dữ liệu 7 ngày"
+          emptyBody="Khi có dữ liệu theo ngày từ nguồn tiêu thụ, biểu đồ sẽ được hiển thị tại đây."
+        />
+        <CustomerConsumptionChartCard
+          title="Tiêu thụ 30 ngày"
+          eyebrow="Theo ngày"
+          description="Danh sách 30 ngày giúp nhìn ra ngày nào tải nhẹ, trung bình hoặc tăng cao. Portal không gắn nhãn realtime nếu dữ liệu chỉ cập nhật theo ngày."
+          points={consumptionView.daily30}
+          emptyTitle="Chưa có dữ liệu 30 ngày"
+          emptyBody="Nếu chỉ mới có dữ liệu inverter, phần tiêu thụ theo ngày sẽ được để trống an toàn."
+        />
       </div>
-    </SectionCard>
+
+      <CustomerConsumptionChartCard
+        title="Lịch sử tiêu thụ 12 tháng"
+        eyebrow="Theo tháng"
+        description="Biểu đồ tháng hỗ trợ đối chiếu xu hướng tiêu thụ dài hạn và so sánh mức cao/thấp tương đối của từng tháng."
+        points={consumptionView.monthly12}
+        emptyTitle="Chưa có dữ liệu tiêu thụ tháng"
+        emptyBody="Cần monthly load data hợp lệ để hiển thị lịch sử tiêu thụ 12 tháng."
+      />
+
+      <SectionCard
+        title="Lịch sử chỉ số điện"
+        eyebrow="Chỉ số, điện tiêu thụ, PV tháng và thanh toán theo kỳ"
+      >
+        <div className="grid gap-3">
+          {dashboard.meterHistory.map((period) => {
+            const expanded = expandedPeriod === period.period;
+
+            return (
+              <article key={period.period} className="customer-soft-card p-4 sm:p-5">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setExpandedPeriod((current) =>
+                      current === period.period ? null : period.period,
+                    )
+                  }
+                  className="flex w-full flex-wrap items-start justify-between gap-4 text-left"
+                >
+                  <div className="min-w-0">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
+                      Kỳ {period.period}
+                    </p>
+                    <h3 className="mt-2 text-lg font-semibold text-slate-950">
+                      {formatCurrency(period.amount)}
+                    </h3>
+                    <p className="mt-2 text-sm text-slate-500">
+                      {formatUsage(period.loadConsumedKwh)} · PV {formatNumber(period.pvGenerationKwh, 'kWh')}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <div className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-700">
+                      {period.paymentStatus}
+                    </div>
+                    <span className="customer-icon-button h-10 w-10">
+                      {expanded ? (
+                        <ChevronUp className="h-4.5 w-4.5" />
+                      ) : (
+                        <ChevronDown className="h-4.5 w-4.5" />
+                      )}
+                    </span>
+                  </div>
+                </button>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                  {[
+                    { label: 'Chỉ số cũ', value: formatMeterReading(period.previousReading) },
+                    { label: 'Chỉ số mới', value: formatMeterReading(period.currentReading) },
+                    { label: 'Điện tiêu thụ', value: formatUsage(period.loadConsumedKwh) },
+                    { label: 'PV tháng', value: formatNumber(period.pvGenerationKwh, 'kWh') },
+                  ].map((item) => (
+                    <div key={item.label} className="customer-soft-card-muted px-4 py-3">
+                      <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
+                        {item.label}
+                      </p>
+                      <p className="mt-2 text-sm leading-6 text-slate-700">{item.value}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {expanded ? (
+                  <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                    {[
+                      { label: 'Số tiền', value: formatCurrency(period.amount) },
+                      {
+                        label: 'Còn phải thu',
+                        value: formatCurrency(period.unpaidAmount),
+                      },
+                      {
+                        label: 'Đồng bộ',
+                        value: period.updatedAt
+                          ? formatDateTime(period.updatedAt)
+                          : 'Chua cap nhat',
+                      },
+                      {
+                        label: 'Nguồn dữ liệu',
+                        value: period.sourceLabel || 'Dang cap nhat',
+                      },
+                    ].map((item) => (
+                      <div key={item.label} className="customer-soft-card-muted px-4 py-3">
+                        <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
+                          {item.label}
+                        </p>
+                        <p className="mt-2 text-sm leading-6 text-slate-700">{item.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                ) : null}
+              </article>
+            );
+          })}
+        </div>
+      </SectionCard>
+    </div>
   );
 }

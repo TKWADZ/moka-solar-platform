@@ -1,11 +1,12 @@
 'use client';
 
+import { formatBillingMeterReading } from '@/lib/billing-display';
 import { formatCurrency, formatDateTime, formatNumber } from '@/lib/utils';
 import { InvoiceRow } from '@/types';
 import { StatusPill } from './status-pill';
 
 function formatReading(value?: number | null) {
-  return value != null ? value.toLocaleString('vi-VN') : 'Chưa áp dụng đo chỉ số';
+  return formatBillingMeterReading(value);
 }
 
 function formatUsage(value?: number | null) {
@@ -15,7 +16,7 @@ function formatUsage(value?: number | null) {
 function detailCardClasses(dark: boolean) {
   return dark
     ? 'rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-3'
-    : 'rounded-[18px] border border-slate-200 bg-slate-50 px-4 py-3';
+    : 'customer-soft-card-muted px-4 py-3';
 }
 
 function detailLabelClasses(dark: boolean) {
@@ -173,7 +174,7 @@ function renderBillingDetailedCards(rows: InvoiceRow[], dark: boolean) {
         return (
           <article
             key={row.id}
-            className={dark ? 'portal-card-soft p-5' : 'surface-card p-5'}
+            className={dark ? 'portal-card-soft p-5' : 'customer-surface-card p-5'}
           >
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div className="min-w-0">
@@ -327,7 +328,7 @@ export function InvoiceTable({
         className={
           dark
             ? 'portal-card-soft p-6 text-sm text-slate-300'
-            : 'rounded-[24px] border border-slate-200 bg-slate-50 p-6 text-sm text-slate-600'
+            : 'customer-soft-card p-6 text-sm text-slate-600'
         }
       >
         Chưa có hóa đơn nào để hiển thị.
@@ -343,7 +344,7 @@ export function InvoiceTable({
     <>
       <div className="grid gap-3 md:hidden">
         {rows.map((row) => (
-          <div key={row.id} className={dark ? 'portal-card-soft p-4' : 'surface-card p-4'}>
+          <div key={row.id} className={dark ? 'portal-card-soft p-4' : 'customer-soft-card p-4'}>
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p
@@ -429,7 +430,7 @@ export function InvoiceTable({
         className={
           dark
             ? 'hidden min-w-0 overflow-hidden md:block portal-card'
-            : 'hidden min-w-0 overflow-hidden md:block surface-card'
+            : 'hidden min-w-0 overflow-hidden md:block customer-surface-card'
         }
       >
         <div className="overflow-x-auto">

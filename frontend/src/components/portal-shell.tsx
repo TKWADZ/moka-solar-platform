@@ -148,6 +148,17 @@ const navPermissionMap: Partial<Record<string, PermissionCode | PermissionCode[]
   '/admin/audit': 'audit.read',
 };
 
+const customerNavActivePaths: Record<string, string[]> = {
+  '/customer': ['/customer', '/customer/overview'],
+  '/customer/meters': ['/customer/meters', '/customer/meter', '/customer/chi-so-dien'],
+  '/customer/billing': ['/customer/billing', '/customer/invoices'],
+  '/customer/payments': ['/customer/payments'],
+  '/customer/systems': ['/customer/systems', '/customer/system'],
+  '/customer/contracts': ['/customer/contracts'],
+  '/customer/profile': ['/customer/profile'],
+  '/customer/support': ['/customer/support'],
+};
+
 function canAccessNavItem(session: SessionPayload | null, item: NavItem) {
   if (!session) {
     return false;
@@ -164,17 +175,6 @@ function canAccessNavItem(session: SessionPayload | null, item: NavItem) {
 
   return hasPermission(session, requiredPermission);
 }
-
-const customerNavActivePaths: Record<string, string[]> = {
-  '/customer': ['/customer', '/customer/overview'],
-  '/customer/meters': ['/customer/meters', '/customer/meter', '/customer/chi-so-dien'],
-  '/customer/billing': ['/customer/billing', '/customer/invoices'],
-  '/customer/payments': ['/customer/payments'],
-  '/customer/systems': ['/customer/systems', '/customer/system'],
-  '/customer/contracts': ['/customer/contracts'],
-  '/customer/profile': ['/customer/profile'],
-  '/customer/support': ['/customer/support'],
-};
 
 function normalizePathname(pathname: string) {
   const normalized = pathname.replace(/\/+$/, '');
@@ -203,7 +203,10 @@ function resolveNavActiveKey(params: {
     .sort((left, right) => right.href.length - left.href.length)
     .find((item) => {
       const normalizedHref = normalizePathname(item.href);
-      return normalizedPathname === normalizedHref || normalizedPathname.startsWith(`${normalizedHref}/`);
+      return (
+        normalizedPathname === normalizedHref ||
+        normalizedPathname.startsWith(`${normalizedHref}/`)
+      );
     });
 
   return matchedItem?.href || null;
@@ -280,31 +283,56 @@ function SidebarContent({
   navGroups,
   catalogWarning,
   ticketUnreadCount,
+  light = false,
 }: {
   session: SessionPayload;
   activeNavKey: string | null;
   navGroups: NavGroup[];
   catalogWarning: string;
   ticketUnreadCount: number;
+  light?: boolean;
 }) {
   const { tt } = useI18n();
 
   return (
     <>
-      <div className="rounded-[24px] border border-white/8 bg-gradient-to-br from-white/[0.09] to-white/[0.03] p-5">
+      <div
+        className={cn(
+          'rounded-[24px] p-5',
+          light
+            ? 'border border-slate-200 bg-gradient-to-br from-white to-slate-50 shadow-[0_16px_42px_rgba(148,163,184,0.12)]'
+            : 'border border-white/8 bg-gradient-to-br from-white/[0.09] to-white/[0.03]',
+        )}
+      >
         <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
           {tt(session.user.role.replaceAll('_', ' '))}
         </p>
-        <h2 className="mt-3 text-lg font-semibold text-white sm:text-xl">{session.user.fullName}</h2>
+        <h2 className={cn('mt-3 text-lg font-semibold sm:text-xl', light ? 'text-slate-950' : 'text-white')}>
+          {session.user.fullName}
+        </h2>
         <p className="mt-1 break-all text-sm text-slate-400">{session.user.email}</p>
-        <div className="mt-4 inline-flex items-center gap-2 rounded-full border border-emerald-300/15 bg-emerald-400/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-100">
+        <div
+          className={cn(
+            'mt-4 inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.18em]',
+            light
+              ? 'border border-emerald-200 bg-emerald-50 text-emerald-700'
+              : 'border border-emerald-300/15 bg-emerald-400/10 text-emerald-100',
+          )}
+        >
           <span className="h-2 w-2 rounded-full bg-emerald-300" />
           Trực tuyến
         </div>
       </div>
 
       {catalogWarning ? (
-        <div className="mt-4 rounded-[20px] border border-amber-200/15 bg-amber-400/10 px-4 py-3 text-sm leading-6 text-amber-100">
+        <div
+          className={cn(
+            'mt-4 rounded-[20px] px-4 py-3 text-sm leading-6',
+            light
+              ? 'border border-amber-200 bg-amber-50 text-amber-700'
+              : 'border border-amber-200/15 bg-amber-400/10 text-amber-100',
+          )}
+        >
           {catalogWarning}
         </div>
       ) : null}
@@ -330,8 +358,12 @@ function SidebarContent({
                     className={cn(
                       'group flex items-center gap-3 rounded-[20px] border px-4 py-3 transition sm:rounded-[22px] sm:py-3.5',
                       active
-                        ? 'border-white/12 bg-white text-slate-950 shadow-[0_18px_44px_rgba(15,23,42,0.18)]'
-                        : 'border-transparent bg-white/[0.03] text-slate-200 hover:border-white/8 hover:bg-white/[0.08]',
+                        ? light
+                          ? 'border-slate-200 bg-slate-950 text-white shadow-[0_18px_44px_rgba(15,23,42,0.12)]'
+                          : 'border-white/12 bg-white text-slate-950 shadow-[0_18px_44px_rgba(15,23,42,0.18)]'
+                        : light
+                          ? 'border-transparent bg-white text-slate-700 hover:border-slate-200 hover:bg-slate-50'
+                          : 'border-transparent bg-white/[0.03] text-slate-200 hover:border-white/8 hover:bg-white/[0.08]',
                     )}
                   >
                     <span
@@ -339,7 +371,9 @@ function SidebarContent({
                         'flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl transition sm:h-11 sm:w-11',
                         active
                           ? 'bg-slate-950 text-white'
-                          : 'bg-white/[0.06] text-slate-300 group-hover:bg-white/[0.1]',
+                          : light
+                            ? 'bg-slate-100 text-slate-600 group-hover:bg-slate-200'
+                            : 'bg-white/[0.06] text-slate-300 group-hover:bg-white/[0.1]',
                       )}
                     >
                       <Icon className="h-4.5 w-4.5" />
@@ -352,7 +386,11 @@ function SidebarContent({
                           <span
                             className={cn(
                               'inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full px-1.5 text-[10px] font-semibold',
-                              active ? 'bg-slate-950 text-white' : 'bg-emerald-400/18 text-emerald-100',
+                              active
+                                ? 'bg-white text-slate-950'
+                                : light
+                                  ? 'bg-emerald-100 text-emerald-700'
+                                  : 'bg-emerald-400/18 text-emerald-100',
                             )}
                           >
                             {supportBadgeCount > 99 ? '99+' : supportBadgeCount}
@@ -363,7 +401,11 @@ function SidebarContent({
                         <p
                           className={cn(
                             'mt-1 line-clamp-2 text-xs leading-5',
-                            active ? 'text-slate-600' : 'text-slate-400',
+                            active
+                              ? light
+                                ? 'text-slate-200'
+                                : 'text-slate-600'
+                              : 'text-slate-400',
                           )}
                         >
                           {tt(item.description)}
@@ -371,7 +413,12 @@ function SidebarContent({
                       ) : null}
                     </div>
 
-                    <ChevronRight className={cn('h-4 w-4 shrink-0', active ? 'text-slate-500' : 'text-slate-600')} />
+                    <ChevronRight
+                      className={cn(
+                        'h-4 w-4 shrink-0',
+                        active ? (light ? 'text-slate-300' : 'text-slate-500') : 'text-slate-500',
+                      )}
+                    />
                   </Link>
                 );
               })}
@@ -383,7 +430,7 @@ function SidebarContent({
   );
 }
 
-function NotificationsBell() {
+function NotificationsBell({ light = false }: { light?: boolean }) {
   const {
     notifications,
     notificationUnreadCount,
@@ -500,12 +547,15 @@ function NotificationsBell() {
         ref={buttonRef}
         type="button"
         onClick={() => setOpen((current) => !current)}
-        className="portal-card-soft relative flex h-11 w-11 items-center justify-center"
+        className={cn(
+          'relative flex h-11 w-11 items-center justify-center',
+          light ? 'customer-icon-button' : 'portal-card-soft',
+        )}
         aria-expanded={open}
         aria-haspopup="dialog"
         aria-label="Mở thông báo"
       >
-        <Bell className="h-5 w-5 text-slate-200" />
+        <Bell className={cn('h-5 w-5', light ? 'text-slate-700' : 'text-slate-200')} />
         {totalBadge > 0 ? (
           <span className="absolute -right-1 -top-1 inline-flex min-w-[1.3rem] items-center justify-center rounded-full bg-emerald-400 px-1.5 py-0.5 text-[10px] font-semibold text-slate-950">
             {totalBadge > 99 ? '99+' : totalBadge}
@@ -513,7 +563,8 @@ function NotificationsBell() {
         ) : null}
         <span
           className={cn(
-            'absolute bottom-1.5 right-1.5 h-2.5 w-2.5 rounded-full ring-2 ring-[#08111f]',
+            'absolute bottom-1.5 right-1.5 h-2.5 w-2.5 rounded-full ring-2',
+            light ? 'ring-white' : 'ring-[#08111f]',
             isConnected ? 'bg-emerald-300' : 'bg-amber-300',
           )}
         />
@@ -524,7 +575,10 @@ function NotificationsBell() {
             <div
               ref={panelRef}
               className={cn(
-                'fixed z-[60] flex overflow-hidden rounded-[24px] border border-white/10 bg-[#08111f]/97 shadow-[0_24px_80px_rgba(2,6,23,0.44)] backdrop-blur-xl',
+                'fixed z-[60] flex overflow-hidden rounded-[24px] backdrop-blur-xl',
+                light
+                  ? 'border border-slate-200 bg-white/98 shadow-[0_24px_80px_rgba(148,163,184,0.22)]'
+                  : 'border border-white/10 bg-[#08111f]/97 shadow-[0_24px_80px_rgba(2,6,23,0.44)]',
                 panelPosition.mobile && 'rounded-[22px]',
               )}
               style={{
@@ -534,13 +588,18 @@ function NotificationsBell() {
                 maxHeight: `${panelPosition.maxHeight}px`,
               }}
               role="dialog"
-              aria-label="Thông báo"
+              aria-label="ThÃ´ng bÃ¡o"
             >
               <div className="flex min-h-0 w-full flex-col">
-                <div className="flex items-center justify-between gap-3 border-b border-white/8 px-4 py-4">
+                <div
+                  className={cn(
+                    'flex items-center justify-between gap-3 px-4 py-4',
+                    light ? 'border-b border-slate-200' : 'border-b border-white/8',
+                  )}
+                >
                   <div className="min-w-0">
               <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Thông báo</p>
-              <p className="mt-1 text-sm font-semibold text-white">
+              <p className={cn('mt-1 text-sm font-semibold', light ? 'text-slate-950' : 'text-white')}>
                 {notificationUnreadCount
                   ? `${notificationUnreadCount} thông báo chưa đọc`
                   : 'Không có thông báo mới'}
@@ -550,7 +609,10 @@ function NotificationsBell() {
               <button
                 type="button"
                 onClick={() => void markAllNotificationsRead()}
-                className="shrink-0 text-xs font-semibold text-emerald-200 transition hover:text-white"
+                className={cn(
+                  'shrink-0 text-xs font-semibold transition',
+                  light ? 'text-emerald-700 hover:text-emerald-800' : 'text-emerald-200 hover:text-white',
+                )}
               >
                 Đánh dấu đã đọc
               </button>
@@ -575,14 +637,20 @@ function NotificationsBell() {
                     className={cn(
                       'w-full rounded-[18px] border px-4 py-3 text-left transition',
                       item.isRead
-                        ? 'border-white/6 bg-white/[0.03] text-slate-300'
-                        : 'border-emerald-300/15 bg-emerald-400/10 text-white',
+                        ? light
+                          ? 'border-slate-200 bg-slate-50 text-slate-700'
+                          : 'border-white/6 bg-white/[0.03] text-slate-300'
+                        : light
+                          ? 'border-emerald-200 bg-emerald-50 text-slate-900'
+                          : 'border-emerald-300/15 bg-emerald-400/10 text-white',
                     )}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="text-sm font-semibold">{item.title}</p>
-                        <p className="mt-1 text-sm leading-6 text-slate-300">{item.body}</p>
+                        <p className={cn('mt-1 text-sm leading-6', light ? 'text-slate-600' : 'text-slate-300')}>
+                          {item.body}
+                        </p>
                       </div>
                       {!item.isRead ? (
                         <span className="mt-1 h-2.5 w-2.5 shrink-0 rounded-full bg-emerald-300" />
@@ -592,7 +660,14 @@ function NotificationsBell() {
                 ))}
               </div>
             ) : (
-              <div className="rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-5 text-sm leading-6 text-slate-300">
+              <div
+                className={cn(
+                  'rounded-[18px] px-4 py-5 text-sm leading-6',
+                  light
+                    ? 'border border-slate-200 bg-slate-50 text-slate-600'
+                    : 'border border-white/8 bg-white/[0.03] text-slate-300',
+                )}
+              >
                 Chưa có thông báo mới. Ticket, phản hồi và cập nhật trạng thái sẽ hiện tại đây.
               </div>
             )}
@@ -627,28 +702,31 @@ function PortalShellContent({
   return (
     <main
       className={cn(
-        'portal-shell min-h-screen px-2 py-2 sm:px-6 sm:py-5',
+        isCustomerPortal
+          ? 'customer-shell min-h-screen px-2 py-2 sm:px-6 sm:py-5'
+          : 'portal-shell min-h-screen px-2 py-2 sm:px-6 sm:py-5',
         isCustomerPortal && 'pb-[calc(6.3rem+env(safe-area-inset-bottom))] lg:pb-5',
       )}
     >
       <div className="mx-auto grid max-w-7xl gap-3 lg:grid-cols-[300px_minmax(0,1fr)] lg:gap-5">
-        <aside className="portal-card hidden p-5 lg:block">
+        <aside className={cn(isCustomerPortal ? 'customer-surface-card hidden p-5 lg:block' : 'portal-card hidden p-5 lg:block')}>
           <SidebarContent
             session={session}
             activeNavKey={activeNavKey}
             navGroups={navGroups}
             catalogWarning={catalogWarning}
             ticketUnreadCount={ticketUnreadCount}
+            light={isCustomerPortal}
           />
         </aside>
 
         <section className="min-w-0 space-y-3 sm:space-y-5">
-          <div className="portal-card p-4 sm:p-6">
+          <div className={cn(isCustomerPortal ? 'customer-surface-card p-4 sm:p-6' : 'portal-card p-4 sm:p-6')}>
             <div className="flex flex-col gap-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">{tt(kicker)}</p>
-                  <h1 className="mt-2 text-2xl font-semibold tracking-tight text-white sm:text-[2.1rem]">
+                  <h1 className={cn('mt-2 text-2xl font-semibold tracking-tight sm:text-[2.1rem]', isCustomerPortal ? 'text-slate-950' : 'text-white')}>
                     {tt(title)}
                   </h1>
                   <p className="mt-2 text-sm text-slate-400 lg:hidden">
@@ -660,20 +738,28 @@ function PortalShellContent({
                   <button
                     type="button"
                     onClick={() => setMobileNavOpen(true)}
-                    className="portal-card-soft flex h-11 w-11 items-center justify-center"
+                    className={cn(
+                      'flex h-11 w-11 items-center justify-center',
+                      isCustomerPortal ? 'customer-icon-button' : 'portal-card-soft',
+                    )}
                     aria-label="Mở điều hướng"
                   >
-                    <Menu className="h-5 w-5 text-slate-100" />
+                    <Menu className={cn('h-5 w-5', isCustomerPortal ? 'text-slate-700' : 'text-slate-100')} />
                   </button>
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                <LanguageSwitcher dark />
-                <NotificationsBell />
+                <LanguageSwitcher dark={!isCustomerPortal} />
+                <NotificationsBell light={isCustomerPortal} />
                 <button
                   onClick={logout}
-                  className="portal-card-soft inline-flex items-center gap-2 px-4 py-3 text-sm font-semibold text-slate-100"
+                  className={cn(
+                    'inline-flex items-center gap-2 px-4 py-3 text-sm font-semibold',
+                    isCustomerPortal
+                      ? 'rounded-full border border-slate-200 bg-white text-slate-700 transition hover:border-slate-300 hover:bg-slate-50'
+                      : 'portal-card-soft text-slate-100',
+                  )}
                 >
                   <LogOut className="h-4 w-4" />
                   <span className="hidden sm:inline">Đăng xuất</span>
@@ -687,18 +773,18 @@ function PortalShellContent({
 
           <div className="min-w-0 space-y-4 sm:space-y-5">
             {currentNavForbidden ? (
-              <div className="portal-card p-6 sm:p-8">
+              <div className={cn(isCustomerPortal ? 'customer-surface-card p-6 sm:p-8' : 'portal-card p-6 sm:p-8')}>
                 <p className="eyebrow">Quyen truy cap</p>
-                <h2 className="mt-2 text-xl font-semibold text-white sm:text-2xl">
+                <h2 className={cn('mt-2 text-xl font-semibold sm:text-2xl', isCustomerPortal ? 'text-slate-950' : 'text-white')}>
                   Ban khong co quyen vao module nay.
                 </h2>
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
+                <p className={cn('mt-3 max-w-2xl text-sm leading-6', isCustomerPortal ? 'text-slate-600' : 'text-slate-300')}>
                   Tai khoan hien tai chua du permissions cho khu vuc nay. Ban van co
                   the tiep tuc lam viec o cac module duoc cap quyen khac trong admin.
                 </p>
               </div>
             ) : currentFeatureDisabled ? (
-              <div className="portal-card p-6 sm:p-8">
+              <div className={cn(isCustomerPortal ? 'customer-surface-card p-6 sm:p-8' : 'portal-card p-6 sm:p-8')}>
                 <p className="eyebrow">Hỗ trợ</p>
                 <h2 className="mt-2 text-xl font-semibold text-white sm:text-2xl">Module này hiện đang bị tắt.</h2>
                 <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
@@ -718,11 +804,11 @@ function PortalShellContent({
           style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 0.35rem)' }}
         >
           <div className="mx-auto max-w-3xl px-2">
-              <div className="rounded-[28px] border border-white/10 bg-[#08111f]/92 p-2 shadow-[0_24px_80px_rgba(2,6,23,0.46)] backdrop-blur-xl">
-                <div className="grid grid-cols-5 gap-1">
-                  {customerPrimaryNav.map((item) => {
-                    const active = item.href === activeNavKey;
-                    const Icon = navIconMap[item.href] || LayoutDashboard;
+            <div className="customer-nav-shell rounded-[28px] p-2">
+              <div className="grid grid-cols-5 gap-1">
+                {customerPrimaryNav.map((item) => {
+                  const active = item.href === activeNavKey;
+                  const Icon = navIconMap[item.href] || LayoutDashboard;
 
                   return (
                     <Link
@@ -731,8 +817,8 @@ function PortalShellContent({
                       className={cn(
                         'flex min-h-[62px] min-w-0 flex-col items-center justify-center gap-1 rounded-[20px] px-2 py-2 text-center transition',
                         active
-                          ? 'bg-white text-slate-950 shadow-[0_12px_30px_rgba(255,255,255,0.14)]'
-                          : 'text-slate-300 hover:bg-white/[0.08]',
+                          ? 'bg-slate-950 text-white shadow-[0_12px_30px_rgba(15,23,42,0.16)]'
+                          : 'text-slate-500 hover:bg-slate-100',
                       )}
                     >
                       <Icon className="h-4.5 w-4.5 shrink-0" />
@@ -744,7 +830,7 @@ function PortalShellContent({
                 <button
                   type="button"
                   onClick={() => setMobileNavOpen(true)}
-                  className="flex min-h-[62px] min-w-0 flex-col items-center justify-center gap-1 rounded-[20px] px-2 py-2 text-center text-slate-300 transition hover:bg-white/[0.08]"
+                  className="flex min-h-[62px] min-w-0 flex-col items-center justify-center gap-1 rounded-[20px] px-2 py-2 text-center text-slate-500 transition hover:bg-slate-100"
                   aria-label="Mở thêm mục"
                 >
                   <Menu className="h-4.5 w-4.5 shrink-0" />
@@ -758,11 +844,19 @@ function PortalShellContent({
 
       {mobileNavOpen ? (
         <div
-          className="fixed inset-0 z-50 bg-slate-950/68 backdrop-blur-sm lg:hidden"
+          className={cn(
+            'fixed inset-0 z-50 backdrop-blur-sm lg:hidden',
+            isCustomerPortal ? 'bg-slate-900/18' : 'bg-slate-950/68',
+          )}
           onClick={() => setMobileNavOpen(false)}
         >
           <div
-            className="ml-auto flex h-full w-[min(92vw,380px)] flex-col border-l border-white/10 bg-[#08111f] p-4 shadow-[0_24px_80px_rgba(2,6,23,0.4)]"
+            className={cn(
+              'ml-auto flex h-full w-[min(92vw,380px)] flex-col p-4',
+              isCustomerPortal
+                ? 'border-l border-slate-200 bg-white shadow-[0_24px_80px_rgba(148,163,184,0.18)]'
+                : 'border-l border-white/10 bg-[#08111f] shadow-[0_24px_80px_rgba(2,6,23,0.4)]',
+            )}
             style={{
               paddingTop: 'max(env(safe-area-inset-top), 0.9rem)',
               paddingBottom: 'calc(env(safe-area-inset-bottom) + 1rem)',
@@ -774,31 +868,42 @@ function PortalShellContent({
                 <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
                   {isCustomerPortal ? 'Menu ứng dụng' : 'Điều hướng'}
                 </p>
-                <p className="mt-1 text-lg font-semibold text-white">{tt(title)}</p>
+                <p className={cn('mt-1 text-lg font-semibold', isCustomerPortal ? 'text-slate-950' : 'text-white')}>
+                  {tt(title)}
+                </p>
               </div>
               <button
                 type="button"
                 onClick={() => setMobileNavOpen(false)}
-                className="portal-card-soft flex h-11 w-11 items-center justify-center"
+                className={cn(
+                  'flex h-11 w-11 items-center justify-center',
+                  isCustomerPortal ? 'customer-icon-button' : 'portal-card-soft',
+                )}
                 aria-label="Đóng điều hướng"
               >
-                <X className="h-5 w-5 text-slate-100" />
+                <X className={cn('h-5 w-5', isCustomerPortal ? 'text-slate-700' : 'text-slate-100')} />
               </button>
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-              <SidebarContent
-                session={session}
-                activeNavKey={activeNavKey}
-                navGroups={navGroups}
-                catalogWarning={catalogWarning}
-                ticketUnreadCount={ticketUnreadCount}
-              />
+                <SidebarContent
+                  session={session}
+                  activeNavKey={activeNavKey}
+                  navGroups={navGroups}
+                  catalogWarning={catalogWarning}
+                  ticketUnreadCount={ticketUnreadCount}
+                  light={isCustomerPortal}
+                />
             </div>
 
             <button
               onClick={logout}
-              className="mt-4 inline-flex items-center justify-center gap-2 rounded-full border border-white/10 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10"
+              className={cn(
+                'mt-4 inline-flex items-center justify-center gap-2 rounded-full px-4 py-3 text-sm font-semibold transition',
+                isCustomerPortal
+                  ? 'border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+                  : 'border border-white/10 text-white hover:bg-white/10',
+              )}
             >
               <LogOut className="h-4 w-4" />
               Đăng xuất
@@ -933,23 +1038,31 @@ export function PortalShell({ title, kicker, nav, allowedRoles, children }: Port
 
   if (authState !== 'ready' || !session) {
     return (
-      <main className="portal-shell flex min-h-screen items-center justify-center px-4 py-6">
-        <div className="portal-card max-w-md px-6 py-6 text-center">
+      <main className={cn(isCustomerPortal ? 'customer-shell flex min-h-screen items-center justify-center px-4 py-6' : 'portal-shell flex min-h-screen items-center justify-center px-4 py-6')}>
+        <div className={cn(isCustomerPortal ? 'customer-surface-card max-w-md px-6 py-6 text-center' : 'portal-card max-w-md px-6 py-6 text-center')}>
           <p className="eyebrow text-slate-500">
             {authState === 'redirecting' ? 'Đang chuyển hướng' : 'Đang xác thực'}
           </p>
-          <h1 className="mt-3 text-xl font-semibold text-white">
+          <h1 className={cn('mt-3 text-xl font-semibold', isCustomerPortal ? 'text-slate-950' : 'text-white')}>
             {authState === 'redirecting'
               ? 'Hệ thống đang đưa bạn đến đúng cổng làm việc.'
               : 'Đang chuẩn bị không gian làm việc của bạn.'}
           </h1>
-          <p className="mt-3 text-sm leading-6 text-slate-300">
+          <p className={cn('mt-3 text-sm leading-6', isCustomerPortal ? 'text-slate-600' : 'text-slate-300')}>
             {authState === 'redirecting'
               ? 'Nếu trang không tự chuyển, bạn có thể mở trang đăng nhập thủ công.'
               : 'Thông tin phiên đăng nhập đang được kiểm tra để tải đúng quyền truy cập.'}
           </p>
           {authState === 'redirecting' ? (
-            <Link href="/login" className="btn-ghost mt-5 inline-flex">
+            <Link
+              href="/login"
+              className={cn(
+                'mt-5 inline-flex',
+                isCustomerPortal
+                  ? 'rounded-full border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50'
+                  : 'btn-ghost',
+              )}
+            >
               Mở trang đăng nhập
             </Link>
           ) : null}

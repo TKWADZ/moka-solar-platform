@@ -29,7 +29,7 @@ export function EnergyChart({
   const { tt } = useI18n();
 
   return (
-    <div className={cn(dark ? 'portal-card p-5 sm:p-6' : 'surface-card p-5 sm:p-6')}>
+    <div className={cn(dark ? 'portal-card p-5 sm:p-6' : 'customer-surface-card p-5 sm:p-6')}>
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p

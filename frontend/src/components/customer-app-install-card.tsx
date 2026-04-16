@@ -78,26 +78,29 @@ export function CustomerAppInstallCard({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        'portal-card-soft overflow-hidden border border-emerald-200/10 bg-gradient-to-br from-emerald-400/10 via-teal-300/5 to-white/[0.04] p-4 sm:p-5',
+        'customer-soft-card overflow-hidden border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50 p-4 sm:p-5',
         className,
       )}
     >
       <div className="flex items-start gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-300/12 text-emerald-100">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
           <Smartphone className="h-5 w-5" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-[11px] uppercase tracking-[0.22em] text-emerald-100/80">Ứng dụng khách hàng</p>
-          <h2 className="mt-2 text-base font-semibold text-white sm:text-lg">
-            Cài Moka Solar lên điện thoại để mở nhanh như một app.
+          <p className="text-[11px] uppercase tracking-[0.22em] text-emerald-700/80">
+            Ung dung khach hang
+          </p>
+          <h2 className="mt-2 text-base font-semibold text-slate-950 sm:text-lg">
+            Cai Moka Solar len dien thoai de mo nhanh nhu mot app.
           </h2>
-          <p className="mt-2 text-sm leading-6 text-slate-200/88">
-            Theo dõi sản lượng, hóa đơn, thanh toán và hỗ trợ chỉ với một chạm từ màn hình chính.
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Theo doi san luong, hoa don, thanh toan va ho tro chi voi mot cham tu man hinh chinh.
           </p>
 
           {showIosHint ? (
-            <p className="mt-3 text-sm leading-6 text-slate-300">
-              Trên iPhone, hãy chạm nút Chia sẻ trong Safari rồi chọn <span className="font-semibold text-white">Thêm vào Màn hình chính</span>.
+            <p className="mt-3 text-sm leading-6 text-slate-600">
+              Tren iPhone, hay cham nut Chia se trong Safari roi chon{' '}
+              <span className="font-semibold text-slate-950">Them vao Man hinh chinh</span>.
             </p>
           ) : null}
 
@@ -110,11 +113,15 @@ export function CustomerAppInstallCard({ className }: { className?: string }) {
                 className="btn-primary min-h-[46px] flex-1 sm:min-h-[48px]"
               >
                 <ArrowDownToLine className="h-4 w-4" />
-                {isInstalling ? 'Đang chuẩn bị' : 'Cài ứng dụng'}
+                {isInstalling ? 'Dang chuan bi' : 'Cai ung dung'}
               </button>
             ) : null}
-            <button type="button" onClick={handleDismiss} className="btn-ghost min-h-[46px] sm:min-h-[48px]">
-              Để sau
+            <button
+              type="button"
+              onClick={handleDismiss}
+              className="inline-flex min-h-[46px] items-center justify-center rounded-full border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 sm:min-h-[48px]"
+            >
+              De sau
             </button>
           </div>
         </div>

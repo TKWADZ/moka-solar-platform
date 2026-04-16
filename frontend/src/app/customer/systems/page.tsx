@@ -24,16 +24,16 @@ export default function CustomerSystemsPage() {
         setError(
           requestError instanceof Error
             ? requestError.message
-            : 'Không thể tải dữ liệu hệ thống điện.',
+            : 'Khong the tai du lieu he thong dien.',
         ),
       );
   }, []);
 
   if (!dashboard) {
     return (
-      <SectionCard title="Hệ thống điện mặt trời" eyebrow="Tài sản và kỳ dữ liệu đang theo dõi" dark>
-        <p className={error ? 'text-sm text-rose-300' : 'text-sm text-slate-300'}>
-          {error || 'Đang tải dữ liệu hệ thống điện...'}
+      <SectionCard title="Hệ thống điện mặt trời" eyebrow="Tài sản và kỳ dữ liệu đang theo dõi">
+        <p className={error ? 'text-sm text-rose-500' : 'text-sm text-slate-600'}>
+          {error || 'Dang tai du lieu he thong dien...'}
         </p>
       </SectionCard>
     );
@@ -41,7 +41,7 @@ export default function CustomerSystemsPage() {
 
   return (
     <div className="space-y-5">
-      <SectionCard title="Danh sách hệ thống" eyebrow="Tổng hợp theo từng site và nguồn dữ liệu" dark>
+      <SectionCard title="Danh sách hệ thống" eyebrow="Tổng hợp theo từng site và nguồn dữ liệu">
         <div className="space-y-4">
           {dashboard.systems.map((system) => (
             <CustomerSystemCard key={system.id} system={system} />
@@ -52,9 +52,8 @@ export default function CustomerSystemsPage() {
       <EnergyChart
         data={dashboard.generationTrend}
         title="Sản lượng tổng hợp theo kỳ"
-        description="Biểu đồ sử dụng dữ liệu kỳ đã được đối soát. Portal không giả lập số realtime nếu nguồn monitor chưa có dữ liệu thực."
+        description="Biểu đồ solar dùng bảng màu tích cực riêng. Portal không giả lập số realtime nếu nguồn monitor chưa sẵn sàng."
         unit="kWh"
-        dark
       />
     </div>
   );

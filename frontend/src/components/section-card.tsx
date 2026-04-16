@@ -21,7 +21,12 @@ export function SectionCard({
   const { tt } = useI18n();
 
   return (
-    <div className={cn(dark ? 'portal-card min-w-0 p-5 sm:p-6' : 'surface-card min-w-0 p-5 sm:p-6', className)}>
+    <div
+      className={cn(
+        dark ? 'portal-card min-w-0 p-5 sm:p-6' : 'customer-surface-card min-w-0 p-5 sm:p-6',
+        className,
+      )}
+    >
       {eyebrow ? (
         <p className={cn('text-[11px] uppercase tracking-[0.22em]', dark ? 'text-slate-500' : 'text-slate-400')}>
           {tt(eyebrow)}

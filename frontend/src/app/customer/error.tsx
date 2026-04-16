@@ -14,19 +14,22 @@ export default function CustomerError({
   }, [error]);
 
   return (
-    <main className="portal-shell flex min-h-screen items-center justify-center px-4 py-8">
-      <div className="portal-card max-w-xl p-8 text-center">
-        <p className="eyebrow text-slate-500">Lỗi cổng khách hàng</p>
-        <h1 className="mt-3 text-2xl font-semibold text-white">Không thể tải dữ liệu tài khoản ngay lúc này.</h1>
-        <p className="mt-3 text-sm text-slate-300">
-          Bạn có thể thử tải lại trang. Nếu lỗi vẫn còn, vui lòng đăng nhập lại hoặc liên hệ bộ phận vận hành để được hỗ trợ.
+    <main className="customer-shell flex min-h-screen items-center justify-center px-4 py-8">
+      <div className="customer-surface-card max-w-xl p-8 text-center">
+        <p className="eyebrow text-slate-500">Loi cong khach hang</p>
+        <h1 className="mt-3 text-2xl font-semibold text-slate-950">
+          Khong the tai du lieu tai khoan ngay luc nay.
+        </h1>
+        <p className="mt-3 text-sm text-slate-600">
+          Ban co the thu tai lai trang. Neu loi van con, vui long dang nhap lai
+          hoac lien he bo phan van hanh de duoc ho tro.
         </p>
         <div className="mt-6 flex flex-wrap justify-center gap-3">
           <button onClick={reset} className="btn-primary">
-            Thử lại
+            Thu lai
           </button>
-          <a href="/portal" className="btn-ghost">
-            Về cổng khách hàng
+          <a href="/portal" className="btn-secondary-light">
+            Ve cong khach hang
           </a>
         </div>
       </div>

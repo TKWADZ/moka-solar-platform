@@ -128,7 +128,7 @@ export function CustomerSystemCard({
     system.lastBillingSyncAt ||
     null;
   const latestConsumption =
-    latestMonthlyEnergy?.loadConsumedKwh ?? latestMonthlyEnergy?.pvGenerationKwh ?? null;
+    latestMonthlyEnergy?.loadConsumedKwh ?? null;
   const latestMeterReading =
     latestMonthlyEnergy?.meterReadingEnd != null ? latestMonthlyEnergy.meterReadingEnd : null;
   const hasOperationalData = Boolean(latestMonthlyEnergy || latestMonthlyBilling);
@@ -195,16 +195,16 @@ export function CustomerSystemCard({
   ];
 
   return (
-    <div className="portal-card-soft p-4 sm:p-5">
+    <div className="customer-soft-card p-4 sm:p-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{system.systemCode}</p>
-          <h3 className="mt-2 text-lg font-semibold tracking-tight text-white sm:text-xl">
+          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">{system.systemCode}</p>
+          <h3 className="mt-2 text-lg font-semibold tracking-tight text-slate-950 sm:text-xl">
             {system.name}
           </h3>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <StatusPill label={system.status === 'ACTIVE' ? 'Đang hoạt động' : system.status} />
-            <span className="inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-200">
+            <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-700">
               <DatabaseZap className="h-3.5 w-3.5" />
               {latestOperationalData?.sourceLabel || formatProviderLabel(system.monitoringProvider)}
             </span>
@@ -213,7 +213,7 @@ export function CustomerSystemCard({
 
         <Link
           href={actionHref}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-white/10 px-4 py-3 text-sm font-semibold text-white transition hover:bg-white/10 sm:w-auto sm:justify-start sm:py-2"
+          className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:border-slate-300 hover:bg-slate-50 sm:w-auto sm:justify-start sm:py-2"
         >
           {actionLabel}
           <ChevronRight className="h-4 w-4" />
@@ -224,10 +224,10 @@ export function CustomerSystemCard({
         {detailRows.map((item) => (
           <div
             key={item.label}
-            className="rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-3"
+            className="customer-soft-card-muted px-4 py-3"
           >
-            <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">{item.label}</p>
-            <p className="mt-2 text-sm leading-6 text-slate-200">{item.value}</p>
+            <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
+            <p className="mt-2 text-sm leading-6 text-slate-700">{item.value}</p>
           </div>
         ))}
       </div>
@@ -235,8 +235,8 @@ export function CustomerSystemCard({
       <div
         className={`mt-5 flex items-start gap-3 rounded-[20px] border px-4 py-4 text-sm ${
           hasOperationalData
-            ? 'border-emerald-300/15 bg-emerald-400/10 text-emerald-100'
-            : 'border-amber-300/20 bg-amber-400/10 text-amber-100'
+            ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+            : 'border-amber-200 bg-amber-50 text-amber-700'
         }`}
       >
         {hasOperationalData ? (

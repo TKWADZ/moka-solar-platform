@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { DatabaseZap, Scale } from 'lucide-react';
+import { CustomerConsumptionChartCard, CustomerDailyUsageCard } from '@/components/customer-consumption-cards';
 import { CustomerSystemCard } from '@/components/customer-system-card';
 import { EnergyChart } from '@/components/energy-chart';
 import { InvoiceTable } from '@/components/invoice-table';
@@ -9,6 +10,8 @@ import { SectionCard } from '@/components/section-card';
 import { StatCard } from '@/components/stat-card';
 import { useSystemDashboardPresence } from '@/hooks/use-system-dashboard-presence';
 import { customerDashboardRequest } from '@/lib/api';
+import { formatBillingMeterReading } from '@/lib/billing-display';
+import { buildCustomerConsumptionView } from '@/lib/customer-consumption';
 import { formatCurrency, formatDate, formatDateTime, formatNumber } from '@/lib/utils';
 import { CustomerDashboardData, InvoiceRecord, InvoiceRow, StatCardItem } from '@/types';
 
@@ -35,7 +38,7 @@ function toInvoiceRows(invoices: Array<Record<string, unknown>>) {
       model:
         typedInvoice.contract?.servicePackage?.name ||
         typedInvoice.contract?.type ||
-        'Hợp đồng đang áp dụng',
+        'Hop dong dang ap dung',
       loadConsumedKwh:
         typeof typedInvoice.periodMetrics?.loadConsumedKwh === 'number'
           ? typedInvoice.periodMetrics.loadConsumedKwh
@@ -52,16 +55,17 @@ function toInvoiceRows(invoices: Array<Record<string, unknown>>) {
         typeof typedInvoice.periodMetrics?.sourceLabel === 'string'
           ? typedInvoice.periodMetrics.sourceLabel
           : null,
+      billingDetails: typedInvoice.billingDetails || undefined,
     } satisfies InvoiceRow;
   });
 }
 
 function formatUsage(value?: number | null) {
-  return value != null ? formatNumber(value, 'kWh') : 'Chưa cập nhật';
+  return value != null ? formatNumber(value, 'kWh') : 'Chua co du lieu';
 }
 
 function formatMeterReading(value?: number | null) {
-  return value != null ? value.toLocaleString('vi-VN') : 'Chưa áp dụng đo chỉ số';
+  return value != null ? formatBillingMeterReading(value) : 'Chua ap dung chi so';
 }
 
 export default function CustomerPage() {
@@ -80,10 +84,15 @@ export default function CustomerPage() {
         setError(
           requestError instanceof Error
             ? requestError.message
-            : 'Không thể tải dữ liệu cổng khách hàng.',
+            : 'Khong the tai du lieu cong khach hang.',
         ),
       );
   }, []);
+
+  const consumptionView = useMemo(
+    () => buildCustomerConsumptionView(dashboard),
+    [dashboard],
+  );
 
   const summaryCards = useMemo<StatCardItem[]>(() => {
     if (!dashboard) {
@@ -92,70 +101,62 @@ export default function CustomerPage() {
 
     return [
       {
-        title: 'Điện mặt trời tạo ra',
+        title: 'Điện mặt trời tích lũy',
         value:
           dashboard.summary.solarGenerated != null
             ? formatNumber(dashboard.summary.solarGenerated, 'kWh')
-            : 'Chưa cập nhật',
+            : 'Chua cap nhat',
         subtitle: 'Tổng sản lượng từ khi vận hành của tất cả hệ thống.',
         delta:
           dashboard.summary.systemsTracked != null
             ? `${dashboard.summary.systemsTracked} hệ thống đang được theo dõi`
-            : 'Đang cập nhật danh mục',
+            : 'Dang cap nhat danh muc',
         trend: 'up',
       },
       {
-        title: 'Điện tiêu thụ tháng này',
+        title: 'Tiêu thụ tháng này',
         value:
-          dashboard.summary.loadConsumed != null
-            ? formatNumber(dashboard.summary.loadConsumed, 'kWh')
-            : 'Chưa cập nhật',
+          consumptionView.currentMonthConsumptionKwh != null
+            ? formatNumber(consumptionView.currentMonthConsumptionKwh, 'kWh')
+            : 'Chua cap nhat',
         subtitle: dashboard.summary.latestDataPeriod
-          ? `Tổng điện tiêu thụ tính tiền của kỳ ${dashboard.summary.latestDataPeriod}`
-          : 'Tổng điện tiêu thụ tính tiền của tháng hiện tại.',
-        delta:
-          dashboard.summary.systemsUpdatedCurrentMonth != null
-            ? `${dashboard.summary.systemsUpdatedCurrentMonth} hệ thống đã có dữ liệu kỳ này`
-            : 'Đang đối soát theo kỳ',
+          ? `Tổng điện tiêu thụ của kỳ ${dashboard.summary.latestDataPeriod}`
+          : 'Tổng điện tiêu thụ của kỳ hiện tại.',
+        delta: consumptionView.updateLabel,
+        trend: 'neutral',
+      },
+      {
+        title: 'Hôm nay đã dùng',
+        value:
+          consumptionView.todayUsedKwh != null
+            ? formatNumber(consumptionView.todayUsedKwh, 'kWh')
+            : 'Chua co du lieu',
+        subtitle: consumptionView.hasDailyData
+          ? 'Dữ liệu tiêu thụ theo ngày cho portal khách hàng.'
+          : 'Cần load meter / smart meter / EMS / EVN theo ngày.',
+        delta: consumptionView.updateLabel,
         trend: 'neutral',
       },
       {
         title: 'Cần thanh toán',
         value: formatCurrency(dashboard.summary.currentBillingAmount || 0),
         subtitle:
-          dashboard.summary.currentBillingLabel === 'Tạm tính kỳ này'
-            ? 'Kỳ hiện tại đang được tạm tính, hóa đơn chính thức sẽ cập nhật sau khi đối soát.'
+          dashboard.summary.currentBillingLabel === 'Táº¡m tÃ­nh ká»³ nÃ y'
+            ? 'Kỳ hiện tại đang được tạm tính, hóa đơn chính thức sẽ cập nhật sau đối soát.'
             : dashboard.summary.outstandingInvoiceCount &&
                 dashboard.summary.outstandingInvoiceCount > 0
               ? `${dashboard.summary.outstandingInvoiceCount} hóa đơn chưa thanh toán / chờ thanh toán`
-              : 'Không có hóa đơn đang mở',
+              : 'Khong co hoa don dang mo',
         delta:
           dashboard.summary.nearestDueInvoiceNumber && dashboard.summary.nearestDueInvoiceDate
-            ? `${dashboard.summary.nearestDueInvoiceNumber} - đến hạn ${formatDate(
+            ? `${dashboard.summary.nearestDueInvoiceNumber} · den han ${formatDate(
                 dashboard.summary.nearestDueInvoiceDate,
               )}`
-            : dashboard.summary.currentBillingLabel === 'Tạm tính kỳ này' &&
-                dashboard.summary.latestDataPeriod
-              ? `Tạm tính cho kỳ ${dashboard.summary.latestDataPeriod}`
-              : 'Danh mục đang ổn định',
+            : 'Danh muc dang on dinh',
         trend: (dashboard.summary.currentBillingAmount || 0) > 0 ? 'neutral' : 'up',
       },
-      {
-        title: 'Chỉ số mới nhất',
-        value:
-          dashboard.summary.latestMeterReading != null
-            ? dashboard.summary.latestMeterReading.toLocaleString('vi-VN')
-            : 'Chưa áp dụng đo chỉ số',
-        subtitle: dashboard.summary.latestDataPeriod
-          ? `Tổng chỉ số cuối kỳ ${dashboard.summary.latestDataPeriod} của tất cả hệ thống`
-          : 'Chỉ số điện được cập nhật theo kỳ dữ liệu.',
-        delta: dashboard.summary.latestUpdatedAt
-          ? `Cập nhật gần nhất ${formatDateTime(dashboard.summary.latestUpdatedAt)}`
-          : 'Đang chờ kỳ dữ liệu đầu tiên',
-        trend: 'neutral',
-      },
     ];
-  }, [dashboard]);
+  }, [consumptionView.currentMonthConsumptionKwh, consumptionView.hasDailyData, consumptionView.todayUsedKwh, consumptionView.updateLabel, dashboard]);
 
   const invoiceRows = useMemo(
     () => (dashboard ? toInvoiceRows(dashboard.invoices.slice(0, 6)) : []),
@@ -166,9 +167,9 @@ export default function CustomerPage() {
 
   if (!dashboard) {
     return (
-      <SectionCard title="Tổng quan khách hàng" eyebrow="Điện năng và thanh toán" dark>
-        <p className={error ? 'text-sm text-rose-300' : 'text-sm text-slate-300'}>
-          {error || 'Đang tải dữ liệu cổng khách hàng...'}
+      <SectionCard title="Tổng quan khách hàng" eyebrow="Điện năng và thanh toán">
+        <p className={error ? 'text-sm text-rose-500' : 'text-sm text-slate-600'}>
+          {error || 'Dang tai du lieu cong khach hang...'}
         </p>
       </SectionCard>
     );
@@ -178,99 +179,41 @@ export default function CustomerPage() {
     <div className="space-y-5">
       <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-4">
         {summaryCards.map((item) => (
-          <StatCard key={item.title} {...item} dark />
+          <StatCard key={item.title} {...item} />
         ))}
       </div>
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.1fr)_360px]">
-        <EnergyChart
-          data={dashboard.generationTrend}
-          title="Sản lượng tổng hợp theo kỳ"
-          description="Tổng sản lượng và điện tiêu thụ tính tiền được tổng hợp theo kỳ cập nhật của tất cả hệ thống."
-          unit="kWh"
-          dark
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(320px,0.92fr)]">
+        <CustomerDailyUsageCard
+          todayUsedKwh={consumptionView.todayUsedKwh}
+          lastUpdatedAt={consumptionView.lastUpdatedAt}
+          updateLabel={consumptionView.updateLabel}
+          level={consumptionView.todayLevel}
+          hasDailyData={consumptionView.hasDailyData}
         />
 
-        <SectionCard title="Trạng thái đồng bộ" eyebrow="Cập nhật định kỳ 1 giờ / lần" dark>
-          <div className="space-y-4">
-            <div className="portal-card-soft p-5">
-              <div className="flex items-start gap-3">
-                <DatabaseZap className="mt-0.5 h-4.5 w-4.5 text-slate-300" />
-                <div>
-                  <p className="text-sm font-semibold text-white">
-                    {dashboard.syncStatus?.statusLabel || 'Đang cập nhật'}
-                  </p>
-                  <p className="mt-2 text-sm leading-6 text-slate-300">
-                    Portal hiển thị dữ liệu kỳ đã đối soát. Nếu chưa có dữ liệu mới, hệ thống sẽ giữ
-                    kỳ gần nhất thay vì hiển thị realtime giả.
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
-              <div className="portal-card-soft p-4">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                  Nguồn dữ liệu
-                </p>
-                <p className="mt-2 text-lg font-semibold text-white">
-                  {dashboard.syncStatus?.sourceLabel ||
-                    dashboard.summary.latestDataSourceLabel ||
-                    'Đang cập nhật'}
-                </p>
-              </div>
-              <div className="portal-card-soft p-4">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                  Lần cập nhật gần nhất
-                </p>
-                <p className="mt-2 text-lg font-semibold text-white">
-                  {dashboard.syncStatus?.latestUpdatedAt
-                    ? formatDateTime(dashboard.syncStatus.latestUpdatedAt)
-                    : 'Chưa cập nhật'}
-                </p>
-              </div>
-              <div className="portal-card-soft p-4">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                  Kỳ đang theo dõi
-                </p>
-                <p className="mt-2 text-lg font-semibold text-white">
-                  {dashboard.summary.latestDataPeriod || 'Đang cập nhật'}
-                </p>
-              </div>
-              <div className="portal-card-soft p-4">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                  Hệ thống đã cập nhật kỳ này
-                </p>
-                <p className="mt-2 text-lg font-semibold text-white">
-                  {dashboard.summary.systemsUpdatedCurrentMonth ?? 0}/
-                  {dashboard.summary.systemsTracked ?? dashboard.systems.length}
-                </p>
-              </div>
-            </div>
-          </div>
-        </SectionCard>
-      </div>
-
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.02fr)_minmax(340px,0.98fr)]">
-        <SectionCard title="Kỳ đang theo dõi" eyebrow="Đối soát điện tiêu thụ tính tiền và thanh toán" dark>
+        <SectionCard
+          title="Kỳ đang theo dõi"
+          eyebrow="Đối soát điện tiêu thụ, sản lượng và thanh toán"
+        >
           {currentPeriod ? (
             <div className="grid gap-4">
-              <div className="portal-card-soft p-5">
+              <div className="customer-soft-card p-5">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
-                    <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                    <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
                       Kỳ {currentPeriod.period}
                     </p>
-                    <h3 className="mt-3 text-3xl font-semibold tracking-tight text-white">
+                    <h3 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
                       {formatCurrency(currentPeriod.amount)}
                     </h3>
-                    <p className="mt-2 text-sm text-slate-400">
+                    <p className="mt-2 text-sm text-slate-500">
                       {currentPeriod.unpaidAmount > 0
-                        ? `Còn ${formatCurrency(currentPeriod.unpaidAmount)} chưa thanh toán`
-                        : 'Không còn công nợ của kỳ này'}
+                        ? `Con ${formatCurrency(currentPeriod.unpaidAmount)} chua thanh toan`
+                        : 'Khong con cong no cua ky nay'}
                     </p>
                   </div>
-                  <div className="rounded-full border border-white/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-200">
+                  <div className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-700">
                     {currentPeriod.paymentStatus}
                   </div>
                 </div>
@@ -291,48 +234,132 @@ export default function CustomerPage() {
                     value: formatUsage(currentPeriod.loadConsumedKwh),
                   },
                   {
-                    label: 'Điện tạo ra',
+                    label: 'PV tháng',
                     value: formatNumber(currentPeriod.pvGenerationKwh, 'kWh'),
                   },
                   {
                     label: 'Nguồn dữ liệu',
-                    value: currentPeriod.sourceLabel || 'Đang cập nhật',
+                    value: currentPeriod.sourceLabel || 'Dang cap nhat',
                   },
                   {
                     label: 'Lần cập nhật',
                     value: currentPeriod.updatedAt
                       ? formatDateTime(currentPeriod.updatedAt)
-                      : 'Chưa cập nhật',
+                      : 'Chua cap nhat',
                   },
                 ].map((item) => (
-                  <div
-                    key={item.label}
-                    className="rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-3"
-                  >
-                    <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
+                  <div key={item.label} className="customer-soft-card-muted px-4 py-3">
+                    <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
                       {item.label}
                     </p>
-                    <p className="mt-2 text-sm leading-6 text-slate-200">{item.value}</p>
+                    <p className="mt-2 text-sm leading-6 text-slate-700">{item.value}</p>
                   </div>
                 ))}
               </div>
             </div>
           ) : (
-            <div className="portal-card-soft p-5">
-              <p className="text-base font-semibold text-white">Chưa có kỳ dữ liệu để hiển thị</p>
-              <p className="mt-2 text-sm leading-6 text-slate-300">
-                Đội vận hành sẽ cập nhật dữ liệu tháng và hóa đơn ngay khi hệ thống hoàn tất đối soát.
-              </p>
+            <div className="customer-page-note">
+              Đội vận hành sẽ cập nhật dữ liệu tháng và hóa đơn ngay khi hệ thống hoàn tất đối soát.
             </div>
           )}
         </SectionCard>
+      </div>
 
-        <SectionCard title="Hóa đơn gần đây" eyebrow="Lịch sử thanh toán và đối soát" dark>
-          <InvoiceTable rows={invoiceRows} dark />
+      <div className="grid gap-5 xl:grid-cols-2">
+        <CustomerConsumptionChartCard
+          title="Biểu đồ tiêu thụ 7 ngày"
+          eyebrow="Theo ngày"
+          description="Màu xanh là mức tiêu thụ thấp, vàng là trung bình, đỏ là cao so với 30 ngày gần nhất của chính khách hàng này."
+          points={consumptionView.daily7}
+          emptyTitle="Chưa có dữ liệu 7 ngày"
+          emptyBody="Khi hệ thống nhận được dữ liệu load meter / smart meter theo ngày, biểu đồ sẽ xuất hiện ở đây."
+        />
+        <CustomerConsumptionChartCard
+          title="Biểu đồ tiêu thụ 30 ngày"
+          eyebrow="Theo ngày"
+          description="Dùng để theo dõi nhịp tiêu thụ gần đây. Portal chỉ hiển thị dữ liệu theo ngày, không giả realtime nếu nguồn chưa đủ nhanh."
+          points={consumptionView.daily30}
+          emptyTitle="Chưa có dữ liệu 30 ngày"
+          emptyBody="Cần dữ liệu tiêu thụ theo ngày để vẽ lịch sử 30 ngày một cách chính xác."
+        />
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <CustomerConsumptionChartCard
+          title="Lịch sử tiêu thụ 12 tháng"
+          eyebrow="Theo tháng"
+          description="Mức màu được tính tương đối trên 12 tháng gần nhất của chính site/customer này, giúp nhận ra tháng nào tiêu thụ nhẹ hay cao."
+          points={consumptionView.monthly12}
+          emptyTitle="Chưa có lịch sử tiêu thụ tháng"
+          emptyBody="Nếu mới chỉ có dữ liệu inverter mà chưa có nguồn load/EVN/EMS, lịch sử tiêu thụ tháng sẽ để trống thay vì hiển thị số giả."
+        />
+
+        <EnergyChart
+          data={dashboard.generationTrend}
+          title="Sản lượng điện mặt trời theo kỳ"
+          description="Sản lượng solar giữ bảng màu tích cực riêng, không dùng cùng logic xanh-vàng-đỏ của phần tiêu thụ."
+          unit="kWh"
+        />
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1.02fr)_minmax(340px,0.98fr)]">
+        <SectionCard title="Trạng thái đồng bộ" eyebrow="Theo dõi dữ liệu và nguồn cập nhật">
+          <div className="space-y-4">
+            <div className="customer-soft-card p-5">
+              <div className="flex items-start gap-3">
+                <DatabaseZap className="mt-0.5 h-4.5 w-4.5 text-slate-400" />
+                <div>
+                  <p className="text-sm font-semibold text-slate-950">
+                    {dashboard.syncStatus?.statusLabel || 'Dang cap nhat'}
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                    Portal hiển thị dữ liệu đã đối soát. Nếu chưa có dữ liệu tiêu thụ theo ngày, hệ thống sẽ báo rõ trạng thái thay vì hiển thị số ước lượng giả.
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-1">
+              {[
+                {
+                  label: 'Nguồn dữ liệu',
+                  value:
+                    dashboard.syncStatus?.sourceLabel ||
+                    dashboard.summary.latestDataSourceLabel ||
+                    'Dang cap nhat',
+                },
+                {
+                  label: 'Lần cập nhật gần nhất',
+                  value: dashboard.syncStatus?.latestUpdatedAt
+                    ? formatDateTime(dashboard.syncStatus.latestUpdatedAt)
+                    : 'Chua cap nhat',
+                },
+                {
+                  label: 'Kỳ đang theo dõi',
+                  value: dashboard.summary.latestDataPeriod || 'Dang cap nhat',
+                },
+                {
+                  label: 'Hệ thống đã có dữ liệu kỳ này',
+                  value: `${dashboard.summary.systemsUpdatedCurrentMonth ?? 0}/${dashboard.summary.systemsTracked ?? dashboard.systems.length}`,
+                },
+              ].map((item) => (
+                <div key={item.label} className="customer-soft-card-muted px-4 py-4">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
+                    {item.label}
+                  </p>
+                  <p className="mt-2 text-lg font-semibold text-slate-950">{item.value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </SectionCard>
+
+        <SectionCard title="Hóa đơn gần đây" eyebrow="Lịch sử thanh toán và đối soát">
+          <InvoiceTable rows={invoiceRows} />
         </SectionCard>
       </div>
 
-      <SectionCard title="Tất cả hệ thống đang vận hành" eyebrow="Tổng hợp theo từng site" dark>
+      <SectionCard title="Tất cả hệ thống đang vận hành" eyebrow="Tổng hợp theo từng site">
         <div className="space-y-4">
           {dashboard.systems.map((system) => (
             <CustomerSystemCard
@@ -345,50 +372,52 @@ export default function CustomerPage() {
         </div>
       </SectionCard>
 
-      <SectionCard title="Lịch sử chỉ số và thanh toán" eyebrow="6 kỳ gần nhất" dark>
+      <SectionCard title="Lịch sử chỉ số và thanh toán" eyebrow="6 kỳ gần nhất">
         <div className="space-y-3">
           {dashboard.meterHistory.slice(0, 6).map((period) => (
-            <div key={period.period} className="portal-card-soft p-5">
+            <div key={period.period} className="customer-soft-card p-5">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
-                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                  <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
                     Kỳ {period.period}
                   </p>
-                  <h3 className="mt-2 text-xl font-semibold text-white">
+                  <h3 className="mt-2 text-xl font-semibold text-slate-950">
                     {formatCurrency(period.amount)}
                   </h3>
-                  <p className="mt-2 text-sm text-slate-400">
-                    {period.systemsCount} hệ thống - {period.sourceLabel || 'Đang cập nhật'}
+                  <p className="mt-2 text-sm text-slate-500">
+                    {period.systemsCount} hệ thống · {period.sourceLabel || 'Dang cap nhat'}
                   </p>
                 </div>
-                <div className="inline-flex items-center gap-2 rounded-full border border-white/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-200">
+                <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-700">
                   <Scale className="h-3.5 w-3.5" />
                   {period.paymentStatus}
                 </div>
               </div>
 
               <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                <div className="rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-3">
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">Chỉ số</p>
-                  <p className="mt-2 text-sm leading-6 text-slate-200">
+                <div className="customer-soft-card-muted px-4 py-3">
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
+                    Chỉ số
+                  </p>
+                  <p className="mt-2 text-sm leading-6 text-slate-700">
                     {formatMeterReading(period.previousReading)} {'->'}{' '}
                     {formatMeterReading(period.currentReading)}
                   </p>
                 </div>
-                <div className="rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-3">
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
-                    Điện tiêu thụ / tạo ra
+                <div className="customer-soft-card-muted px-4 py-3">
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
+                    Điện tiêu thụ / PV tháng
                   </p>
-                  <p className="mt-2 text-sm leading-6 text-slate-200">
+                  <p className="mt-2 text-sm leading-6 text-slate-700">
                     {formatUsage(period.loadConsumedKwh)} / {formatNumber(period.pvGenerationKwh, 'kWh')}
                   </p>
                 </div>
-                <div className="rounded-[18px] border border-white/8 bg-white/[0.03] px-4 py-3">
-                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-500">
-                    Cập nhật
+                <div className="customer-soft-card-muted px-4 py-3">
+                  <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
+                    Đồng bộ
                   </p>
-                  <p className="mt-2 text-sm leading-6 text-slate-200">
-                    {period.updatedAt ? formatDateTime(period.updatedAt) : 'Chưa cập nhật'}
+                  <p className="mt-2 text-sm leading-6 text-slate-700">
+                    {period.updatedAt ? formatDateTime(period.updatedAt) : 'Chua cap nhat'}
                   </p>
                 </div>
               </div>

@@ -547,9 +547,10 @@ export class ReportsService {
         liveSystems: 0,
         currentPvKw: null,
         averageBatterySoc: null,
-        hasRealtimeData: false,
-        hasDailyData: false,
-        hasMonthlyData: recentMonthlyRecords.length > 0,
+        hasRealtimeData: hasRealtimeTelemetry,
+        hasDailyData: aggregate.consumptionInsight.hasDailyData,
+        hasMonthlyData:
+          aggregate.consumptionInsight.hasMonthlyData || recentMonthlyRecords.length > 0,
         currentBillingAmount,
         currentBillingLabel:
           aggregate.summary.totalUnpaidAmount > 0
@@ -578,6 +579,7 @@ export class ReportsService {
       generationTrendUnit: 'kWh',
       generationTrendDescription:
         'Sản lượng được tổng hợp theo kỳ cập nhật của tất cả hệ thống. Portal hiện chỉ hiển thị dữ liệu đã đối soát, không giả lập realtime.',
+      consumptionInsight: aggregate.consumptionInsight,
       systems: systems.map((system) => ({
         id: system.id,
         name: system.name,
@@ -621,7 +623,7 @@ export class ReportsService {
           generationValueKwh: this.decimalToNullableNumber(record.generationValueKwh),
           consumptionValueKwh: this.decimalToNullableNumber(record.consumptionValueKwh),
         })),
-        dailyRecords: system.deyeDailyRecords.slice(0, 14).map((record) => ({
+        dailyRecords: system.deyeDailyRecords.slice(0, 35).map((record) => ({
           id: record.id,
           recordDate: record.recordDate.toISOString(),
           generationValueKwh: this.decimalToNullableNumber(record.generationValueKwh),
@@ -667,7 +669,7 @@ export class ReportsService {
           loadConsumedKwh:
             record.loadConsumedKwh !== null && record.loadConsumedKwh !== undefined
               ? Number(record.loadConsumedKwh)
-              : Number(record.pvGenerationKwh),
+              : null,
           savingsAmount:
             record.savingsAmount !== null && record.savingsAmount !== undefined
               ? Number(record.savingsAmount)
