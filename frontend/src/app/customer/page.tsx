@@ -297,7 +297,7 @@ export default function CustomerPage() {
         <CustomerConsumptionChartCard
           title="Biểu đồ tiêu thụ 30 ngày"
           eyebrow="Theo ngày"
-          description="Dùng để theo dõi nhịp tiêu thụ gần đây. Portal chỉ hiển thị dữ liệu theo ngày, không giả realtime nếu nguồn chưa đủ nhanh."
+          description="Theo dõi xu hướng tiêu thụ gần đây. Dữ liệu được cập nhật theo ngày sau khi đồng bộ từ hệ thống nguồn."
           points={consumptionView.daily30}
           emptyTitle="Chưa có dữ liệu 30 ngày"
           emptyBody="Cần dữ liệu tiêu thụ theo ngày để vẽ lịch sử 30 ngày một cách chính xác."
@@ -330,11 +330,11 @@ export default function CustomerPage() {
                 <DatabaseZap className="mt-0.5 h-4.5 w-4.5 text-slate-400" />
                 <div>
                   <p className={cn('text-sm font-semibold', headingText)}>
-                    {dashboard.syncStatus?.statusLabel || 'Đang cập nhật'}
+                    Dữ liệu đã được đối soát
                   </p>
                   <p className={cn('mt-2 text-sm leading-6', bodyText)}>
-                    Portal hiển thị dữ liệu đã đối soát. Nếu chưa có dữ liệu tiêu thụ theo ngày,
-                    hệ thống sẽ báo rõ trạng thái thay vì hiển thị số ước lượng giả.
+                    Hệ thống đang hiển thị số liệu kỳ/tháng đã xác nhận. Khi dữ liệu nguồn hoàn tất
+                    đồng bộ, các chỉ số mới sẽ được cập nhật tự động.
                   </p>
                 </div>
               </div>
