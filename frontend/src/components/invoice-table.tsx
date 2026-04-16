@@ -1,5 +1,6 @@
 'use client';
 
+import { useCustomerTheme } from '@/components/customer-theme-provider';
 import { formatBillingMeterReading } from '@/lib/billing-display';
 import { formatCurrency, formatDateTime, formatNumber } from '@/lib/utils';
 import { InvoiceRow } from '@/types';
@@ -318,6 +319,8 @@ export function InvoiceTable({
   dark?: boolean;
   variant?: 'summary' | 'billingDetailed';
 }) {
+  const { enabled, theme } = useCustomerTheme();
+  const resolvedDark = dark || (enabled && theme === 'dark');
   const showMeterColumns = rows.some(
     (row) => row.previousReading != null || row.currentReading != null,
   );
@@ -326,7 +329,7 @@ export function InvoiceTable({
     return (
       <div
         className={
-          dark
+          resolvedDark
             ? 'portal-card-soft p-6 text-sm text-slate-300'
             : 'customer-soft-card p-6 text-sm text-slate-600'
         }
@@ -337,19 +340,22 @@ export function InvoiceTable({
   }
 
   if (variant === 'billingDetailed') {
-    return renderBillingDetailedCards(rows, dark);
+    return renderBillingDetailedCards(rows, resolvedDark);
   }
 
   return (
     <>
       <div className="grid gap-3 md:hidden">
         {rows.map((row) => (
-          <div key={row.id} className={dark ? 'portal-card-soft p-4' : 'customer-soft-card p-4'}>
+          <div
+            key={row.id}
+            className={resolvedDark ? 'portal-card-soft p-4' : 'customer-soft-card p-4'}
+          >
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <p
                   className={
-                    dark
+                    resolvedDark
                       ? 'text-xs uppercase tracking-[0.18em] text-slate-500'
                       : 'text-xs uppercase tracking-[0.18em] text-slate-400'
                   }
@@ -358,7 +364,7 @@ export function InvoiceTable({
                 </p>
                 <p
                   className={
-                    dark
+                    resolvedDark
                       ? 'mt-2 text-base font-semibold text-white'
                       : 'mt-2 text-base font-semibold text-slate-950'
                   }
@@ -366,7 +372,7 @@ export function InvoiceTable({
                   {row.number}
                 </p>
                 {row.customer ? (
-                  <p className={dark ? 'mt-1 text-sm text-slate-400' : 'mt-1 text-sm text-slate-500'}>
+                  <p className={resolvedDark ? 'mt-1 text-sm text-slate-400' : 'mt-1 text-sm text-slate-500'}>
                     {row.customer}
                   </p>
                 ) : null}
@@ -376,7 +382,7 @@ export function InvoiceTable({
 
             <div
               className={
-                dark
+                resolvedDark
                   ? 'mt-4 grid gap-3 text-sm text-slate-300'
                   : 'mt-4 grid gap-3 text-sm text-slate-700'
               }
@@ -413,7 +419,7 @@ export function InvoiceTable({
                 <span className="text-slate-500">Số tiền</span>
                 <span
                   className={
-                    dark
+                    resolvedDark
                       ? 'break-words text-right font-semibold tabular-nums text-white'
                       : 'break-words text-right font-semibold tabular-nums text-slate-950'
                   }
@@ -428,7 +434,7 @@ export function InvoiceTable({
 
       <div
         className={
-          dark
+          resolvedDark
             ? 'hidden min-w-0 overflow-hidden md:block portal-card'
             : 'hidden min-w-0 overflow-hidden md:block customer-surface-card'
         }
@@ -437,7 +443,7 @@ export function InvoiceTable({
           <table className={`${showMeterColumns ? 'min-w-[1220px]' : 'min-w-[980px]'} w-full text-left`}>
             <thead
               className={
-                dark
+                resolvedDark
                   ? 'border-b border-white/10 text-[11px] uppercase tracking-[0.18em] text-slate-500'
                   : 'border-b border-slate-200 text-[11px] uppercase tracking-[0.18em] text-slate-400'
               }
@@ -459,37 +465,37 @@ export function InvoiceTable({
                 <tr
                   key={row.id}
                   className={
-                    dark
+                    resolvedDark
                       ? 'border-b border-white/6 align-top'
                       : 'border-b border-slate-200/70 align-top'
                   }
                 >
                   <td className="px-5 py-5">
-                    <p className={dark ? 'font-semibold text-white' : 'font-semibold text-slate-950'}>
+                    <p className={resolvedDark ? 'font-semibold text-white' : 'font-semibold text-slate-950'}>
                       {row.number}
                     </p>
                     {row.customer ? (
-                      <p className={dark ? 'mt-1 text-xs text-slate-400' : 'mt-1 text-xs text-slate-500'}>
+                      <p className={resolvedDark ? 'mt-1 text-xs text-slate-400' : 'mt-1 text-xs text-slate-500'}>
                         {row.customer}
                       </p>
                     ) : null}
                   </td>
-                  <td className={dark ? 'px-5 py-5 text-sm text-slate-300' : 'px-5 py-5 text-sm text-slate-700'}>
+                  <td className={resolvedDark ? 'px-5 py-5 text-sm text-slate-300' : 'px-5 py-5 text-sm text-slate-700'}>
                     {row.month}
                   </td>
-                  <td className={dark ? 'px-5 py-5 text-sm text-slate-300' : 'px-5 py-5 text-sm text-slate-700'}>
+                  <td className={resolvedDark ? 'px-5 py-5 text-sm text-slate-300' : 'px-5 py-5 text-sm text-slate-700'}>
                     {row.model || '-'}
                   </td>
-                  <td className={dark ? 'px-5 py-5 text-sm text-slate-300' : 'px-5 py-5 text-sm text-slate-700'}>
+                  <td className={resolvedDark ? 'px-5 py-5 text-sm text-slate-300' : 'px-5 py-5 text-sm text-slate-700'}>
                     {row.dueDate}
                   </td>
-                  <td className={dark ? 'px-5 py-5 text-sm text-slate-300' : 'px-5 py-5 text-sm text-slate-700'}>
+                  <td className={resolvedDark ? 'px-5 py-5 text-sm text-slate-300' : 'px-5 py-5 text-sm text-slate-700'}>
                     {formatUsage(row.loadConsumedKwh)}
                   </td>
                   {showMeterColumns ? (
                     <td
                       className={
-                        dark
+                        resolvedDark
                           ? 'px-5 py-5 text-sm tabular-nums text-slate-300'
                           : 'px-5 py-5 text-sm tabular-nums text-slate-700'
                       }
@@ -500,7 +506,7 @@ export function InvoiceTable({
                   {showMeterColumns ? (
                     <td
                       className={
-                        dark
+                        resolvedDark
                           ? 'px-5 py-5 text-sm tabular-nums text-slate-300'
                           : 'px-5 py-5 text-sm tabular-nums text-slate-700'
                       }
@@ -510,7 +516,7 @@ export function InvoiceTable({
                   ) : null}
                   <td
                     className={
-                      dark
+                      resolvedDark
                         ? 'px-5 py-5 text-sm font-semibold tabular-nums text-white'
                         : 'px-5 py-5 text-sm font-semibold tabular-nums text-slate-950'
                     }

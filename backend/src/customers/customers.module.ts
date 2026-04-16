@@ -1,5 +1,11 @@
 import { Module } from '@nestjs/common';
+import { MediaModule } from '../media/media.module';
 import { CustomersController } from './customers.controller';
 import { CustomersService } from './customers.service';
-@Module({ controllers: [CustomersController], providers: [CustomersService], exports: [CustomersService] })
+@Module({
+  imports: [MediaModule],
+  controllers: [CustomersController],
+  providers: [CustomersService],
+  exports: [CustomersService],
+})
 export class CustomersModule {}

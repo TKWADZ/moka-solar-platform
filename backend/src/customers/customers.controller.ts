@@ -1,4 +1,16 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  UploadedFile,
+  UseGuards,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { CustomersService } from './customers.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -10,6 +22,10 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { FeaturePlugin } from '../feature-plugins/feature-plugin.decorator';
 import { FeaturePluginGuard } from '../feature-plugins/feature-plugin.guard';
+import { UpdateMyProfileDto } from './dto/update-my-profile.dto';
+import { ChangeMyPasswordDto } from './dto/change-my-password.dto';
+
+const MAX_AVATAR_FILE_SIZE = 5 * 1024 * 1024;
 
 @Controller('customers')
 @FeaturePlugin('customers')
@@ -29,6 +45,43 @@ export class CustomersController {
   @Roles('CUSTOMER')
   myProfile(@CurrentUser() user: AuthenticatedUser) {
     return this.customersService.getMyProfile(user.customerId!);
+  }
+
+  @Patch('me/profile')
+  @FeaturePlugin('customer_profile')
+  @Roles('CUSTOMER')
+  updateMyProfile(
+    @Body() dto: UpdateMyProfileDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.customersService.updateMyProfile(user.customerId!, dto, user.sub);
+  }
+
+  @Patch('me/password')
+  @FeaturePlugin('customer_profile')
+  @Roles('CUSTOMER')
+  changeMyPassword(
+    @Body() dto: ChangeMyPasswordDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.customersService.changeMyPassword(user.customerId!, dto, user.sub);
+  }
+
+  @Post('me/avatar')
+  @FeaturePlugin('customer_profile')
+  @Roles('CUSTOMER')
+  @UseInterceptors(
+    FileInterceptor('avatar', {
+      limits: {
+        fileSize: MAX_AVATAR_FILE_SIZE,
+      },
+    }),
+  )
+  uploadMyAvatar(
+    @UploadedFile() avatar: any,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.customersService.uploadMyAvatar(user.customerId!, avatar, user.sub);
   }
 
   @Get(':id')

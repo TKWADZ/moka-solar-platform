@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowDownToLine, Smartphone } from 'lucide-react';
+import { useCustomerTheme } from '@/components/customer-theme-provider';
 import { cn } from '@/lib/utils';
 import { isIosDevice, isStandaloneDisplayMode } from '@/lib/customer-app';
 
@@ -13,6 +14,8 @@ type BeforeInstallPromptEvent = Event & {
 };
 
 export function CustomerAppInstallCard({ className }: { className?: string }) {
+  const { enabled, theme } = useCustomerTheme();
+  const dark = enabled && theme === 'dark';
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [dismissed, setDismissed] = useState(true);
   const [isStandalone, setIsStandalone] = useState(false);
@@ -78,29 +81,60 @@ export function CustomerAppInstallCard({ className }: { className?: string }) {
   return (
     <div
       className={cn(
-        'customer-soft-card overflow-hidden border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50 p-4 sm:p-5',
+        'customer-soft-card overflow-hidden p-4 sm:p-5',
+        dark
+          ? 'border border-white/10 bg-gradient-to-br from-emerald-500/12 via-slate-950 to-teal-500/10'
+          : 'border border-emerald-200 bg-gradient-to-br from-emerald-50 via-white to-teal-50',
         className,
       )}
     >
       <div className="flex items-start gap-3">
-        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl bg-emerald-100 text-emerald-700">
+        <div
+          className={cn(
+            'flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl',
+            dark ? 'bg-emerald-400/15 text-emerald-200' : 'bg-emerald-100 text-emerald-700',
+          )}
+        >
           <Smartphone className="h-5 w-5" />
         </div>
         <div className="min-w-0 flex-1">
-          <p className="text-[11px] uppercase tracking-[0.22em] text-emerald-700/80">
+          <p
+            className={cn(
+              'text-[11px] uppercase tracking-[0.22em]',
+              dark ? 'text-emerald-200/80' : 'text-emerald-700/80',
+            )}
+          >
             Ung dung khach hang
           </p>
-          <h2 className="mt-2 text-base font-semibold text-slate-950 sm:text-lg">
+          <h2
+            className={cn(
+              'mt-2 text-base font-semibold sm:text-lg',
+              dark ? 'text-white' : 'text-slate-950',
+            )}
+          >
             Cai Moka Solar len dien thoai de mo nhanh nhu mot app.
           </h2>
-          <p className="mt-2 text-sm leading-6 text-slate-600">
+          <p
+            className={cn(
+              'mt-2 text-sm leading-6',
+              dark ? 'text-slate-300' : 'text-slate-600',
+            )}
+          >
             Theo doi san luong, hoa don, thanh toan va ho tro chi voi mot cham tu man hinh chinh.
           </p>
 
           {showIosHint ? (
-            <p className="mt-3 text-sm leading-6 text-slate-600">
+            <p
+              className={cn(
+                'mt-3 text-sm leading-6',
+                dark ? 'text-slate-300' : 'text-slate-600',
+              )}
+            >
               Tren iPhone, hay cham nut Chia se trong Safari roi chon{' '}
-              <span className="font-semibold text-slate-950">Them vao Man hinh chinh</span>.
+              <span className={cn('font-semibold', dark ? 'text-white' : 'text-slate-950')}>
+                Them vao Man hinh chinh
+              </span>
+              .
             </p>
           ) : null}
 
@@ -119,7 +153,12 @@ export function CustomerAppInstallCard({ className }: { className?: string }) {
             <button
               type="button"
               onClick={handleDismiss}
-              className="inline-flex min-h-[46px] items-center justify-center rounded-full border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 sm:min-h-[48px]"
+              className={cn(
+                'inline-flex min-h-[46px] items-center justify-center rounded-full px-4 py-3 text-sm font-semibold transition sm:min-h-[48px]',
+                dark
+                  ? 'border border-white/10 bg-white/[0.06] text-slate-200 hover:bg-white/[0.1]'
+                  : 'border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50',
+              )}
             >
               De sau
             </button>

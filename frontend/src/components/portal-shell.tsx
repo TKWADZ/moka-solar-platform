@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
@@ -32,6 +32,10 @@ import {
   X,
 } from 'lucide-react';
 import { CustomerAppInstallCard } from '@/components/customer-app-install-card';
+import {
+  CustomerThemeSwitch,
+  useCustomerTheme,
+} from '@/components/customer-theme-provider';
 import { LanguageSwitcher } from '@/components/language-switcher';
 import { PortalLiveProvider, usePortalLive } from '@/components/portal-live-provider';
 import { getCustomerPrimaryNav } from '@/lib/customer-app';
@@ -218,7 +222,7 @@ function groupPortalNav(nav: NavItem[]) {
   if (!isAdminNav) {
     return [
       {
-        label: 'Tổng quan dịch vụ',
+        label: 'Tá»•ng quan dá»‹ch vá»¥',
         items: nav.filter((item) =>
           [
             '/customer',
@@ -231,16 +235,16 @@ function groupPortalNav(nav: NavItem[]) {
         ),
       },
       {
-        label: 'Tài khoản',
+        label: 'TÃ i khoáº£n',
         items: nav.filter((item) => ['/customer/profile', '/customer/support'].includes(item.href)),
       },
     ].filter((group) => group.items.length);
   }
 
   const definitions: Array<{ label: string; hrefs: string[] }> = [
-    { label: 'Điều hành', hrefs: ['/admin', '/admin/reports'] },
+    { label: 'Äiá»u hÃ nh', hrefs: ['/admin', '/admin/reports'] },
     {
-      label: 'Kinh doanh và vận hành',
+      label: 'Kinh doanh vÃ  váº­n hÃ nh',
       hrefs: [
         '/admin/customers',
         '/admin/users',
@@ -256,7 +260,7 @@ function groupPortalNav(nav: NavItem[]) {
       ],
     },
     {
-      label: 'Nội dung và tăng trưởng',
+      label: 'Ná»™i dung vÃ  tÄƒng trÆ°á»Ÿng',
       hrefs: [
         '/admin/leads',
         '/admin/website-settings',
@@ -266,7 +270,7 @@ function groupPortalNav(nav: NavItem[]) {
         '/admin/packages',
       ],
     },
-    { label: 'Hệ thống lõi', hrefs: ['/admin/ai', '/admin/audit', '/admin/plugins'] },
+    { label: 'Há»‡ thá»‘ng lÃµi', hrefs: ['/admin/ai', '/admin/audit', '/admin/plugins'] },
   ];
 
   return definitions
@@ -284,6 +288,7 @@ function SidebarContent({
   catalogWarning,
   ticketUnreadCount,
   light = false,
+  showCustomerThemeSwitch = false,
 }: {
   session: SessionPayload;
   activeNavKey: string | null;
@@ -291,6 +296,7 @@ function SidebarContent({
   catalogWarning: string;
   ticketUnreadCount: number;
   light?: boolean;
+  showCustomerThemeSwitch?: boolean;
 }) {
   const { tt } = useI18n();
 
@@ -320,7 +326,7 @@ function SidebarContent({
           )}
         >
           <span className="h-2 w-2 rounded-full bg-emerald-300" />
-          Trực tuyến
+          Trá»±c tuyáº¿n
         </div>
       </div>
 
@@ -426,6 +432,12 @@ function SidebarContent({
           </div>
         ))}
       </nav>
+
+      {showCustomerThemeSwitch ? (
+        <div className="mt-5">
+          <CustomerThemeSwitch compact />
+        </div>
+      ) : null}
     </>
   );
 }
@@ -553,7 +565,7 @@ function NotificationsBell({ light = false }: { light?: boolean }) {
         )}
         aria-expanded={open}
         aria-haspopup="dialog"
-        aria-label="Mở thông báo"
+        aria-label="Má»Ÿ thÃ´ng bÃ¡o"
       >
         <Bell className={cn('h-5 w-5', light ? 'text-slate-700' : 'text-slate-200')} />
         {totalBadge > 0 ? (
@@ -588,7 +600,7 @@ function NotificationsBell({ light = false }: { light?: boolean }) {
                 maxHeight: `${panelPosition.maxHeight}px`,
               }}
               role="dialog"
-              aria-label="ThÃ´ng bÃ¡o"
+              aria-label="ThÃƒÂ´ng bÃƒÂ¡o"
             >
               <div className="flex min-h-0 w-full flex-col">
                 <div
@@ -598,11 +610,11 @@ function NotificationsBell({ light = false }: { light?: boolean }) {
                   )}
                 >
                   <div className="min-w-0">
-              <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Thông báo</p>
+              <p className="text-xs uppercase tracking-[0.2em] text-slate-500">ThÃ´ng bÃ¡o</p>
               <p className={cn('mt-1 text-sm font-semibold', light ? 'text-slate-950' : 'text-white')}>
                 {notificationUnreadCount
-                  ? `${notificationUnreadCount} thông báo chưa đọc`
-                  : 'Không có thông báo mới'}
+                  ? `${notificationUnreadCount} thÃ´ng bÃ¡o chÆ°a Ä‘á»c`
+                  : 'KhÃ´ng cÃ³ thÃ´ng bÃ¡o má»›i'}
               </p>
             </div>
             {notificationUnreadCount ? (
@@ -614,7 +626,7 @@ function NotificationsBell({ light = false }: { light?: boolean }) {
                   light ? 'text-emerald-700 hover:text-emerald-800' : 'text-emerald-200 hover:text-white',
                 )}
               >
-                Đánh dấu đã đọc
+                ÄÃ¡nh dáº¥u Ä‘Ã£ Ä‘á»c
               </button>
             ) : null}
                 </div>
@@ -668,7 +680,7 @@ function NotificationsBell({ light = false }: { light?: boolean }) {
                     : 'border border-white/8 bg-white/[0.03] text-slate-300',
                 )}
               >
-                Chưa có thông báo mới. Ticket, phản hồi và cập nhật trạng thái sẽ hiện tại đây.
+                ChÆ°a cÃ³ thÃ´ng bÃ¡o má»›i. Ticket, pháº£n há»“i vÃ  cáº­p nháº­t tráº¡ng thÃ¡i sáº½ hiá»‡n táº¡i Ä‘Ã¢y.
               </div>
             )}
                 </div>
@@ -698,9 +710,13 @@ function PortalShellContent({
 }: PortalShellContentProps) {
   const { tt } = useI18n();
   const { ticketUnreadCount } = usePortalLive();
+  const { enabled, theme } = useCustomerTheme();
+  const customerTheme = isCustomerPortal ? (enabled ? theme : 'light') : 'light';
+  const customerLight = isCustomerPortal && customerTheme !== 'dark';
 
   return (
     <main
+      data-customer-theme={isCustomerPortal ? customerTheme : undefined}
       className={cn(
         isCustomerPortal
           ? 'customer-shell min-h-screen px-2 py-2 sm:px-6 sm:py-5'
@@ -716,7 +732,8 @@ function PortalShellContent({
             navGroups={navGroups}
             catalogWarning={catalogWarning}
             ticketUnreadCount={ticketUnreadCount}
-            light={isCustomerPortal}
+            light={customerLight}
+            showCustomerThemeSwitch={isCustomerPortal}
           />
         </aside>
 
@@ -726,11 +743,11 @@ function PortalShellContent({
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">{tt(kicker)}</p>
-                  <h1 className={cn('mt-2 text-2xl font-semibold tracking-tight sm:text-[2.1rem]', isCustomerPortal ? 'text-slate-950' : 'text-white')}>
+                  <h1 className={cn('mt-2 text-2xl font-semibold tracking-tight sm:text-[2.1rem]', customerLight ? 'text-slate-950' : 'text-white')}>
                     {tt(title)}
                   </h1>
                   <p className="mt-2 text-sm text-slate-400 lg:hidden">
-                    {session.user.fullName} • {tt(session.user.role.replaceAll('_', ' '))}
+                    {session.user.fullName} â€¢ {tt(session.user.role.replaceAll('_', ' '))}
                   </p>
                 </div>
 
@@ -740,30 +757,30 @@ function PortalShellContent({
                     onClick={() => setMobileNavOpen(true)}
                     className={cn(
                       'flex h-11 w-11 items-center justify-center',
-                      isCustomerPortal ? 'customer-icon-button' : 'portal-card-soft',
+                      customerLight ? 'customer-icon-button' : 'portal-card-soft',
                     )}
-                    aria-label="Mở điều hướng"
+                    aria-label="Má»Ÿ Ä‘iá»u hÆ°á»›ng"
                   >
-                    <Menu className={cn('h-5 w-5', isCustomerPortal ? 'text-slate-700' : 'text-slate-100')} />
+                    <Menu className={cn('h-5 w-5', customerLight ? 'text-slate-700' : 'text-slate-100')} />
                   </button>
                 </div>
               </div>
 
               <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                <LanguageSwitcher dark={!isCustomerPortal} />
-                <NotificationsBell light={isCustomerPortal} />
+                <LanguageSwitcher dark={!customerLight} />
+                <NotificationsBell light={customerLight} />
                 <button
                   onClick={logout}
                   className={cn(
                     'inline-flex items-center gap-2 px-4 py-3 text-sm font-semibold',
-                    isCustomerPortal
+                    customerLight
                       ? 'rounded-full border border-slate-200 bg-white text-slate-700 transition hover:border-slate-300 hover:bg-slate-50'
                       : 'portal-card-soft text-slate-100',
                   )}
                 >
                   <LogOut className="h-4 w-4" />
-                  <span className="hidden sm:inline">Đăng xuất</span>
-                  <span className="sm:hidden">Thoát</span>
+                  <span className="hidden sm:inline">ÄÄƒng xuáº¥t</span>
+                  <span className="sm:hidden">ThoÃ¡t</span>
                 </button>
               </div>
             </div>
@@ -775,20 +792,22 @@ function PortalShellContent({
             {currentNavForbidden ? (
               <div className={cn(isCustomerPortal ? 'customer-surface-card p-6 sm:p-8' : 'portal-card p-6 sm:p-8')}>
                 <p className="eyebrow">Quyen truy cap</p>
-                <h2 className={cn('mt-2 text-xl font-semibold sm:text-2xl', isCustomerPortal ? 'text-slate-950' : 'text-white')}>
+                <h2 className={cn('mt-2 text-xl font-semibold sm:text-2xl', customerLight ? 'text-slate-950' : 'text-white')}>
                   Ban khong co quyen vao module nay.
                 </h2>
-                <p className={cn('mt-3 max-w-2xl text-sm leading-6', isCustomerPortal ? 'text-slate-600' : 'text-slate-300')}>
+                <p className={cn('mt-3 max-w-2xl text-sm leading-6', customerLight ? 'text-slate-600' : 'text-slate-300')}>
                   Tai khoan hien tai chua du permissions cho khu vuc nay. Ban van co
                   the tiep tuc lam viec o cac module duoc cap quyen khac trong admin.
                 </p>
               </div>
             ) : currentFeatureDisabled ? (
               <div className={cn(isCustomerPortal ? 'customer-surface-card p-6 sm:p-8' : 'portal-card p-6 sm:p-8')}>
-                <p className="eyebrow">Hỗ trợ</p>
-                <h2 className="mt-2 text-xl font-semibold text-white sm:text-2xl">Module này hiện đang bị tắt.</h2>
-                <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-300">
-                  Hãy bật lại plugin liên quan trong trung tâm plugin để mở lại khu vực làm việc này.
+                <p className="eyebrow">Ho tro</p>
+                <h2 className={cn('mt-2 text-xl font-semibold sm:text-2xl', customerLight ? 'text-slate-950' : 'text-white')}>
+                  Module nay hien dang bi tat.
+                </h2>
+                <p className={cn('mt-3 max-w-2xl text-sm leading-6', customerLight ? 'text-slate-600' : 'text-slate-300')}>
+                  Hay bat lai plugin lien quan trong trung tam plugin de mo lai khu vuc lam viec nay.
                 </p>
               </div>
             ) : (
@@ -816,9 +835,14 @@ function PortalShellContent({
                       href={item.href}
                       className={cn(
                         'flex min-h-[62px] min-w-0 flex-col items-center justify-center gap-1 rounded-[20px] px-2 py-2 text-center transition',
+                        active && 'customer-mobile-tab-active',
                         active
-                          ? 'bg-slate-950 text-white shadow-[0_12px_30px_rgba(15,23,42,0.16)]'
-                          : 'text-slate-500 hover:bg-slate-100',
+                          ? customerLight
+                            ? 'bg-slate-950 text-white shadow-[0_12px_30px_rgba(15,23,42,0.16)]'
+                            : 'bg-white text-slate-950 shadow-[0_12px_30px_rgba(2,6,23,0.24)]'
+                          : customerLight
+                            ? 'text-slate-500 hover:bg-slate-100'
+                            : 'text-slate-300 hover:bg-white/[0.08]',
                       )}
                     >
                       <Icon className="h-4.5 w-4.5 shrink-0" />
@@ -830,8 +854,13 @@ function PortalShellContent({
                 <button
                   type="button"
                   onClick={() => setMobileNavOpen(true)}
-                  className="flex min-h-[62px] min-w-0 flex-col items-center justify-center gap-1 rounded-[20px] px-2 py-2 text-center text-slate-500 transition hover:bg-slate-100"
-                  aria-label="Mở thêm mục"
+                  className={cn(
+                    'flex min-h-[62px] min-w-0 flex-col items-center justify-center gap-1 rounded-[20px] px-2 py-2 text-center transition',
+                    customerLight
+                      ? 'text-slate-500 hover:bg-slate-100'
+                      : 'text-slate-300 hover:bg-white/[0.08]',
+                  )}
+                  aria-label="Má»Ÿ thÃªm má»¥c"
                 >
                   <Menu className="h-4.5 w-4.5 shrink-0" />
                   <span className="text-[11px] font-semibold leading-4">Menu</span>
@@ -846,14 +875,18 @@ function PortalShellContent({
         <div
           className={cn(
             'fixed inset-0 z-50 backdrop-blur-sm lg:hidden',
-            isCustomerPortal ? 'bg-slate-900/18' : 'bg-slate-950/68',
+            isCustomerPortal
+              ? customerLight
+                ? 'bg-slate-900/18'
+                : 'bg-slate-950/68'
+              : 'bg-slate-950/68',
           )}
           onClick={() => setMobileNavOpen(false)}
         >
           <div
             className={cn(
               'ml-auto flex h-full w-[min(92vw,380px)] flex-col p-4',
-              isCustomerPortal
+              customerLight
                 ? 'border-l border-slate-200 bg-white shadow-[0_24px_80px_rgba(148,163,184,0.18)]'
                 : 'border-l border-white/10 bg-[#08111f] shadow-[0_24px_80px_rgba(2,6,23,0.4)]',
             )}
@@ -868,7 +901,7 @@ function PortalShellContent({
                 <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
                   {isCustomerPortal ? 'Menu ứng dụng' : 'Điều hướng'}
                 </p>
-                <p className={cn('mt-1 text-lg font-semibold', isCustomerPortal ? 'text-slate-950' : 'text-white')}>
+                <p className={cn('mt-1 text-lg font-semibold', customerLight ? 'text-slate-950' : 'text-white')}>
                   {tt(title)}
                 </p>
               </div>
@@ -877,30 +910,31 @@ function PortalShellContent({
                 onClick={() => setMobileNavOpen(false)}
                 className={cn(
                   'flex h-11 w-11 items-center justify-center',
-                  isCustomerPortal ? 'customer-icon-button' : 'portal-card-soft',
+                  customerLight ? 'customer-icon-button' : 'portal-card-soft',
                 )}
                 aria-label="Đóng điều hướng"
               >
-                <X className={cn('h-5 w-5', isCustomerPortal ? 'text-slate-700' : 'text-slate-100')} />
+                <X className={cn('h-5 w-5', customerLight ? 'text-slate-700' : 'text-slate-100')} />
               </button>
             </div>
 
             <div className="min-h-0 flex-1 overflow-y-auto pr-1">
-                <SidebarContent
-                  session={session}
-                  activeNavKey={activeNavKey}
-                  navGroups={navGroups}
-                  catalogWarning={catalogWarning}
-                  ticketUnreadCount={ticketUnreadCount}
-                  light={isCustomerPortal}
-                />
+              <SidebarContent
+                session={session}
+                activeNavKey={activeNavKey}
+                navGroups={navGroups}
+                catalogWarning={catalogWarning}
+                ticketUnreadCount={ticketUnreadCount}
+                light={customerLight}
+                showCustomerThemeSwitch={isCustomerPortal}
+              />
             </div>
 
             <button
               onClick={logout}
               className={cn(
                 'mt-4 inline-flex items-center justify-center gap-2 rounded-full px-4 py-3 text-sm font-semibold transition',
-                isCustomerPortal
+                customerLight
                   ? 'border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
                   : 'border border-white/10 text-white hover:bg-white/10',
               )}
@@ -990,7 +1024,7 @@ export function PortalShell({ title, kicker, nav, allowedRoles, children }: Port
 
         setFeatureCatalog([]);
         setCatalogWarning(
-          'Không thể tải danh mục module. Hệ thống đang dùng menu mặc định để bạn tiếp tục làm việc.',
+          'KhÃ´ng thá»ƒ táº£i danh má»¥c module. Há»‡ thá»‘ng Ä‘ang dÃ¹ng menu máº·c Ä‘á»‹nh Ä‘á»ƒ báº¡n tiáº¿p tá»¥c lÃ m viá»‡c.',
         );
       });
 
@@ -1041,17 +1075,17 @@ export function PortalShell({ title, kicker, nav, allowedRoles, children }: Port
       <main className={cn(isCustomerPortal ? 'customer-shell flex min-h-screen items-center justify-center px-4 py-6' : 'portal-shell flex min-h-screen items-center justify-center px-4 py-6')}>
         <div className={cn(isCustomerPortal ? 'customer-surface-card max-w-md px-6 py-6 text-center' : 'portal-card max-w-md px-6 py-6 text-center')}>
           <p className="eyebrow text-slate-500">
-            {authState === 'redirecting' ? 'Đang chuyển hướng' : 'Đang xác thực'}
+            {authState === 'redirecting' ? 'Äang chuyá»ƒn hÆ°á»›ng' : 'Äang xÃ¡c thá»±c'}
           </p>
           <h1 className={cn('mt-3 text-xl font-semibold', isCustomerPortal ? 'text-slate-950' : 'text-white')}>
             {authState === 'redirecting'
-              ? 'Hệ thống đang đưa bạn đến đúng cổng làm việc.'
-              : 'Đang chuẩn bị không gian làm việc của bạn.'}
+              ? 'Há»‡ thá»‘ng Ä‘ang Ä‘Æ°a báº¡n Ä‘áº¿n Ä‘Ãºng cá»•ng lÃ m viá»‡c.'
+              : 'Äang chuáº©n bá»‹ khÃ´ng gian lÃ m viá»‡c cá»§a báº¡n.'}
           </h1>
           <p className={cn('mt-3 text-sm leading-6', isCustomerPortal ? 'text-slate-600' : 'text-slate-300')}>
             {authState === 'redirecting'
-              ? 'Nếu trang không tự chuyển, bạn có thể mở trang đăng nhập thủ công.'
-              : 'Thông tin phiên đăng nhập đang được kiểm tra để tải đúng quyền truy cập.'}
+              ? 'Náº¿u trang khÃ´ng tá»± chuyá»ƒn, báº¡n cÃ³ thá»ƒ má»Ÿ trang Ä‘Äƒng nháº­p thá»§ cÃ´ng.'
+              : 'ThÃ´ng tin phiÃªn Ä‘Äƒng nháº­p Ä‘ang Ä‘Æ°á»£c kiá»ƒm tra Ä‘á»ƒ táº£i Ä‘Ãºng quyá»n truy cáº­p.'}
           </p>
           {authState === 'redirecting' ? (
             <Link
@@ -1063,7 +1097,7 @@ export function PortalShell({ title, kicker, nav, allowedRoles, children }: Port
                   : 'btn-ghost',
               )}
             >
-              Mở trang đăng nhập
+              Má»Ÿ trang Ä‘Äƒng nháº­p
             </Link>
           ) : null}
         </div>
@@ -1092,3 +1126,4 @@ export function PortalShell({ title, kicker, nav, allowedRoles, children }: Port
     </PortalLiveProvider>
   );
 }
+

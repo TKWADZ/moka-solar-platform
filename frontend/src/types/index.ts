@@ -2081,6 +2081,7 @@ export type CustomerRecord = {
     id: string;
     fullName: string;
     email?: string | null;
+    avatarUrl?: string | null;
     phone?: string | null;
     role?: {
       code: UserRole;

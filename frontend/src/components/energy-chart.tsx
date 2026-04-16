@@ -9,6 +9,7 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
+import { useCustomerTheme } from '@/components/customer-theme-provider';
 import { useI18n } from '@/lib/i18n';
 import { cn, formatNumber } from '@/lib/utils';
 import { ChartPoint } from '@/types';
@@ -27,15 +28,21 @@ export function EnergyChart({
   dark?: boolean;
 }) {
   const { tt } = useI18n();
+  const { enabled, theme } = useCustomerTheme();
+  const resolvedDark = dark || (enabled && theme === 'dark');
 
   return (
-    <div className={cn(dark ? 'portal-card p-5 sm:p-6' : 'customer-surface-card p-5 sm:p-6')}>
+    <div
+      className={cn(
+        resolvedDark ? 'portal-card p-5 sm:p-6' : 'customer-surface-card p-5 sm:p-6',
+      )}
+    >
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <p
             className={cn(
               'text-[11px] uppercase tracking-[0.22em]',
-              dark ? 'text-slate-500' : 'text-slate-400',
+              resolvedDark ? 'text-slate-500' : 'text-slate-400',
             )}
           >
             Theo doi nang luong
@@ -43,13 +50,18 @@ export function EnergyChart({
           <h3
             className={cn(
               'mt-2 text-xl font-semibold tracking-tight sm:text-2xl',
-              dark ? 'text-white' : 'text-slate-950',
+              resolvedDark ? 'text-white' : 'text-slate-950',
             )}
           >
             {tt(title)}
           </h3>
         </div>
-        <p className={cn('max-w-xl text-sm leading-6', dark ? 'text-slate-400' : 'text-slate-600')}>
+        <p
+          className={cn(
+            'max-w-xl text-sm leading-6',
+            resolvedDark ? 'text-slate-400' : 'text-slate-600',
+          )}
+        >
           {tt(description || 'Can bang giua phat dien, phu tai va phan dien mua tu luoi.')}
         </p>
       </div>
@@ -73,20 +85,20 @@ export function EnergyChart({
             </defs>
 
             <CartesianGrid
-              stroke={dark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.08)'}
+              stroke={resolvedDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.08)'}
               strokeDasharray="3 7"
               vertical={false}
             />
             <XAxis
               dataKey="name"
-              stroke={dark ? '#64748b' : '#94a3b8'}
+              stroke={resolvedDark ? '#64748b' : '#94a3b8'}
               tickLine={false}
               axisLine={false}
               tick={{ fontSize: 12 }}
               tickMargin={10}
             />
             <YAxis
-              stroke={dark ? '#64748b' : '#94a3b8'}
+              stroke={resolvedDark ? '#64748b' : '#94a3b8'}
               tickLine={false}
               axisLine={false}
               tick={{ fontSize: 12 }}
@@ -97,15 +109,17 @@ export function EnergyChart({
               formatter={(value) => formatNumber(Number(value || 0), unit)}
               contentStyle={{
                 borderRadius: 18,
-                border: dark
+                border: resolvedDark
                   ? '1px solid rgba(255,255,255,0.08)'
                   : '1px solid rgba(15,23,42,0.08)',
-                background: dark ? 'rgba(15,23,42,0.96)' : 'rgba(255,255,255,0.98)',
-                boxShadow: dark
+                background: resolvedDark
+                  ? 'rgba(15,23,42,0.96)'
+                  : 'rgba(255,255,255,0.98)',
+                boxShadow: resolvedDark
                   ? '0 24px 60px rgba(2,6,23,0.36)'
                   : '0 24px 60px rgba(15,23,42,0.12)',
               }}
-              labelStyle={{ color: dark ? '#e2e8f0' : '#0f172a', fontWeight: 600 }}
+              labelStyle={{ color: resolvedDark ? '#e2e8f0' : '#0f172a', fontWeight: 600 }}
             />
             <Area
               type="monotone"

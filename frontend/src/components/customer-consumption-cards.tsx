@@ -11,6 +11,7 @@ import {
   YAxis,
 } from 'recharts';
 import { Activity, CalendarDays, Clock3, Flame, Leaf, TriangleAlert } from 'lucide-react';
+import { useCustomerTheme } from '@/components/customer-theme-provider';
 import {
   ConsumptionChartPoint,
   UsageLevel,
@@ -21,6 +22,7 @@ import {
   usageLevelLabel,
 } from '@/lib/customer-consumption';
 import { formatDateTime, formatNumber } from '@/lib/utils';
+import { cn } from '@/lib/utils';
 
 function UsageBadge({ level }: { level: UsageLevel }) {
   const Icon = level === 'LOW' ? Leaf : level === 'HIGH' ? Flame : Activity;
@@ -48,33 +50,77 @@ export function CustomerDailyUsageCard({
   level: UsageLevel;
   hasDailyData: boolean;
 }) {
+  const { enabled, theme } = useCustomerTheme();
+  const dark = enabled && theme === 'dark';
+
   return (
     <div className="customer-surface-card p-5 sm:p-6">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
-          <p className="text-[11px] uppercase tracking-[0.22em] text-slate-400">
+          <p
+            className={cn(
+              'text-[11px] uppercase tracking-[0.22em]',
+              dark ? 'text-slate-500' : 'text-slate-400',
+            )}
+          >
             Tieu thu hom nay
           </p>
-          <h3 className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 sm:text-[2.35rem]">
+          <h3
+            className={cn(
+              'mt-2 text-2xl font-semibold tracking-tight sm:text-[2.35rem]',
+              dark ? 'text-white' : 'text-slate-950',
+            )}
+          >
             Hom nay da dung {formatUsageHeadline(todayUsedKwh)}
           </h3>
-          <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">{updateLabel}</p>
+          <p
+            className={cn(
+              'mt-3 max-w-2xl text-sm leading-6',
+              dark ? 'text-slate-300' : 'text-slate-600',
+            )}
+          >
+            {updateLabel}
+          </p>
         </div>
         <UsageBadge level={level} />
       </div>
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
         <div className="customer-soft-card-muted px-4 py-4">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Cap nhat</p>
-          <p className="mt-2 flex items-center gap-2 text-sm font-medium text-slate-700">
-            <Clock3 className="h-4 w-4 text-slate-400" />
+          <p
+            className={cn(
+              'text-[11px] uppercase tracking-[0.18em]',
+              dark ? 'text-slate-500' : 'text-slate-400',
+            )}
+          >
+            Cap nhat
+          </p>
+          <p
+            className={cn(
+              'mt-2 flex items-center gap-2 text-sm font-medium',
+              dark ? 'text-slate-200' : 'text-slate-700',
+            )}
+          >
+            <Clock3 className={cn('h-4 w-4', dark ? 'text-slate-500' : 'text-slate-400')} />
             {lastUpdatedAt ? formatDateTime(lastUpdatedAt) : 'Chua co moc cap nhat'}
           </p>
         </div>
         <div className="customer-soft-card-muted px-4 py-4">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Nguon du lieu</p>
-          <p className="mt-2 flex items-center gap-2 text-sm font-medium text-slate-700">
-            <CalendarDays className="h-4 w-4 text-slate-400" />
+          <p
+            className={cn(
+              'text-[11px] uppercase tracking-[0.18em]',
+              dark ? 'text-slate-500' : 'text-slate-400',
+            )}
+          >
+            Nguon du lieu
+          </p>
+          <p
+            className={cn(
+              'mt-2 flex items-center gap-2 text-sm font-medium',
+              dark ? 'text-slate-200' : 'text-slate-700',
+            )}
+          >
+            <CalendarDays className={cn('h-4 w-4', dark ? 'text-slate-500' : 'text-slate-400')} />
             {hasDailyData ? 'Theo ngay' : 'Chua san sang'}
           </p>
         </div>
@@ -107,6 +153,8 @@ export function CustomerConsumptionChartCard({
   emptyTitle: string;
   emptyBody: string;
 }) {
+  const { enabled, theme } = useCustomerTheme();
+  const dark = enabled && theme === 'dark';
   const hasData = points.some((point) => typeof point.value === 'number');
   const chartData = points.map((point) => ({
     ...point,
@@ -118,12 +166,31 @@ export function CustomerConsumptionChartCard({
     <div className="customer-surface-card p-5 sm:p-6">
       <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
         <div>
-          <p className="text-[11px] uppercase tracking-[0.22em] text-slate-400">{eyebrow}</p>
-          <h3 className="mt-2 text-xl font-semibold tracking-tight text-slate-950 sm:text-2xl">
+          <p
+            className={cn(
+              'text-[11px] uppercase tracking-[0.22em]',
+              dark ? 'text-slate-500' : 'text-slate-400',
+            )}
+          >
+            {eyebrow}
+          </p>
+          <h3
+            className={cn(
+              'mt-2 text-xl font-semibold tracking-tight sm:text-2xl',
+              dark ? 'text-white' : 'text-slate-950',
+            )}
+          >
             {title}
           </h3>
         </div>
-        <p className="max-w-2xl text-sm leading-6 text-slate-600">{description}</p>
+        <p
+          className={cn(
+            'max-w-2xl text-sm leading-6',
+            dark ? 'text-slate-300' : 'text-slate-600',
+          )}
+        >
+          {description}
+        </p>
       </div>
 
       <div className="mt-4 flex flex-wrap gap-2">
@@ -136,17 +203,21 @@ export function CustomerConsumptionChartCard({
         <div className="mt-5 h-[230px] sm:h-[280px]">
           <ResponsiveContainer width="100%" height="100%">
             <BarChart data={chartData} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
-              <CartesianGrid stroke="rgba(148,163,184,0.18)" strokeDasharray="3 7" vertical={false} />
+              <CartesianGrid
+                stroke={dark ? 'rgba(255,255,255,0.08)' : 'rgba(148,163,184,0.18)'}
+                strokeDasharray="3 7"
+                vertical={false}
+              />
               <XAxis
                 dataKey="label"
-                stroke="#94a3b8"
+                stroke={dark ? '#64748b' : '#94a3b8'}
                 tickLine={false}
                 axisLine={false}
                 tick={{ fontSize: 12 }}
                 tickMargin={10}
               />
               <YAxis
-                stroke="#94a3b8"
+                stroke={dark ? '#64748b' : '#94a3b8'}
                 tickLine={false}
                 axisLine={false}
                 width={54}
@@ -171,11 +242,15 @@ export function CustomerConsumptionChartCard({
                 }}
                 contentStyle={{
                   borderRadius: 18,
-                  border: '1px solid rgba(148,163,184,0.18)',
-                  background: 'rgba(255,255,255,0.98)',
-                  boxShadow: '0 20px 50px rgba(15,23,42,0.12)',
+                  border: dark
+                    ? '1px solid rgba(255,255,255,0.08)'
+                    : '1px solid rgba(148,163,184,0.18)',
+                  background: dark ? 'rgba(15,23,42,0.96)' : 'rgba(255,255,255,0.98)',
+                  boxShadow: dark
+                    ? '0 20px 50px rgba(2,6,23,0.32)'
+                    : '0 20px 50px rgba(15,23,42,0.12)',
                 }}
-                labelStyle={{ color: '#0f172a', fontWeight: 600 }}
+                labelStyle={{ color: dark ? '#e2e8f0' : '#0f172a', fontWeight: 600 }}
               />
               <Bar dataKey="chartValue" radius={[10, 10, 4, 4]}>
                 {chartData.map((point) => (
@@ -191,8 +266,22 @@ export function CustomerConsumptionChartCard({
         </div>
       ) : (
         <div className="mt-5 customer-soft-card-muted px-4 py-5">
-          <p className="text-base font-semibold text-slate-900">{emptyTitle}</p>
-          <p className="mt-2 text-sm leading-6 text-slate-600">{emptyBody}</p>
+          <p
+            className={cn(
+              'text-base font-semibold',
+              dark ? 'text-white' : 'text-slate-900',
+            )}
+          >
+            {emptyTitle}
+          </p>
+          <p
+            className={cn(
+              'mt-2 text-sm leading-6',
+              dark ? 'text-slate-300' : 'text-slate-600',
+            )}
+          >
+            {emptyBody}
+          </p>
         </div>
       )}
     </div>

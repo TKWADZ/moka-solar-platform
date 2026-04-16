@@ -1529,6 +1529,7 @@ export async function myCustomerProfileRequest() {
           id: 'demo-customer-user',
           fullName: customerProfile.accountName,
           email: customerProfile.email,
+          avatarUrl: null,
           phone: customerProfile.phone,
           role: {
             code: 'CUSTOMER',
@@ -1555,6 +1556,35 @@ export async function myCustomerProfileRequest() {
       return fallback;
     });
   }
+}
+
+export async function updateMyCustomerProfileRequest(payload: {
+  fullName?: string;
+  email?: string;
+  phone?: string;
+  contactAddress?: string;
+}) {
+  return apiFetch<CustomerRecord>('/customers/me/profile', {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function changeMyCustomerPasswordRequest(payload: {
+  currentPassword: string;
+  newPassword: string;
+}) {
+  return apiFetch<{ success: boolean }>('/customers/me/password', {
+    method: 'PATCH',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function uploadMyCustomerAvatarRequest(formData: FormData) {
+  return apiFetch<CustomerRecord>('/customers/me/avatar', {
+    method: 'POST',
+    body: formData,
+  });
 }
 
 export async function listMyNotificationsRequest(limit?: number) {

@@ -3,6 +3,8 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateCustomerDto } from './dto/create-customer.dto';
 import { UpdateCustomerDto } from './dto/update-customer.dto';
+import { UpdateMyProfileDto } from './dto/update-my-profile.dto';
+import { ChangeMyPasswordDto } from './dto/change-my-password.dto';
 import {
   createTemporaryPassword,
   generateCode,
@@ -14,6 +16,7 @@ import {
   normalizeVietnamPhone,
 } from '../common/helpers/identity.helper';
 import { normalizePercentRate } from '../common/helpers/billing.helper';
+import { MediaService } from '../media/media.service';
 
 const safeRoleSelect = {
   select: {
@@ -30,6 +33,7 @@ const safeUserSelect = {
     id: true,
     email: true,
     fullName: true,
+    avatarUrl: true,
     phone: true,
     createdAt: true,
     updatedAt: true,
@@ -42,6 +46,7 @@ export class CustomersService {
   constructor(
     private prisma: PrismaService,
     private auditLogsService: AuditLogsService,
+    private mediaService: MediaService,
   ) {}
 
   findAll() {
@@ -86,6 +91,212 @@ export class CustomersService {
 
   getMyProfile(customerId: string) {
     return this.findOne(customerId);
+  }
+
+  async updateMyProfile(customerId: string, dto: UpdateMyProfileDto, actorId?: string) {
+    const customer = await this.findOne(customerId);
+    const fullName =
+      dto.fullName === undefined ? undefined : this.normalizeRequiredName(dto.fullName);
+    const email =
+      dto.email === undefined
+        ? customer.user.email || null
+        : this.normalizeOptionalEmail(dto.email);
+    const phone =
+      dto.phone === undefined
+        ? customer.user.phone || null
+        : this.normalizeOptionalPhone(dto.phone);
+    const contactAddress =
+      dto.contactAddress === undefined
+        ? customer.billingAddress || null
+        : this.normalizeOptionalText(dto.contactAddress, 240);
+
+    this.ensureCustomerIdentity({ email, phone });
+    await this.ensureIdentityIsAvailable({
+      email,
+      phone,
+      excludeUserId: customer.userId,
+    });
+
+    const beforeState = this.serializeCustomerAuditState(customer);
+    const updated = await this.prisma.customer.update({
+      where: { id: customerId },
+      data: {
+        billingAddress: contactAddress,
+        user: {
+          update: {
+            email,
+            phone,
+            ...(fullName !== undefined ? { fullName } : {}),
+          },
+        },
+      },
+      include: {
+        user: safeUserSelect,
+        ownerUser: safeUserSelect,
+        solarSystems: { where: { deletedAt: null } },
+        contracts: { where: { deletedAt: null }, include: { servicePackage: true } },
+        invoices: { where: { deletedAt: null }, include: { payments: true } },
+        supportTickets: { where: { deletedAt: null } },
+      },
+    });
+
+    await this.auditLogsService.log({
+      userId: actorId,
+      action: 'CUSTOMER_SELF_PROFILE_UPDATED',
+      moduleKey: 'customers',
+      entityType: 'Customer',
+      entityId: updated.id,
+      payload: {
+        fullName: fullName ?? customer.user.fullName,
+        email,
+        phone,
+        contactAddress,
+      },
+      beforeState,
+      afterState: this.serializeCustomerAuditState(updated),
+    });
+
+    if (actorId) {
+      await this.auditLogsService.touchEntity({
+        entityType: 'Customer',
+        entityId: updated.id,
+        actorId,
+        moduleKey: 'customers',
+      });
+    }
+
+    return updated;
+  }
+
+  async changeMyPassword(customerId: string, dto: ChangeMyPasswordDto, actorId?: string) {
+    const customer = await this.findOne(customerId);
+    const user = await this.prisma.user.findFirst({
+      where: {
+        id: customer.userId,
+        deletedAt: null,
+      },
+      select: {
+        id: true,
+        passwordHash: true,
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Customer login account not found');
+    }
+
+    const currentPassword = dto.currentPassword.trim();
+    const newPassword = dto.newPassword.trim();
+
+    if (!currentPassword || !newPassword) {
+      throw new BadRequestException('Current password and new password are required');
+    }
+
+    const matches = await bcrypt.compare(currentPassword, user.passwordHash);
+
+    if (!matches) {
+      throw new BadRequestException('Current password is incorrect');
+    }
+
+    if (currentPassword === newPassword) {
+      throw new BadRequestException('New password must be different from current password');
+    }
+
+    const passwordHash = await bcrypt.hash(newPassword, 10);
+
+    await this.prisma.user.update({
+      where: { id: user.id },
+      data: {
+        passwordHash,
+        failedPasswordLoginCount: 0,
+        lockedUntil: null,
+      },
+    });
+
+    await this.auditLogsService.log({
+      userId: actorId,
+      action: 'CUSTOMER_SELF_PASSWORD_UPDATED',
+      moduleKey: 'customers',
+      entityType: 'Customer',
+      entityId: customerId,
+      payload: {
+        passwordChanged: true,
+      },
+    });
+
+    if (actorId) {
+      await this.auditLogsService.touchEntity({
+        entityType: 'Customer',
+        entityId: customerId,
+        actorId,
+        moduleKey: 'customers',
+      });
+    }
+
+    return { success: true };
+  }
+
+  async uploadMyAvatar(customerId: string, file: any, actorId?: string) {
+    if (!file) {
+      throw new BadRequestException('Please choose an avatar image');
+    }
+
+    const customer = await this.findOne(customerId);
+    const uploadedAssets = await this.mediaService.uploadMany(
+      [file],
+      {
+        folder: 'customer-avatars',
+        tags: 'customer,avatar',
+        title: `${customer.user.fullName} avatar`,
+        altText: customer.user.fullName,
+      },
+      actorId,
+    );
+
+    const avatarUrl = uploadedAssets[0]?.fileUrl || uploadedAssets[0]?.previewUrl || null;
+
+    const updated = await this.prisma.customer.update({
+      where: { id: customerId },
+      data: {
+        user: {
+          update: {
+            avatarUrl,
+          },
+        },
+      },
+      include: {
+        user: safeUserSelect,
+        ownerUser: safeUserSelect,
+        solarSystems: { where: { deletedAt: null } },
+        contracts: { where: { deletedAt: null }, include: { servicePackage: true } },
+        invoices: { where: { deletedAt: null }, include: { payments: true } },
+        supportTickets: { where: { deletedAt: null } },
+      },
+    });
+
+    await this.auditLogsService.log({
+      userId: actorId,
+      action: 'CUSTOMER_SELF_AVATAR_UPDATED',
+      moduleKey: 'customers',
+      entityType: 'Customer',
+      entityId: updated.id,
+      payload: {
+        avatarUrl,
+      },
+      beforeState: this.serializeCustomerAuditState(customer),
+      afterState: this.serializeCustomerAuditState(updated),
+    });
+
+    if (actorId) {
+      await this.auditLogsService.touchEntity({
+        entityType: 'Customer',
+        entityId: updated.id,
+        actorId,
+        moduleKey: 'customers',
+      });
+    }
+
+    return updated;
   }
 
   async create(dto: CreateCustomerDto, actorId?: string) {
@@ -347,7 +558,26 @@ export class CustomersService {
       email: customer.user?.email || null,
       phone: customer.user?.phone || null,
       fullName: customer.user?.fullName || null,
+      avatarUrl: customer.user?.avatarUrl || null,
     };
+  }
+
+  private normalizeRequiredName(value: string) {
+    const normalized = value.trim();
+
+    if (normalized.length < 2) {
+      throw new BadRequestException('Full name must contain at least 2 characters');
+    }
+
+    return normalized.slice(0, 120);
+  }
+
+  private normalizeOptionalText(value?: string | null, maxLength = 240) {
+    if (value === undefined || value === null || String(value).trim() === '') {
+      return null;
+    }
+
+    return String(value).trim().slice(0, maxLength);
   }
 
   private normalizeOptionalEmail(value?: string | null) {

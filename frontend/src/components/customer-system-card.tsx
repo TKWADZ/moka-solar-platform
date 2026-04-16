@@ -2,7 +2,8 @@
 
 import Link from 'next/link';
 import { AlertCircle, ChevronRight, DatabaseZap, ShieldCheck } from 'lucide-react';
-import { formatCurrency, formatDateTime, formatMonthPeriod, formatNumber } from '@/lib/utils';
+import { useCustomerTheme } from '@/components/customer-theme-provider';
+import { cn, formatCurrency, formatDateTime, formatMonthPeriod, formatNumber } from '@/lib/utils';
 import {
   CustomerSystemMonitor,
   DeviceRecord,
@@ -59,7 +60,9 @@ function formatProviderLabel(value?: string | null) {
 
 function pickPrimaryDevice(system: CustomerSystemMonitor) {
   return (
-    system.devices?.find((device) => (device.deviceType || '').toUpperCase().includes('INVERTER')) ||
+    system.devices?.find((device) =>
+      (device.deviceType || '').toUpperCase().includes('INVERTER'),
+    ) ||
     system.devices?.[0] ||
     null
   );
@@ -115,6 +118,8 @@ export function CustomerSystemCard({
   actionHref?: string;
   actionLabel?: string;
 }) {
+  const { enabled, theme } = useCustomerTheme();
+  const dark = enabled && theme === 'dark';
   const snapshot = asMonitorSnapshot(system.latestMonitorSnapshot);
   const primaryDevice = pickPrimaryDevice(system);
   const latestMonthlyEnergy = pickLatestMonthlyEnergy(system);
@@ -127,8 +132,7 @@ export function CustomerSystemCard({
     system.latestMonthlySyncTime ||
     system.lastBillingSyncAt ||
     null;
-  const latestConsumption =
-    latestMonthlyEnergy?.loadConsumedKwh ?? null;
+  const latestConsumption = latestMonthlyEnergy?.loadConsumedKwh ?? null;
   const latestMeterReading =
     latestMonthlyEnergy?.meterReadingEnd != null ? latestMonthlyEnergy.meterReadingEnd : null;
   const hasOperationalData = Boolean(latestMonthlyEnergy || latestMonthlyBilling);
@@ -198,13 +202,34 @@ export function CustomerSystemCard({
     <div className="customer-soft-card p-4 sm:p-5">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
-          <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">{system.systemCode}</p>
-          <h3 className="mt-2 text-lg font-semibold tracking-tight text-slate-950 sm:text-xl">
+          <p
+            className={cn(
+              'text-[11px] uppercase tracking-[0.18em]',
+              dark ? 'text-slate-500' : 'text-slate-400',
+            )}
+          >
+            {system.systemCode}
+          </p>
+          <h3
+            className={cn(
+              'mt-2 text-lg font-semibold tracking-tight sm:text-xl',
+              dark ? 'text-white' : 'text-slate-950',
+            )}
+          >
             {system.name}
           </h3>
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            <StatusPill label={system.status === 'ACTIVE' ? 'Đang hoạt động' : system.status} />
-            <span className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] text-slate-700">
+            <StatusPill
+              label={system.status === 'ACTIVE' ? 'Đang hoạt động' : system.status}
+            />
+            <span
+              className={cn(
+                'inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em]',
+                dark
+                  ? 'border border-white/10 bg-white/[0.06] text-slate-200'
+                  : 'border border-slate-200 bg-white text-slate-700',
+              )}
+            >
               <DatabaseZap className="h-3.5 w-3.5" />
               {latestOperationalData?.sourceLabel || formatProviderLabel(system.monitoringProvider)}
             </span>
@@ -213,7 +238,12 @@ export function CustomerSystemCard({
 
         <Link
           href={actionHref}
-          className="inline-flex w-full items-center justify-center gap-2 rounded-full border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-900 transition hover:border-slate-300 hover:bg-slate-50 sm:w-auto sm:justify-start sm:py-2"
+          className={cn(
+            'inline-flex w-full items-center justify-center gap-2 rounded-full px-4 py-3 text-sm font-semibold transition sm:w-auto sm:justify-start sm:py-2',
+            dark
+              ? 'border border-white/10 bg-white/[0.06] text-slate-100 hover:bg-white/[0.1]'
+              : 'border border-slate-200 bg-white text-slate-900 hover:border-slate-300 hover:bg-slate-50',
+          )}
         >
           {actionLabel}
           <ChevronRight className="h-4 w-4" />
@@ -222,12 +252,18 @@ export function CustomerSystemCard({
 
       <div className="mt-5 grid gap-3 sm:grid-cols-2">
         {detailRows.map((item) => (
-          <div
-            key={item.label}
-            className="customer-soft-card-muted px-4 py-3"
-          >
-            <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">{item.label}</p>
-            <p className="mt-2 text-sm leading-6 text-slate-700">{item.value}</p>
+          <div key={item.label} className="customer-soft-card-muted px-4 py-3">
+            <p
+              className={cn(
+                'text-[11px] uppercase tracking-[0.16em]',
+                dark ? 'text-slate-500' : 'text-slate-400',
+              )}
+            >
+              {item.label}
+            </p>
+            <p className={cn('mt-2 text-sm leading-6', dark ? 'text-slate-200' : 'text-slate-700')}>
+              {item.value}
+            </p>
           </div>
         ))}
       </div>
@@ -246,7 +282,9 @@ export function CustomerSystemCard({
         )}
         <div>
           <p className="font-semibold">
-            {hasOperationalData ? 'Dữ liệu vận hành đã sẵn sàng' : 'Đang chờ kỳ dữ liệu mới'}
+            {hasOperationalData
+              ? 'Dữ liệu vận hành đã sẵn sàng'
+              : 'Đang chờ kỳ dữ liệu mới'}
           </p>
           <p className="mt-1 text-sm leading-6">
             {hasOperationalData
