@@ -2,13 +2,17 @@
 
 import { useEffect, useState } from 'react';
 import { CustomerSystemCard } from '@/components/customer-system-card';
+import { useCustomerTheme } from '@/components/customer-theme-provider';
 import { EnergyChart } from '@/components/energy-chart';
 import { SectionCard } from '@/components/section-card';
 import { useSystemDashboardPresence } from '@/hooks/use-system-dashboard-presence';
 import { customerDashboardRequest } from '@/lib/api';
+import { cn } from '@/lib/utils';
 import { CustomerDashboardData } from '@/types';
 
 export default function CustomerSystemsPage() {
+  const { enabled, theme } = useCustomerTheme();
+  const dark = enabled && theme === 'dark';
   const [dashboard, setDashboard] = useState<CustomerDashboardData | null>(null);
   const [error, setError] = useState('');
 
@@ -32,7 +36,7 @@ export default function CustomerSystemsPage() {
   if (!dashboard) {
     return (
       <SectionCard title="Hệ thống điện mặt trời" eyebrow="Tài sản và kỳ dữ liệu đang theo dõi">
-        <p className={error ? 'text-sm text-rose-500' : 'text-sm text-slate-600'}>
+        <p className={error ? 'text-sm text-rose-500' : cn('text-sm', dark ? 'text-slate-300' : 'text-slate-600')}>
           {error || 'Dang tai du lieu he thong dien...'}
         </p>
       </SectionCard>

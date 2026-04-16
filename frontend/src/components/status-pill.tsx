@@ -1,5 +1,6 @@
 'use client';
 
+import { useCustomerTheme } from '@/components/customer-theme-provider';
 import { useI18n } from '@/lib/i18n';
 import { cn, statusTone } from '@/lib/utils';
 
@@ -51,6 +52,9 @@ export function StatusPill({
   tone?: 'success' | 'warning' | 'danger' | 'default';
 }) {
   const { tt } = useI18n();
+  const { enabled, theme } = useCustomerTheme();
+  const customerDark = enabled && theme === 'dark';
+  const customerLight = enabled && theme !== 'dark';
   const tone = toneOverride ?? statusTone(label);
   const displayLabel =
     statusLabelMap[label] || statusLabelMap[label.toUpperCase()] || tt(label);
@@ -60,12 +64,23 @@ export function StatusPill({
       className={cn(
         'inline-flex max-w-full items-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold uppercase tracking-[0.14em] whitespace-nowrap',
         tone === 'success' &&
-          'bg-emerald-400/15 text-emerald-300 ring-1 ring-emerald-400/20',
+          (customerLight
+            ? 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+            : 'bg-emerald-400/15 text-emerald-300 ring-1 ring-emerald-400/20'),
         tone === 'warning' &&
-          'bg-amber-400/15 text-amber-200 ring-1 ring-amber-400/20',
+          (customerLight
+            ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200'
+            : 'bg-amber-400/15 text-amber-200 ring-1 ring-amber-400/20'),
         tone === 'danger' &&
-          'bg-rose-400/15 text-rose-200 ring-1 ring-rose-400/20',
-        tone === 'default' && 'bg-white/10 text-slate-200 ring-1 ring-white/10',
+          (customerLight
+            ? 'bg-rose-50 text-rose-700 ring-1 ring-rose-200'
+            : 'bg-rose-400/15 text-rose-200 ring-1 ring-rose-400/20'),
+        tone === 'default' &&
+          (customerLight
+            ? 'bg-slate-100 text-slate-700 ring-1 ring-slate-200'
+            : customerDark
+              ? 'bg-white/10 text-slate-200 ring-1 ring-white/10'
+              : 'bg-white/10 text-slate-200 ring-1 ring-white/10'),
       )}
     >
       <span

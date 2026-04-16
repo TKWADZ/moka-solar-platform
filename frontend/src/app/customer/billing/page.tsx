@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { ReactNode, useEffect, useMemo, useState } from 'react';
 import { ArrowUpRight, FileDown, ReceiptText } from 'lucide-react';
 import { InvoiceTable } from '@/components/invoice-table';
+import { useCustomerTheme } from '@/components/customer-theme-provider';
 import { SectionCard } from '@/components/section-card';
 import { StatCard } from '@/components/stat-card';
 import { StatusPill } from '@/components/status-pill';
@@ -22,6 +23,7 @@ import {
   listMyMonthlyPvBillingsRequest,
 } from '@/lib/api';
 import {
+  cn,
   formatCurrency,
   formatDate,
   formatDateTime,
@@ -133,13 +135,23 @@ type DetailField = {
 };
 
 function BillingField({ field }: { field: DetailField }) {
+  const { enabled, theme } = useCustomerTheme();
+  const dark = enabled && theme === 'dark';
+
   return (
     <div className="customer-soft-card-muted px-4 py-3">
       <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">{field.label}</p>
       <div
-        className={`mt-2 text-sm leading-6 ${
-          field.emphasis ? 'font-semibold text-slate-950' : 'text-slate-700'
-        }`}
+        className={cn(
+          'mt-2 text-sm leading-6',
+          field.emphasis
+            ? dark
+              ? 'font-semibold text-white'
+              : 'font-semibold text-slate-950'
+            : dark
+              ? 'text-slate-200'
+              : 'text-slate-700',
+        )}
       >
         {field.value}
       </div>
@@ -160,6 +172,8 @@ function BillingSpotlightCard({
   helperText?: string;
   actions?: ReactNode;
 }) {
+  const { enabled, theme } = useCustomerTheme();
+  const dark = enabled && theme === 'dark';
   const display = buildCustomerBillingDisplayModel({ invoice, billing });
   const billableKwhVisible =
     display.billableKwh != null &&
@@ -286,27 +300,35 @@ function BillingSpotlightCard({
         <div className="min-w-0">
           <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">{eyebrow}</p>
           <div className="mt-3 flex flex-wrap items-center gap-3">
-            <p className="text-sm font-medium text-slate-600">{display.monthLabel}</p>
+            <p className={cn('text-sm font-medium', dark ? 'text-slate-300' : 'text-slate-600')}>
+              {display.monthLabel}
+            </p>
             {display.headerStatus ? <StatusPill label={display.headerStatus} /> : null}
           </div>
-          <h3 className="mt-3 text-2xl font-semibold tracking-tight text-slate-950">
+          <h3 className={cn('mt-3 text-2xl font-semibold tracking-tight', dark ? 'text-white' : 'text-slate-950')}>
             {display.systemName}
           </h3>
-          <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm text-slate-500">
+          <div className={cn('mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm', dark ? 'text-slate-400' : 'text-slate-500')}>
             {display.address ? <span>{display.address}</span> : null}
             {display.contractNumber ? <span>Ma HD: {display.contractNumber}</span> : null}
             {display.customerName ? <span>Khach hang: {display.customerName}</span> : null}
           </div>
-          {helperText ? <p className="mt-3 text-sm leading-6 text-slate-600">{helperText}</p> : null}
+          {helperText ? (
+            <p className={cn('mt-3 text-sm leading-6', dark ? 'text-slate-300' : 'text-slate-600')}>
+              {helperText}
+            </p>
+          ) : null}
         </div>
 
         <div className="customer-soft-card-muted px-4 py-3 text-right">
           <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">Gia tri hien tai</p>
-          <p className="mt-2 text-xl font-semibold text-slate-950">
+          <p className={cn('mt-2 text-xl font-semibold', dark ? 'text-white' : 'text-slate-950')}>
             {display.totalAmount != null ? formatCurrency(display.totalAmount) : 'Chua cap nhat'}
           </p>
           {invoice?.dueDate ? (
-            <p className="mt-2 text-xs text-slate-500">Den han {formatDate(invoice.dueDate)}</p>
+            <p className={cn('mt-2 text-xs', dark ? 'text-slate-400' : 'text-slate-500')}>
+              Den han {formatDate(invoice.dueDate)}
+            </p>
           ) : null}
         </div>
       </div>
@@ -332,13 +354,23 @@ function BillingSpotlightCard({
       </div>
 
       {display.qualitySummary ? (
-        <div className="mt-4 rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-700">
+        <div className={cn(
+          'mt-4 rounded-[20px] border px-4 py-3 text-sm leading-6',
+          dark
+            ? 'border-white/10 bg-white/[0.04] text-slate-200'
+            : 'border-slate-200 bg-slate-50 text-slate-700',
+        )}>
           {display.qualitySummary}
         </div>
       ) : null}
 
       {display.note ? (
-        <div className="mt-3 rounded-[20px] border border-slate-200 bg-slate-50 px-4 py-3 text-sm leading-6 text-slate-700">
+        <div className={cn(
+          'mt-3 rounded-[20px] border px-4 py-3 text-sm leading-6',
+          dark
+            ? 'border-white/10 bg-white/[0.04] text-slate-200'
+            : 'border-slate-200 bg-slate-50 text-slate-700',
+        )}>
           {display.note}
         </div>
       ) : null}
@@ -349,6 +381,8 @@ function BillingSpotlightCard({
 }
 
 export default function CustomerBillingPage() {
+  const { enabled, theme } = useCustomerTheme();
+  const dark = enabled && theme === 'dark';
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const [monthlyBillings, setMonthlyBillings] = useState<MonthlyPvBillingRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -484,7 +518,9 @@ export default function CustomerBillingPage() {
   if (loading) {
     return (
       <SectionCard title="Hoa don dien" eyebrow="Doi soat va luu tru">
-        <p className="text-sm text-slate-600">Dang tai du lieu hoa don...</p>
+        <p className={cn('text-sm', dark ? 'text-slate-300' : 'text-slate-600')}>
+          Dang tai du lieu hoa don...
+        </p>
       </SectionCard>
     );
   }
@@ -580,30 +616,35 @@ export default function CustomerBillingPage() {
                   <div className="customer-soft-card p-5">
                     <div className="flex items-center gap-2">
                       <ReceiptText className="h-4.5 w-4.5 text-slate-400" />
-                      <p className="text-sm font-semibold text-slate-950">Chi tiet hang muc</p>
+                      <p className={cn('text-sm font-semibold', dark ? 'text-white' : 'text-slate-950')}>
+                        Chi tiet hang muc
+                      </p>
                     </div>
                     <div className="mt-4 space-y-3">
                       {currentInvoice.items.length ? (
                         currentInvoice.items.map((item) => (
                           <div
                             key={item.id}
-                            className="flex items-start justify-between gap-4 text-sm text-slate-700"
+                            className={cn(
+                              'flex items-start justify-between gap-4 text-sm',
+                              dark ? 'text-slate-200' : 'text-slate-700',
+                            )}
                           >
                             <div className="min-w-0">
-                              <p className="font-medium text-slate-950">
+                              <p className={cn('font-medium', dark ? 'text-white' : 'text-slate-950')}>
                                 {invoiceItemLabel(item.description)}
                               </p>
                               <p className="mt-1 text-xs text-slate-500">
                                 So luong {item.quantity} · Don gia {formatCurrency(Number(item.unitPrice))}
                               </p>
                             </div>
-                            <span className="shrink-0 font-semibold text-slate-950">
+                            <span className={cn('shrink-0 font-semibold', dark ? 'text-white' : 'text-slate-950')}>
                               {formatCurrency(Number(item.amount))}
                             </span>
                           </div>
                         ))
                       ) : (
-                        <p className="text-sm leading-6 text-slate-600">
+                        <p className={cn('text-sm leading-6', dark ? 'text-slate-300' : 'text-slate-600')}>
                           Hoa don nay chua co danh sach hang muc chi tiet.
                         </p>
                       )}
@@ -614,8 +655,10 @@ export default function CustomerBillingPage() {
             </div>
           ) : (
             <div className="customer-soft-card p-5">
-              <p className="text-base font-semibold text-slate-950">Chua co hoa don can hien thi</p>
-              <p className="mt-2 text-sm leading-6 text-slate-600">
+              <p className={cn('text-base font-semibold', dark ? 'text-white' : 'text-slate-950')}>
+                Chua co hoa don can hien thi
+              </p>
+              <p className={cn('mt-2 text-sm leading-6', dark ? 'text-slate-300' : 'text-slate-600')}>
                 He thong se tu dong cap nhat hoa don theo chu ky hop dong sau khi hoan tat doi soat dien nang.
               </p>
             </div>

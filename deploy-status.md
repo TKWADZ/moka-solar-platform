@@ -1,9 +1,9 @@
 # Deploy Status
 
-- latest task: Customer portal mobile UI update for bottom tab contrast, theme switch, and editable customer profile
-- local test status: TypeScript check passed for frontend (`npm exec tsc -- --noEmit`); shared customer theme/profile flow patched locally; Prisma migrate deploy blocked locally because `DATABASE_URL` is not set
-- build status: Backend build passed; frontend production build passed
+- latest task: Full mobile customer portal self-review and UX polish across overview, meters, billing, payments, support, contracts, loading/error, theme states, toast, and status badges
+- local test status: Frontend TypeScript check passed (`npx tsc --noEmit`); customer portal theme/mobile UX patched locally; no frontend build blocker found
+- build status: Frontend production build passed (`npm run build`)
 - approval requested or not: requested and approved by user
 - approved or not: approved
 - deployed or not: deploying via GitHub Action on push to `main`
-- rollback target if needed: revert this deployment commit on `main`, then let the existing VPS GitHub Action redeploy the previous stable revision
+- rollback target if needed: revert the upcoming customer-portal mobile polish commit on `main`, then let the existing GitHub Action redeploy the previous stable revision

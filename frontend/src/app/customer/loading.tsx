@@ -1,10 +1,25 @@
+'use client';
+
 import Image from 'next/image';
+import { useCustomerTheme } from '@/components/customer-theme-provider';
+import { cn } from '@/lib/utils';
 
 export default function CustomerLoading() {
+  const { enabled, theme } = useCustomerTheme();
+  const dark = enabled && theme === 'dark';
+
   return (
-    <main className="customer-shell flex min-h-screen items-center justify-center px-4 py-6">
+    <main
+      data-customer-theme={theme}
+      className="customer-shell flex min-h-screen items-center justify-center px-4 py-6"
+    >
       <div className="customer-surface-card w-full max-w-sm p-6 text-center sm:p-7">
-        <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-[26px] border border-slate-200 bg-slate-50">
+        <div
+          className={cn(
+            'mx-auto flex h-20 w-20 items-center justify-center rounded-[26px] border',
+            dark ? 'border-white/10 bg-white/[0.04]' : 'border-slate-200 bg-slate-50',
+          )}
+        >
           <Image
             src="/brand/logo-moka-solar.png"
             alt="Moka Solar"
@@ -15,8 +30,10 @@ export default function CustomerLoading() {
           />
         </div>
         <p className="mt-5 text-[11px] uppercase tracking-[0.28em] text-slate-500">Moka Solar</p>
-        <h1 className="mt-3 text-xl font-semibold text-slate-950">Dang mo cong khach hang</h1>
-        <p className="mt-3 text-sm leading-6 text-slate-600">
+        <h1 className={cn('mt-3 text-xl font-semibold', dark ? 'text-white' : 'text-slate-950')}>
+          Dang mo cong khach hang
+        </h1>
+        <p className={cn('mt-3 text-sm leading-6', dark ? 'text-slate-300' : 'text-slate-600')}>
           He thong dang chuan bi du lieu san luong, hoa don va trang thai van hanh gan nhat cho ban.
         </p>
       </div>

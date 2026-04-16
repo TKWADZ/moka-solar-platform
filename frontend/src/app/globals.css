@@ -315,7 +315,7 @@
   }
 
   .customer-field {
-    @apply w-full min-h-[52px] min-w-0 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 outline-none transition focus:border-slate-300 focus:bg-slate-50;
+    @apply w-full min-h-[52px] min-w-0 rounded-2xl border border-slate-200 bg-white px-4 py-3 text-base text-slate-900 outline-none transition focus:border-slate-300 focus:bg-slate-50 sm:text-sm;
   }
 
   .customer-shell[data-customer-theme='dark'] .customer-field {
@@ -343,6 +343,29 @@
     box-shadow: 0 12px 28px rgba(148, 163, 184, 0.12);
   }
 
+  .customer-file-input {
+    @apply customer-field px-3 py-2.5;
+  }
+
+  .customer-file-input::file-selector-button {
+    border: 0;
+    border-radius: 999px;
+    background: rgba(15, 23, 42, 0.08);
+    color: #0f172a;
+    padding: 0.65rem 1rem;
+    margin-right: 0.85rem;
+    font-size: 0.875rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition:
+      background-color 150ms ease,
+      color 150ms ease;
+  }
+
+  .customer-file-input:hover::file-selector-button {
+    background: rgba(15, 23, 42, 0.12);
+  }
+
   .customer-shell[data-customer-theme='dark'] .btn-secondary-light {
     border-color: rgba(255, 255, 255, 0.1);
     background: rgba(255, 255, 255, 0.04);
@@ -353,6 +376,15 @@
   .customer-shell[data-customer-theme='dark'] .btn-secondary-light:hover {
     border-color: rgba(255, 255, 255, 0.15);
     background: rgba(255, 255, 255, 0.08);
+  }
+
+  .customer-shell[data-customer-theme='dark'] .customer-file-input::file-selector-button {
+    background: rgba(255, 255, 255, 0.08);
+    color: #f8fafc;
+  }
+
+  .customer-shell[data-customer-theme='dark'] .customer-file-input:hover::file-selector-button {
+    background: rgba(255, 255, 255, 0.14);
   }
 
   .customer-shell[data-customer-theme='light'] .portal-card-soft {
@@ -473,11 +505,11 @@
   }
 
   .field {
-    @apply w-full min-h-[52px] min-w-0 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-white/25;
+    @apply w-full min-h-[52px] min-w-0 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-base text-white outline-none transition focus:border-white/25 sm:text-sm;
   }
 
   .portal-field {
-    @apply w-full min-h-[52px] min-w-0 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-white/30;
+    @apply w-full min-h-[52px] min-w-0 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-base text-white outline-none transition focus:border-white/30 sm:text-sm;
   }
 
   .metric-pill {

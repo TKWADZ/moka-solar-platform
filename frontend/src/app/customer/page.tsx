@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { DatabaseZap, Scale } from 'lucide-react';
 import { CustomerConsumptionChartCard, CustomerDailyUsageCard } from '@/components/customer-consumption-cards';
+import { useCustomerTheme } from '@/components/customer-theme-provider';
 import { CustomerSystemCard } from '@/components/customer-system-card';
 import { EnergyChart } from '@/components/energy-chart';
 import { InvoiceTable } from '@/components/invoice-table';
@@ -12,7 +13,7 @@ import { useSystemDashboardPresence } from '@/hooks/use-system-dashboard-presenc
 import { customerDashboardRequest } from '@/lib/api';
 import { formatBillingMeterReading } from '@/lib/billing-display';
 import { buildCustomerConsumptionView } from '@/lib/customer-consumption';
-import { formatCurrency, formatDate, formatDateTime, formatNumber } from '@/lib/utils';
+import { cn, formatCurrency, formatDate, formatDateTime, formatNumber } from '@/lib/utils';
 import { CustomerDashboardData, InvoiceRecord, InvoiceRow, StatCardItem } from '@/types';
 
 function normalizeStatus(status: string): InvoiceRow['status'] {
@@ -69,6 +70,8 @@ function formatMeterReading(value?: number | null) {
 }
 
 export default function CustomerPage() {
+  const { enabled, theme } = useCustomerTheme();
+  const dark = enabled && theme === 'dark';
   const [dashboard, setDashboard] = useState<CustomerDashboardData | null>(null);
   const [error, setError] = useState('');
 
@@ -164,11 +167,17 @@ export default function CustomerPage() {
   );
 
   const currentPeriod = dashboard?.meterHistory?.[0] || null;
+  const headingText = dark ? 'text-white' : 'text-slate-950';
+  const bodyText = dark ? 'text-slate-300' : 'text-slate-600';
+  const metricText = dark ? 'text-slate-200' : 'text-slate-700';
+  const badgeClass = dark
+    ? 'rounded-full border border-white/10 bg-white/[0.06] px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-100'
+    : 'rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-700';
 
   if (!dashboard) {
     return (
       <SectionCard title="Tổng quan khách hàng" eyebrow="Điện năng và thanh toán">
-        <p className={error ? 'text-sm text-rose-500' : 'text-sm text-slate-600'}>
+        <p className={error ? 'text-sm text-rose-500' : cn('text-sm', bodyText)}>
           {error || 'Dang tai du lieu cong khach hang...'}
         </p>
       </SectionCard>
@@ -204,16 +213,16 @@ export default function CustomerPage() {
                     <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
                       Kỳ {currentPeriod.period}
                     </p>
-                    <h3 className="mt-3 text-3xl font-semibold tracking-tight text-slate-950">
+                    <h3 className={cn('mt-3 text-3xl font-semibold tracking-tight', headingText)}>
                       {formatCurrency(currentPeriod.amount)}
                     </h3>
-                    <p className="mt-2 text-sm text-slate-500">
+                    <p className={cn('mt-2 text-sm', dark ? 'text-slate-400' : 'text-slate-500')}>
                       {currentPeriod.unpaidAmount > 0
                         ? `Con ${formatCurrency(currentPeriod.unpaidAmount)} chua thanh toan`
                         : 'Khong con cong no cua ky nay'}
                     </p>
                   </div>
-                  <div className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-700">
+                  <div className={badgeClass}>
                     {currentPeriod.paymentStatus}
                   </div>
                 </div>
@@ -252,7 +261,7 @@ export default function CustomerPage() {
                     <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
                       {item.label}
                     </p>
-                    <p className="mt-2 text-sm leading-6 text-slate-700">{item.value}</p>
+                    <p className={cn('mt-2 text-sm leading-6', metricText)}>{item.value}</p>
                   </div>
                 ))}
               </div>
@@ -309,10 +318,10 @@ export default function CustomerPage() {
               <div className="flex items-start gap-3">
                 <DatabaseZap className="mt-0.5 h-4.5 w-4.5 text-slate-400" />
                 <div>
-                  <p className="text-sm font-semibold text-slate-950">
+                  <p className={cn('text-sm font-semibold', headingText)}>
                     {dashboard.syncStatus?.statusLabel || 'Dang cap nhat'}
                   </p>
-                  <p className="mt-2 text-sm leading-6 text-slate-600">
+                  <p className={cn('mt-2 text-sm leading-6', bodyText)}>
                     Portal hiển thị dữ liệu đã đối soát. Nếu chưa có dữ liệu tiêu thụ theo ngày, hệ thống sẽ báo rõ trạng thái thay vì hiển thị số ước lượng giả.
                   </p>
                 </div>
@@ -347,7 +356,7 @@ export default function CustomerPage() {
                   <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
                     {item.label}
                   </p>
-                  <p className="mt-2 text-lg font-semibold text-slate-950">{item.value}</p>
+                  <p className={cn('mt-2 text-lg font-semibold', headingText)}>{item.value}</p>
                 </div>
               ))}
             </div>
@@ -381,14 +390,14 @@ export default function CustomerPage() {
                   <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
                     Kỳ {period.period}
                   </p>
-                  <h3 className="mt-2 text-xl font-semibold text-slate-950">
+                  <h3 className={cn('mt-2 text-xl font-semibold', headingText)}>
                     {formatCurrency(period.amount)}
                   </h3>
-                  <p className="mt-2 text-sm text-slate-500">
+                  <p className={cn('mt-2 text-sm', dark ? 'text-slate-400' : 'text-slate-500')}>
                     {period.systemsCount} hệ thống · {period.sourceLabel || 'Dang cap nhat'}
                   </p>
                 </div>
-                <div className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-700">
+                <div className={cn('inline-flex items-center gap-2', badgeClass)}>
                   <Scale className="h-3.5 w-3.5" />
                   {period.paymentStatus}
                 </div>
@@ -399,7 +408,7 @@ export default function CustomerPage() {
                   <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
                     Chỉ số
                   </p>
-                  <p className="mt-2 text-sm leading-6 text-slate-700">
+                  <p className={cn('mt-2 text-sm leading-6', metricText)}>
                     {formatMeterReading(period.previousReading)} {'->'}{' '}
                     {formatMeterReading(period.currentReading)}
                   </p>
@@ -408,7 +417,7 @@ export default function CustomerPage() {
                   <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
                     Điện tiêu thụ / PV tháng
                   </p>
-                  <p className="mt-2 text-sm leading-6 text-slate-700">
+                  <p className={cn('mt-2 text-sm leading-6', metricText)}>
                     {formatUsage(period.loadConsumedKwh)} / {formatNumber(period.pvGenerationKwh, 'kWh')}
                   </p>
                 </div>
@@ -416,7 +425,7 @@ export default function CustomerPage() {
                   <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
                     Đồng bộ
                   </p>
-                  <p className="mt-2 text-sm leading-6 text-slate-700">
+                  <p className={cn('mt-2 text-sm leading-6', metricText)}>
                     {period.updatedAt ? formatDateTime(period.updatedAt) : 'Chua cap nhat'}
                   </p>
                 </div>

@@ -3,10 +3,11 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, ChevronUp } from 'lucide-react';
 import { CustomerConsumptionChartCard, CustomerDailyUsageCard } from '@/components/customer-consumption-cards';
+import { useCustomerTheme } from '@/components/customer-theme-provider';
 import { SectionCard } from '@/components/section-card';
 import { customerDashboardRequest } from '@/lib/api';
 import { buildCustomerConsumptionView } from '@/lib/customer-consumption';
-import { formatCurrency, formatDateTime, formatNumber } from '@/lib/utils';
+import { cn, formatCurrency, formatDateTime, formatNumber } from '@/lib/utils';
 import { CustomerDashboardData } from '@/types';
 
 function formatMeterReading(value?: number | null) {
@@ -24,9 +25,17 @@ function formatUsage(value?: number | null) {
 }
 
 export default function CustomerMetersPage() {
+  const { enabled, theme } = useCustomerTheme();
+  const dark = enabled && theme === 'dark';
   const [dashboard, setDashboard] = useState<CustomerDashboardData | null>(null);
   const [error, setError] = useState('');
   const [expandedPeriod, setExpandedPeriod] = useState<string | null>(null);
+  const headingText = dark ? 'text-white' : 'text-slate-950';
+  const bodyText = dark ? 'text-slate-300' : 'text-slate-600';
+  const metricText = dark ? 'text-slate-200' : 'text-slate-700';
+  const badgeClass = dark
+    ? 'rounded-full border border-white/10 bg-white/[0.06] px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-100'
+    : 'rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-700';
 
   useEffect(() => {
     customerDashboardRequest()
@@ -51,7 +60,7 @@ export default function CustomerMetersPage() {
   if (!dashboard) {
     return (
       <SectionCard title="Lịch sử chỉ số điện" eyebrow="Tổng hợp theo từng kỳ">
-        <p className={error ? 'text-sm text-rose-500' : 'text-sm text-slate-600'}>
+        <p className={error ? 'text-sm text-rose-500' : cn('text-sm', bodyText)}>
           {error || 'Dang tai lich su chi so...'}
         </p>
       </SectionCard>
@@ -119,16 +128,16 @@ export default function CustomerMetersPage() {
                     <p className="text-[11px] uppercase tracking-[0.18em] text-slate-400">
                       Kỳ {period.period}
                     </p>
-                    <h3 className="mt-2 text-lg font-semibold text-slate-950">
+                    <h3 className={cn('mt-2 text-lg font-semibold', headingText)}>
                       {formatCurrency(period.amount)}
                     </h3>
-                    <p className="mt-2 text-sm text-slate-500">
+                    <p className={cn('mt-2 text-sm', dark ? 'text-slate-400' : 'text-slate-500')}>
                       {formatUsage(period.loadConsumedKwh)} · PV {formatNumber(period.pvGenerationKwh, 'kWh')}
                     </p>
                   </div>
 
                   <div className="flex items-center gap-3">
-                    <div className="rounded-full border border-slate-200 bg-white px-3 py-2 text-xs font-semibold uppercase tracking-[0.14em] text-slate-700">
+                    <div className={badgeClass}>
                       {period.paymentStatus}
                     </div>
                     <span className="customer-icon-button h-10 w-10">
@@ -152,7 +161,7 @@ export default function CustomerMetersPage() {
                       <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
                         {item.label}
                       </p>
-                      <p className="mt-2 text-sm leading-6 text-slate-700">{item.value}</p>
+                      <p className={cn('mt-2 text-sm leading-6', metricText)}>{item.value}</p>
                     </div>
                   ))}
                 </div>
@@ -180,7 +189,7 @@ export default function CustomerMetersPage() {
                         <p className="text-[11px] uppercase tracking-[0.16em] text-slate-400">
                           {item.label}
                         </p>
-                        <p className="mt-2 text-sm leading-6 text-slate-700">{item.value}</p>
+                        <p className={cn('mt-2 text-sm leading-6', metricText)}>{item.value}</p>
                       </div>
                     ))}
                   </div>

@@ -12,6 +12,7 @@ import {
   Smartphone,
   Wallet,
 } from 'lucide-react';
+import { useCustomerTheme } from '@/components/customer-theme-provider';
 import { SectionCard } from '@/components/section-card';
 import { StatCard } from '@/components/stat-card';
 import { StatusPill } from '@/components/status-pill';
@@ -25,7 +26,7 @@ import {
   myCustomerProfileRequest,
   submitManualPaymentRequest,
 } from '@/lib/api';
-import { formatCurrency, formatDate, formatDateTime, formatNumber } from '@/lib/utils';
+import { cn, formatCurrency, formatDate, formatDateTime, formatNumber } from '@/lib/utils';
 import { CustomerRecord, InvoiceRecord, PaymentRecord, StatCardItem } from '@/types';
 
 type PaymentRail = PublicSiteConfig['payments']['manual']['rails'][number];
@@ -77,11 +78,11 @@ function gatewayLabel(value?: string | null) {
   }
 
   if (value === 'MANUAL') {
-    return 'Đối soát thủ công';
+    return 'Doi soat thu cong';
   }
 
   if (value === 'MOCK') {
-    return 'Sandbox nội bộ';
+    return 'Sandbox noi bo';
   }
 
   return value;
@@ -95,8 +96,8 @@ function paymentMethodLabel(method: string | null | undefined, rails: ResolvedPa
   return (
     rails.find((item) => item.channelKey === method)?.label ||
     {
-      BANK_TRANSFER: 'Chuyển khoản ngân hàng',
-      MOMO_QR: 'Ví MoMo',
+      BANK_TRANSFER: 'Chuyen khoan ngan hang',
+      MOMO_QR: 'Vi MoMo',
       VNPAY_QR: 'QR VNPay',
     }[method] ||
     method
@@ -105,18 +106,18 @@ function paymentMethodLabel(method: string | null | undefined, rails: ResolvedPa
 
 function paymentStatusLabel(status: PaymentRecord['status']) {
   if (status === 'SUCCESS') {
-    return 'Đã xác nhận';
+    return 'Da xac nhan';
   }
 
   if (status === 'FAILED') {
-    return 'Từ chối';
+    return 'Tu choi';
   }
 
   if (status === 'REFUNDED') {
-    return 'Hoàn tiền';
+    return 'Hoan tien';
   }
 
-  return 'Chờ xác nhận';
+  return 'Cho xac nhan';
 }
 
 function buildTransferNote(
@@ -161,11 +162,11 @@ function invoiceOutstanding(invoice: InvoiceRecord | null) {
 }
 
 function formatReading(value?: number | null) {
-  return value != null ? value.toLocaleString('vi-VN') : 'Chưa áp dụng đo chỉ số';
+  return value != null ? value.toLocaleString('vi-VN') : 'Chua ap dung do chi so';
 }
 
 function formatUsage(value?: number | null) {
-  return value != null ? formatNumber(value, 'kWh') : 'Chưa cập nhật';
+  return value != null ? formatNumber(value, 'kWh') : 'Chua cap nhat';
 }
 
 function nearestDueInvoice(invoices: InvoiceRecord[]) {
@@ -178,6 +179,12 @@ function nearestDueInvoice(invoices: InvoiceRecord[]) {
 
 export default function CustomerPaymentsPage() {
   const { siteConfig } = usePublicSiteConfig();
+  const { enabled, theme } = useCustomerTheme();
+  const dark = enabled && theme === 'dark';
+  const strongText = dark ? 'text-white' : 'text-slate-950';
+  const bodyText = dark ? 'text-slate-300' : 'text-slate-600';
+  const mutedText = 'text-slate-500';
+
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const [payments, setPayments] = useState<PaymentRecord[]>([]);
   const [profile, setProfile] = useState<CustomerRecord | null>(null);
@@ -217,7 +224,7 @@ export default function CustomerPaymentsPage() {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : 'Không thể tải dữ liệu thanh toán.',
+          : 'Khong the tai du lieu thanh toan.',
       );
       setLoading(false);
     });
@@ -281,18 +288,6 @@ export default function CustomerPaymentsPage() {
     setManualAmount(String(invoiceOutstanding(selectedInvoice)));
   }, [selectedInvoice, selectedInvoiceId]);
 
-  const transferNote = useMemo(
-    () =>
-      selectedRail
-        ? buildTransferNote(
-            selectedRail.noteTemplate,
-            selectedInvoice,
-            profile?.customerCode || '',
-          )
-        : '',
-    [profile?.customerCode, selectedInvoice, selectedRail],
-  );
-
   const manualAmountNumber = useMemo(() => {
     const parsed = Number(manualAmount || 0);
     return Number.isFinite(parsed) && parsed > 0
@@ -309,40 +304,40 @@ export default function CustomerPaymentsPage() {
 
     return [
       {
-        title: 'Cần thanh toán',
+        title: 'Can thanh toan',
         value: formatCurrency(outstanding),
         subtitle: unpaidInvoices.length
-          ? `${unpaidInvoices.length} hóa đơn đang mở`
-          : 'Không còn khoản đối soát nào',
+          ? `${unpaidInvoices.length} hoa don dang mo`
+          : 'Khong con khoan doi soat nao',
         delta: nearestOpenInvoice
-          ? `${nearestOpenInvoice.invoiceNumber} • đến hạn ${formatDate(nearestOpenInvoice.dueDate)}`
-          : 'Danh mục đã được đối soát',
+          ? `${nearestOpenInvoice.invoiceNumber} · den han ${formatDate(nearestOpenInvoice.dueDate)}`
+          : 'Danh muc da duoc doi soat',
         trend: outstanding > 0 ? 'neutral' : 'up',
       },
       {
-        title: 'Biên lai đã nộp',
+        title: 'Bien lai da nop',
         value: String(payments.length),
-        subtitle: 'Lịch sử giao dịch và minh chứng được lưu trên hệ thống.',
+        subtitle: 'Lich su giao dich va minh chung duoc luu tren he thong.',
         delta: pendingProofCount
-          ? `${pendingProofCount} giao dịch chờ xác nhận`
-          : 'Không có biên lai chờ duyệt',
+          ? `${pendingProofCount} giao dich cho xac nhan`
+          : 'Khong co bien lai cho duyet',
         trend: pendingProofCount ? 'neutral' : 'up',
       },
       {
-        title: 'Kênh thanh toán',
-        value: selectedRail?.label || 'Chưa cấu hình',
+        title: 'Kenh thanh toan',
+        value: selectedRail?.label || 'Chua cau hinh',
         subtitle: paymentRails.length
-          ? 'Chỉ các kênh đang bật mới hiển thị cho khách hàng.'
-          : 'Đội vận hành chưa bật kênh thanh toán nào.',
+          ? 'Chi cac kenh dang bat moi hien thi cho khach hang.'
+          : 'Doi van hanh chua bat kenh thanh toan nao.',
         delta: selectedRail?.supportsVietQr
-          ? 'Có VietQR theo hóa đơn'
+          ? 'Co VietQR theo hoa don'
           : customerCheckoutEnabled
-            ? 'Có thêm sandbox kiểm tra nhanh'
-            : 'Đối soát theo biên lai thủ công',
+            ? 'Co them sandbox kiem tra nhanh'
+            : 'Doi soat theo bien lai thu cong',
         trend: 'neutral',
       },
     ];
-  }, [customerCheckoutEnabled, nearestOpenInvoice, paymentRails.length, payments, selectedRail, unpaidInvoices]);
+  }, [nearestOpenInvoice, paymentRails.length, payments, selectedRail, unpaidInvoices]);
 
   async function handleCopy(value: string, label: string) {
     if (!value.trim()) {
@@ -352,29 +347,29 @@ export default function CustomerPaymentsPage() {
     try {
       await navigator.clipboard.writeText(value);
       setCopiedValue(label);
-      setMessage(`Đã sao chép ${label.toLowerCase()}.`);
+      setMessage(`Da sao chep ${label.toLowerCase()}.`);
       setError('');
       window.setTimeout(() => {
         setCopiedValue((current) => (current === label ? '' : current));
       }, 1800);
     } catch {
-      setError('Không thể sao chép tự động. Vui lòng copy thủ công.');
+      setError('Khong the sao chep tu dong. Vui long copy thu cong.');
     }
   }
 
   async function handleManualSubmit() {
     if (!selectedInvoice) {
-      setError('Chưa có hóa đơn nào để nộp biên lai.');
+      setError('Chua co hoa don nao de nop bien lai.');
       return;
     }
 
     if (!proofFile) {
-      setError('Vui lòng chọn ảnh hoặc PDF biên lai trước khi gửi.');
+      setError('Vui long chon anh hoac PDF bien lai truoc khi gui.');
       return;
     }
 
     if (!selectedRail) {
-      setError('Chưa có kênh thanh toán nào được bật.');
+      setError('Chua co kenh thanh toan nao duoc bat.');
       return;
     }
 
@@ -395,13 +390,13 @@ export default function CustomerPaymentsPage() {
       setProofFile(null);
       setReferenceNote('');
       setMessage(
-        `Đã gửi biên lai cho hóa đơn ${selectedInvoice.invoiceNumber}. Đội vận hành sẽ xác nhận sớm nhất.`,
+        `Da gui bien lai cho hoa don ${selectedInvoice.invoiceNumber}. Doi van hanh se xac nhan som nhat.`,
       );
     } catch (requestError) {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : 'Không thể gửi biên lai thanh toán.',
+          : 'Khong the gui bien lai thanh toan.',
       );
     } finally {
       setSubmittingProof(false);
@@ -410,7 +405,7 @@ export default function CustomerPaymentsPage() {
 
   async function handlePay(invoiceId: string) {
     if (!selectedRail) {
-      setError('Chưa có kênh thanh toán nào được bật.');
+      setError('Chua co kenh thanh toan nao duoc bat.');
       return;
     }
 
@@ -421,10 +416,10 @@ export default function CustomerPaymentsPage() {
     try {
       await mockPayInvoiceRequest(invoiceId, selectedRail.channelKey);
       await loadData();
-      setMessage('Đã ghi nhận thanh toán sandbox thành công.');
+      setMessage('Da ghi nhan thanh toan sandbox thanh cong.');
     } catch (requestError) {
       setError(
-        requestError instanceof Error ? requestError.message : 'Không thể xử lý thanh toán.',
+        requestError instanceof Error ? requestError.message : 'Khong the xu ly thanh toan.',
       );
     } finally {
       setPayingId('');
@@ -442,7 +437,7 @@ export default function CustomerPaymentsPage() {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : 'Không thể tải biên lai thanh toán.',
+          : 'Khong the tai bien lai thanh toan.',
       );
     } finally {
       setProofLoadingId('');
@@ -451,8 +446,8 @@ export default function CustomerPaymentsPage() {
 
   if (loading) {
     return (
-      <SectionCard title="Thanh toán" eyebrow="Giao dịch và đối soát" dark>
-        <p className="text-sm text-slate-300">Đang tải dữ liệu thanh toán...</p>
+      <SectionCard title="Thanh toan" eyebrow="Giao dich va doi soat">
+        <p className={cn('text-sm', bodyText)}>Dang tai du lieu thanh toan...</p>
       </SectionCard>
     );
   }
@@ -461,34 +456,33 @@ export default function CustomerPaymentsPage() {
     <div className="space-y-5">
       <div className="grid gap-5 md:grid-cols-3">
         {stats.map((item) => (
-          <StatCard key={item.title} {...item} dark />
+          <StatCard key={item.title} {...item} />
         ))}
       </div>
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,0.92fr)_minmax(0,1.08fr)]">
         <SectionCard
-          title="Thanh toán và đối soát thủ công"
-          eyebrow="Kênh thanh toán đang bật, QR theo hóa đơn và biên lai đối soát"
-          dark
+          title="Thanh toan va doi soat thu cong"
+          eyebrow="Kenh thanh toan dang bat, QR theo hoa don va bien lai doi soat"
         >
           <div className="grid gap-4">
-            <div className="portal-card-soft p-5">
+            <div className="customer-soft-card p-5">
               <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm font-semibold text-white">Kênh thanh toán</p>
-                  <p className="mt-2 text-sm leading-6 text-slate-300">
-                    Chỉ những kênh đang được đội vận hành bật mới xuất hiện tại đây. Khách hàng có
-                    thể quét VietQR với hóa đơn cụ thể hoặc chuyển khoản theo nội dung gợi ý.
+                <div className="min-w-0">
+                  <p className={cn('text-sm font-semibold', strongText)}>Kenh thanh toan</p>
+                  <p className={cn('mt-2 text-sm leading-6', bodyText)}>
+                    Chi nhung kenh dang duoc doi van hanh bat moi xuat hien tai day. Khach hang co
+                    the quet VietQR voi hoa don cu the hoac chuyen khoan theo noi dung goi y.
                   </p>
                 </div>
-                <Wallet className="h-5 w-5 text-slate-300" />
+                <Wallet className={cn('h-5 w-5 shrink-0', mutedText)} />
               </div>
 
               {paymentRails.length ? (
-                <label className="mt-4 grid gap-2 text-sm text-slate-300">
-                  <span>Phương thức thanh toán</span>
+                <label className={cn('mt-4 grid gap-2 text-sm', bodyText)}>
+                  <span>Phuong thuc thanh toan</span>
                   <select
-                    className="portal-field"
+                    className="customer-field"
                     value={selectedMethod}
                     onChange={(event) => setSelectedMethod(event.target.value)}
                   >
@@ -500,20 +494,17 @@ export default function CustomerPaymentsPage() {
                   </select>
                 </label>
               ) : (
-                <div className="mt-4 rounded-[22px] border border-amber-200/15 bg-amber-400/10 px-4 py-4 text-sm text-amber-100">
-                  Chưa có kênh thanh toán nào được bật. Vui lòng liên hệ đội vận hành để được hỗ
-                  trợ.
+                <div className="mt-4 rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-700">
+                  Chua co kenh thanh toan nao duoc bat. Vui long lien he doi van hanh de duoc ho tro.
                 </div>
               )}
 
-              <div className="mt-4 rounded-[22px] border border-amber-200/15 bg-amber-400/10 px-4 py-4 text-sm text-amber-100">
+              <div className="mt-4 rounded-[22px] border border-amber-200 bg-amber-50 px-4 py-4 text-sm text-amber-700">
                 <div className="flex items-start gap-3">
                   <ShieldCheck className="mt-0.5 h-4.5 w-4.5 shrink-0" />
                   <div>
-                    <p className="font-semibold text-white">Đối soát bằng biên lai</p>
-                    <p className="mt-1 leading-6 text-slate-300">
-                      {siteConfig.payments.manual.description}
-                    </p>
+                    <p className="font-semibold">Doi soat bang bien lai</p>
+                    <p className="mt-1 leading-6">{siteConfig.payments.manual.description}</p>
                   </div>
                 </div>
               </div>
@@ -529,97 +520,110 @@ export default function CustomerPaymentsPage() {
                 );
                 const railQrUrl = buildVietQrUrl({
                   rail,
-                  amount: manualAmountNumber,
+                  amount: Number(manualAmount || invoiceOutstanding(selectedInvoice)),
                   note: transferContent,
                 });
 
                 return (
                   <div
                     key={rail.channelKey}
-                    className={`portal-card-soft p-5 ${isActive ? 'border-amber-200/25 bg-amber-400/10' : ''}`}
+                    className={cn(
+                      'customer-soft-card p-5',
+                      isActive &&
+                        (dark
+                          ? 'ring-2 ring-amber-300/25'
+                          : 'border border-amber-200 bg-amber-50/80'),
+                    )}
                   >
                     <div className="flex items-start justify-between gap-3">
-                      <div>
+                      <div className="min-w-0">
                         <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
                           {siteConfig.payments.manual.eyebrow}
                         </p>
-                        <h3 className="mt-2 text-lg font-semibold text-white">{rail.label}</h3>
+                        <h3 className={cn('mt-2 text-lg font-semibold', strongText)}>{rail.label}</h3>
                       </div>
                       {rail.providerName.toLowerCase().includes('momo') ? (
-                        <Smartphone className="h-5 w-5 text-slate-300" />
+                        <Smartphone className={cn('h-5 w-5 shrink-0', mutedText)} />
                       ) : railQrUrl ? (
-                        <QrCode className="h-5 w-5 text-slate-300" />
+                        <QrCode className={cn('h-5 w-5 shrink-0', mutedText)} />
                       ) : (
-                        <Building2 className="h-5 w-5 text-slate-300" />
+                        <Building2 className={cn('h-5 w-5 shrink-0', mutedText)} />
                       )}
                     </div>
 
                     <div className="mt-4 grid gap-3">
                       {[
-                        { label: 'Tên đơn vị nhận tiền', value: rail.accountName },
+                        { label: 'Ten don vi nhan tien', value: rail.accountName },
                         {
                           label:
                             rail.providerName.toLowerCase().includes('momo')
-                              ? 'Số ví / số điện thoại'
-                              : 'Số tài khoản',
+                              ? 'So vi / so dien thoai'
+                              : 'So tai khoan',
                           value: rail.accountNumber,
                         },
-                        { label: 'Ngân hàng / nhà cung cấp', value: rail.providerName },
-                        { label: 'Chi nhánh / ghi chú', value: rail.branch || 'Không yêu cầu' },
-                        { label: 'Nội dung chuyển khoản', value: transferContent || 'Chưa có mẫu' },
+                        { label: 'Ngan hang / nha cung cap', value: rail.providerName },
+                        { label: 'Chi nhanh / ghi chu', value: rail.branch || 'Khong yeu cau' },
+                        {
+                          label: 'Noi dung chuyen khoan',
+                          value: transferContent || 'Chua co mau',
+                        },
                       ].map((item) => (
-                        <div
-                          key={`${rail.channelKey}-${item.label}`}
-                          className="rounded-[20px] border border-white/8 bg-white/[0.04] px-4 py-3"
-                        >
+                        <div key={`${rail.channelKey}-${item.label}`} className="customer-soft-card-muted px-4 py-3">
                           <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
                             {item.label}
                           </p>
                           <div className="mt-2 flex items-start justify-between gap-3">
-                            <p className="text-sm leading-6 text-white">{item.value}</p>
+                            <p className={cn('text-sm leading-6', strongText)}>{item.value}</p>
                             <button
                               type="button"
                               onClick={() => void handleCopy(item.value, item.label)}
-                              className="rounded-full border border-white/10 p-2 text-slate-300 transition hover:bg-white/10"
-                              aria-label={`Sao chép ${item.label}`}
+                              className={cn(
+                                'inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition',
+                                dark
+                                  ? 'border-white/10 text-slate-300 hover:bg-white/10'
+                                  : 'border-slate-200 text-slate-600 hover:bg-slate-100',
+                              )}
+                              aria-label={`Sao chep ${item.label}`}
                             >
                               <Copy className="h-4 w-4" />
                             </button>
                           </div>
                           {copiedValue === item.label ? (
-                            <p className="mt-2 text-xs text-emerald-200">Đã sao chép.</p>
+                            <p className="mt-2 text-xs text-emerald-600">Da sao chep.</p>
                           ) : null}
                         </div>
                       ))}
                     </div>
 
                     {railQrUrl ? (
-                      <div className="mt-4 rounded-[22px] border border-white/8 bg-white/[0.04] p-4">
+                      <div className="customer-soft-card-muted mt-4 p-4">
                         <div className="flex items-center justify-between gap-3">
-                          <div>
+                          <div className="min-w-0">
                             <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                              VietQR theo hóa đơn
+                              VietQR theo hoa don
                             </p>
-                            <p className="mt-2 text-sm leading-6 text-slate-300">
-                              Quét bằng app ngân hàng để tự điền sẵn số tiền và nội dung chuyển
-                              khoản cho {selectedInvoice?.invoiceNumber || 'kỳ đang chọn'}.
+                            <p className={cn('mt-2 text-sm leading-6', bodyText)}>
+                              Quet bang app ngan hang de tu dien san so tien va noi dung chuyen
+                              khoan cho {selectedInvoice?.invoiceNumber || 'ky dang chon'}.
                             </p>
                           </div>
-                          <QrCode className="h-5 w-5 text-slate-300" />
+                          <QrCode className={cn('h-5 w-5 shrink-0', mutedText)} />
                         </div>
                         <img
                           src={railQrUrl}
                           alt={`VietQR ${rail.label}`}
-                          className="mx-auto mt-4 h-56 w-56 rounded-[22px] border border-white/10 bg-white object-contain p-3"
+                          className="mx-auto mt-4 h-56 w-56 rounded-[22px] border border-slate-200 bg-white object-contain p-3"
                         />
                       </div>
                     ) : rail.qrImage ? (
-                      <div className="mt-4 rounded-[22px] border border-white/8 bg-white/[0.04] p-4">
-                        <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">QR thanh toán</p>
+                      <div className="customer-soft-card-muted mt-4 p-4">
+                        <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
+                          QR thanh toan
+                        </p>
                         <img
                           src={rail.qrImage}
                           alt={`QR ${rail.label}`}
-                          className="mx-auto mt-4 h-56 w-56 rounded-[22px] border border-white/10 bg-white object-contain p-3"
+                          className="mx-auto mt-4 h-56 w-56 rounded-[22px] border border-slate-200 bg-white object-contain p-3"
                         />
                       </div>
                     ) : null}
@@ -629,89 +633,87 @@ export default function CustomerPaymentsPage() {
             </div>
 
             {selectedInvoice && selectedRail ? (
-              <div className="portal-card-soft p-5">
+              <div className="customer-soft-card p-5">
                 <div className="flex flex-wrap items-start justify-between gap-4">
-                  <div>
+                  <div className="min-w-0">
                     <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                      Hóa đơn ưu tiên thanh toán
+                      Hoa don uu tien thanh toan
                     </p>
-                    <h3 className="mt-2 text-xl font-semibold text-white">
+                    <h3 className={cn('mt-2 text-xl font-semibold', strongText)}>
                       {selectedInvoice.invoiceNumber}
                     </h3>
-                    <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-400">
+                    <div className={cn('mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm', mutedText)}>
                       <span>
-                        Kỳ {String(selectedInvoice.billingMonth).padStart(2, '0')}/
-                        {selectedInvoice.billingYear}
+                        Ky {String(selectedInvoice.billingMonth).padStart(2, '0')}/{selectedInvoice.billingYear}
                       </span>
-                      <span>Hạn thanh toán {formatDate(selectedInvoice.dueDate)}</span>
+                      <span>Han thanh toan {formatDate(selectedInvoice.dueDate)}</span>
                     </div>
                   </div>
 
                   <StatusPill label={selectedInvoice.status} />
                 </div>
 
-                <div className="mt-4 grid gap-3 text-sm text-slate-300 sm:grid-cols-2">
-                  <p>Số dư cần thanh toán: {formatCurrency(invoiceOutstanding(selectedInvoice))}</p>
+                <div className={cn('mt-4 grid gap-3 text-sm sm:grid-cols-2', bodyText)}>
+                  <p>So du can thanh toan: {formatCurrency(invoiceOutstanding(selectedInvoice))}</p>
                   <p>VAT: {selectedInvoice.vatRate != null ? `${selectedInvoice.vatRate}%` : '-'}</p>
-                  <p>Đã thanh toán: {formatCurrency(Number(selectedInvoice.paidAmount || 0))}</p>
-                  <p>Tổng cộng: {formatCurrency(Number(selectedInvoice.totalAmount || 0))}</p>
-                  <p>Điện tiêu thụ: {formatUsage(selectedInvoice.periodMetrics?.loadConsumedKwh)}</p>
-                  <p>Nguồn dữ liệu: {selectedInvoice.periodMetrics?.sourceLabel || 'Chưa cập nhật'}</p>
-                  <p>Chỉ số cũ: {formatReading(selectedInvoice.periodMetrics?.previousReading)}</p>
-                  <p>Chỉ số mới: {formatReading(selectedInvoice.periodMetrics?.currentReading)}</p>
+                  <p>Da thanh toan: {formatCurrency(Number(selectedInvoice.paidAmount || 0))}</p>
+                  <p>Tong cong: {formatCurrency(Number(selectedInvoice.totalAmount || 0))}</p>
+                  <p>Dien tieu thu: {formatUsage(selectedInvoice.periodMetrics?.loadConsumedKwh)}</p>
+                  <p>Nguon du lieu: {selectedInvoice.periodMetrics?.sourceLabel || 'Chua cap nhat'}</p>
+                  <p>Chi so cu: {formatReading(selectedInvoice.periodMetrics?.previousReading)}</p>
+                  <p>Chi so moi: {formatReading(selectedInvoice.periodMetrics?.currentReading)}</p>
                 </div>
 
                 <div className="mt-4 grid gap-4 md:grid-cols-2">
-                  <label className="grid gap-2 text-sm text-slate-300">
-                    <span>Hóa đơn cần nộp biên lai</span>
+                  <label className={cn('grid gap-2 text-sm', bodyText)}>
+                    <span>Hoa don can nop bien lai</span>
                     <select
-                      className="portal-field"
+                      className="customer-field"
                       value={selectedInvoiceId}
                       onChange={(event) => setSelectedInvoiceId(event.target.value)}
                     >
                       {unpaidInvoices.map((invoice) => (
                         <option key={invoice.id} value={invoice.id}>
-                          {invoice.invoiceNumber} • {String(invoice.billingMonth).padStart(2, '0')}/
-                          {invoice.billingYear}
+                          {invoice.invoiceNumber} · {String(invoice.billingMonth).padStart(2, '0')}/{invoice.billingYear}
                         </option>
                       ))}
                     </select>
                   </label>
 
-                  <label className="grid gap-2 text-sm text-slate-300">
-                    <span>Số tiền chuyển khoản</span>
+                  <label className={cn('grid gap-2 text-sm', bodyText)}>
+                    <span>So tien chuyen khoan</span>
                     <input
                       type="number"
                       min="0"
-                      className="portal-field"
+                      className="customer-field"
                       value={manualAmount}
                       onChange={(event) => setManualAmount(event.target.value)}
                     />
                   </label>
 
-                  <label className="grid gap-2 text-sm text-slate-300 md:col-span-2">
-                    <span>Nội dung tham chiếu / ghi chú</span>
+                  <label className={cn('grid gap-2 text-sm md:col-span-2', bodyText)}>
+                    <span>Noi dung tham chieu / ghi chu</span>
                     <textarea
-                      className="portal-field min-h-[120px]"
+                      className="customer-field min-h-[120px]"
                       value={referenceNote}
                       onChange={(event) => setReferenceNote(event.target.value)}
-                      placeholder="Ví dụ: đã chuyển khoản từ tài khoản công ty, gửi lúc 09:30."
+                      placeholder="Vi du: da chuyen khoan tu tai khoan cong ty, gui luc 09:30."
                     />
                   </label>
 
-                  <label className="grid gap-2 text-sm text-slate-300 md:col-span-2">
-                    <span>Biên lai hoặc file xác nhận</span>
+                  <label className={cn('grid gap-2 text-sm md:col-span-2', bodyText)}>
+                    <span>Bien lai hoac file xac nhan</span>
                     <input
                       type="file"
                       accept=".png,.jpg,.jpeg,.webp,.pdf"
-                      className="portal-field file:mr-4 file:rounded-full file:border-0 file:bg-white/10 file:px-4 file:py-2 file:text-sm file:font-semibold file:text-white"
+                      className="customer-file-input"
                       onChange={(event) => setProofFile(event.target.files?.[0] || null)}
                     />
                     <span className="text-xs text-slate-500">
-                      Hỗ trợ JPG, PNG, WEBP hoặc PDF. Dung lượng tối đa 8 MB.
+                      Ho tro JPG, PNG, WEBP hoac PDF. Dung luong toi da 8 MB.
                     </span>
                     {proofFile ? (
-                      <span className="text-xs text-emerald-200">Đã chọn: {proofFile.name}</span>
+                      <span className="text-xs text-emerald-600">Da chon: {proofFile.name}</span>
                     ) : null}
                   </label>
                 </div>
@@ -724,51 +726,50 @@ export default function CustomerPaymentsPage() {
                     onClick={() => void handleManualSubmit()}
                   >
                     <FileUp className="h-4 w-4" />
-                    {submittingProof ? 'Đang gửi biên lai...' : 'Gửi biên lai thanh toán'}
+                    {submittingProof ? 'Dang gui bien lai...' : 'Gui bien lai thanh toan'}
                   </button>
 
                   {customerCheckoutEnabled ? (
                     <button
                       type="button"
                       onClick={() => void handlePay(selectedInvoice.id)}
-                      className="btn-ghost"
+                      className="btn-secondary-light"
                       disabled={payingId === selectedInvoice.id}
                     >
                       <CreditCard className="h-4 w-4" />
                       {payingId === selectedInvoice.id
-                        ? 'Đang xử lý sandbox...'
-                        : 'Thanh toán sandbox'}
+                        ? 'Dang xu ly sandbox...'
+                        : 'Thanh toan sandbox'}
                     </button>
                   ) : null}
                 </div>
               </div>
             ) : (
-              <div className="portal-card-soft p-5">
-                <p className="text-base font-semibold text-white">Không có hóa đơn chờ thanh toán</p>
-                <p className="mt-2 text-sm leading-6 text-slate-300">
-                  Danh mục thanh toán đang sạch. Khi có hóa đơn mới, khu vực nộp biên lai sẽ hiện
-                  tại đây.
+              <div className="customer-soft-card p-5">
+                <p className={cn('text-base font-semibold', strongText)}>Khong co hoa don cho thanh toan</p>
+                <p className={cn('mt-2 text-sm leading-6', bodyText)}>
+                  Danh muc thanh toan dang sach. Khi co hoa don moi, khu vuc nop bien lai se hien tai day.
                 </p>
               </div>
             )}
 
-            <div className="portal-card-soft p-5">
-              <p className="text-sm font-semibold text-white">
+            <div className="customer-soft-card p-5">
+              <p className={cn('text-sm font-semibold', strongText)}>
                 {siteConfig.payments.manual.confirmationTitle}
               </p>
-              <p className="mt-2 text-sm leading-6 text-slate-300">
+              <p className={cn('mt-2 text-sm leading-6', bodyText)}>
                 {siteConfig.payments.manual.confirmationBody}
               </p>
             </div>
 
             {message ? (
-              <div className="rounded-[20px] border border-emerald-300/15 bg-emerald-400/10 px-4 py-3 text-sm text-emerald-100">
+              <div className="rounded-[20px] border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
                 {message}
               </div>
             ) : null}
 
             {error ? (
-              <div className="rounded-[20px] border border-rose-300/15 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+              <div className="rounded-[20px] border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
                 {error}
               </div>
             ) : null}
@@ -776,9 +777,8 @@ export default function CustomerPaymentsPage() {
         </SectionCard>
 
         <SectionCard
-          title="Lịch sử giao dịch"
-          eyebrow="Theo dõi minh chứng, đối soát và kết quả xác nhận"
-          dark
+          title="Lich su giao dich"
+          eyebrow="Theo doi minh chung, doi soat va ket qua xac nhan"
         >
           <div className="space-y-3">
             {payments.length ? (
@@ -788,22 +788,19 @@ export default function CustomerPaymentsPage() {
                   : null;
                 const reviewLabel = payment.reviewedAt
                   ? formatDateTime(payment.reviewedAt)
-                  : 'Chờ đối soát';
+                  : 'Cho doi soat';
 
                 return (
-                  <div
-                    key={payment.id}
-                    className="rounded-[24px] border border-white/8 bg-white/[0.04] p-5"
-                  >
+                  <div key={payment.id} className="customer-soft-card p-5">
                     <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div>
+                      <div className="min-w-0">
                         <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500">
-                          Giao dịch {payment.paymentCode}
+                          Giao dich {payment.paymentCode}
                         </p>
-                        <h3 className="mt-2 text-lg font-semibold text-white">
-                          {relatedInvoice?.invoiceNumber || 'Biên lai thủ công'}
+                        <h3 className={cn('mt-2 text-lg font-semibold', strongText)}>
+                          {relatedInvoice?.invoiceNumber || 'Bien lai thu cong'}
                         </h3>
-                        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-400">
+                        <div className={cn('mt-3 flex flex-wrap gap-x-4 gap-y-1 text-sm', mutedText)}>
                           <span>{paymentMethodLabel(payment.method, paymentRails)}</span>
                           <span>{gatewayLabel(payment.gateway)}</span>
                           <span>{reviewLabel}</span>
@@ -813,33 +810,33 @@ export default function CustomerPaymentsPage() {
                       <StatusPill label={paymentStatusLabel(payment.status)} />
                     </div>
 
-                    <div className="mt-4 grid gap-3 text-sm text-slate-300 sm:grid-cols-2">
-                      <p>Số tiền: {formatCurrency(Number(payment.amount || 0))}</p>
+                    <div className={cn('mt-4 grid gap-3 text-sm sm:grid-cols-2', bodyText)}>
+                      <p>So tien: {formatCurrency(Number(payment.amount || 0))}</p>
                       <p>
-                        Hóa đơn:{' '}
+                        Hoa don:{' '}
                         {relatedInvoice
-                          ? `${relatedInvoice.invoiceNumber} • ${String(relatedInvoice.billingMonth).padStart(2, '0')}/${relatedInvoice.billingYear}`
-                          : 'Không gắn hóa đơn'}
+                          ? `${relatedInvoice.invoiceNumber} · ${String(relatedInvoice.billingMonth).padStart(2, '0')}/${relatedInvoice.billingYear}`
+                          : 'Khong gan hoa don'}
                       </p>
                       <p>
-                        Thời gian gửi:{' '}
-                        {payment.createdAt ? formatDateTime(payment.createdAt) : 'Chưa cập nhật'}
+                        Thoi gian gui:{' '}
+                        {payment.createdAt ? formatDateTime(payment.createdAt) : 'Chua cap nhat'}
                       </p>
-                      <p>Ghi chú chuyển khoản: {payment.referenceNote || 'Không có'}</p>
-                      <p>Trạng thái duyệt: {payment.reviewNote || paymentStatusLabel(payment.status)}</p>
-                      <p>Tệp minh chứng: {payment.proofOriginalName || 'Không có tệp đính kèm'}</p>
+                      <p>Ghi chu chuyen khoan: {payment.referenceNote || 'Khong co'}</p>
+                      <p>Trang thai duyet: {payment.reviewNote || paymentStatusLabel(payment.status)}</p>
+                      <p>Tep minh chung: {payment.proofOriginalName || 'Khong co tep dinh kem'}</p>
                     </div>
 
                     <div className="mt-4 flex flex-wrap gap-3">
                       {payment.proofFileUrl ? (
                         <button
                           type="button"
-                          className="btn-ghost"
+                          className="btn-secondary-light"
                           disabled={proofLoadingId === payment.id}
                           onClick={() => void handleOpenProof(payment.id)}
                         >
                           <FileCheck2 className="h-4 w-4" />
-                          {proofLoadingId === payment.id ? 'Đang tải...' : 'Tải biên lai'}
+                          {proofLoadingId === payment.id ? 'Dang tai...' : 'Tai bien lai'}
                         </button>
                       ) : null}
                     </div>
@@ -847,9 +844,8 @@ export default function CustomerPaymentsPage() {
                 );
               })
             ) : (
-              <div className="rounded-[24px] border border-dashed border-white/10 bg-white/[0.03] px-4 py-5 text-sm text-slate-400">
-                Chưa có giao dịch nào được ghi nhận. Sau khi gửi biên lai, lịch sử đối soát sẽ
-                xuất hiện tại đây.
+              <div className={cn('customer-soft-card p-5 text-sm leading-6', bodyText)}>
+                Chua co giao dich nao duoc ghi nhan. Sau khi gui bien lai, lich su doi soat se xuat hien tai day.
               </div>
             )}
           </div>
