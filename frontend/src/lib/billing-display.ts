@@ -332,16 +332,26 @@ function resolveContinuityConsumption(params: {
   loadConsumedKwh?: number | null;
   pvGenerationKwh?: number | null;
 }) {
-  const candidates = [
+  const orderedCandidates = [
     toFiniteNumber(params.billableKwh),
-    toFiniteNumber(params.loadConsumedKwh),
     toFiniteNumber(params.pvGenerationKwh),
+    toFiniteNumber(params.loadConsumedKwh),
   ];
 
-  for (const candidate of candidates) {
-    if (candidate !== null && candidate !== undefined) {
-      return Math.max(candidate, 0);
-    }
+  const preferredPositive = orderedCandidates.find(
+    (candidate) => candidate !== null && candidate !== undefined && candidate > CONTINUITY_TOLERANCE,
+  );
+
+  if (preferredPositive !== undefined) {
+    return Math.max(preferredPositive, 0);
+  }
+
+  const firstFinite = orderedCandidates.find(
+    (candidate) => candidate !== null && candidate !== undefined,
+  );
+
+  if (firstFinite !== undefined) {
+    return Math.max(firstFinite, 0);
   }
 
   return 0;
