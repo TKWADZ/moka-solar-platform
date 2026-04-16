@@ -7,6 +7,7 @@ import {
 } from '../common/config/operational-data-source';
 import {
   aggregateOperationalPeriodMetrics,
+  buildCumulativePvReadingLookups,
   buildOperationalPeriodKey,
 } from '../common/helpers/operational-period.helper';
 import { CustomerPortalAggregateService } from './customer-portal-aggregate.service';
@@ -223,7 +224,6 @@ export class ReportsService {
         monthlyEnergyRecords: {
           where: { deletedAt: null },
           orderBy: [{ year: 'desc' }, { month: 'desc' }],
-          take: 24,
           include: {
             updatedByUser: {
               select: {
@@ -237,7 +237,6 @@ export class ReportsService {
         monthlyPvBillings: {
           where: { deletedAt: null },
           orderBy: [{ year: 'desc' }, { month: 'desc' }],
-          take: 24,
           include: {
             invoice: true,
           },
@@ -345,6 +344,24 @@ export class ReportsService {
     const customerMonthlyRecordLookup = new Map<string, any[]>();
     const monthlyBillingLookup = new Map<string, any[]>();
     const customerMonthlyBillingLookup = new Map<string, any[]>();
+    const cumulativeLookups = buildCumulativePvReadingLookups(
+      monthlyPvBillings.map((record) => ({
+        id: record.id,
+        solarSystemId: record.solarSystemId,
+        contractId: record.contractId,
+        year: record.year,
+        month: record.month,
+        pvGenerationKwh: record.pvGenerationKwh,
+      })),
+    );
+    const billingHistoryMap = new Map(
+      monthlyPvBillings
+        .map((record) => [
+          buildOperationalPeriodKey(record.solarSystemId, record.year, record.month),
+          record,
+        ] as const)
+        .filter((entry): entry is [string, (typeof monthlyPvBillings)[number]] => Boolean(entry[0])),
+    );
 
     for (const record of monthlyEnergyRecords) {
       const systemKey = buildOperationalPeriodKey(
@@ -772,13 +789,35 @@ export class ReportsService {
         const billingRecords = (monthlyBillingLookup.get(systemKey) || []).length
           ? monthlyBillingLookup.get(systemKey) || []
           : customerMonthlyBillingLookup.get(customerKey) || [];
-        const periodMetrics = aggregateOperationalPeriodMetrics(
+        const basePeriodMetrics = aggregateOperationalPeriodMetrics(
           operationalRecords.length ? operationalRecords : billingRecords,
           {
             year: invoice.billingYear,
             month: invoice.billingMonth,
           },
         );
+        const cumulativeReading =
+          (systemKey ? cumulativeLookups.bySystemPeriod.get(systemKey) : null) || null;
+        const billingHistoryRecord =
+          (systemKey ? billingHistoryMap.get(systemKey) : null) || null;
+        const periodMetrics = basePeriodMetrics
+          ? {
+              ...basePeriodMetrics,
+              pvGenerationKwh:
+                billingHistoryRecord?.pvGenerationKwh !== null &&
+                billingHistoryRecord?.pvGenerationKwh !== undefined
+                  ? Number(billingHistoryRecord.pvGenerationKwh)
+                  : basePeriodMetrics.pvGenerationKwh,
+              previousReading:
+                cumulativeReading?.previousReading ??
+                basePeriodMetrics.previousReading ??
+                null,
+              currentReading:
+                cumulativeReading?.currentReading ??
+                basePeriodMetrics.currentReading ??
+                null,
+            }
+          : null;
 
         return {
           ...invoice,

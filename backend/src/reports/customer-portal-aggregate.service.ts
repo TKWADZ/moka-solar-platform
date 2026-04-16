@@ -1,6 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { buildOperationalFreshness, buildOperationalSourceLabel } from '../common/config/operational-data-source';
-import { extractOperationalPeriodMetrics } from '../common/helpers/operational-period.helper';
+import {
+  buildOperationalFreshness,
+  buildOperationalSourceLabel,
+} from '../common/config/operational-data-source';
+import {
+  buildCumulativePvReadingLookups,
+  buildOperationalPeriodKey,
+  extractOperationalPeriodMetrics,
+} from '../common/helpers/operational-period.helper';
 import { sumBy } from '../common/helpers/domain.helper';
 
 type PeriodGroup = {
@@ -18,6 +25,25 @@ type PeriodGroup = {
   source: string | null;
   sourceLabel: string | null;
   systemsCount: number;
+};
+
+type PeriodGroupAccumulator = PeriodGroup & {
+  systemPeriodKeys: Set<string>;
+};
+
+type SystemPeriodAggregate = {
+  id: string;
+  solarSystemId: string;
+  year: number;
+  month: number;
+  period: string;
+  operationalPvKwh: number | null;
+  billingPvKwh: number | null;
+  loadConsumedKwh: number | null;
+  amount: number;
+  updatedAt: string | null;
+  source: string | null;
+  sourceLabel: string | null;
 };
 
 @Injectable()
@@ -59,10 +85,10 @@ export class CustomerPortalAggregateService {
     const targetPeriod = currentCalendarPeriod || periods[0] || null;
     const latestUpdatedAt = this.maxIsoDate(
       systems.flatMap((system) => [
-        system.lastMonthlySyncAt,
-        system.lastBillingSyncAt,
-        system.updatedAt?.toISOString?.(),
-        system.latestMonthlySyncTime,
+        this.toIsoDate(system.lastMonthlySyncAt),
+        this.toIsoDate(system.lastBillingSyncAt),
+        this.toIsoDate(system.updatedAt),
+        this.toIsoDate(system.latestMonthlySyncTime),
       ]),
     );
     const sources = [...new Set(monthlyRecords.map((record: any) => record.source).filter(Boolean))];
@@ -166,122 +192,161 @@ export class CustomerPortalAggregateService {
   }
 
   private buildPeriodGroups(monthlyRecords: any[], monthlyBillings: any[], invoices: any[]) {
-    const periodMap = new Map<string, PeriodGroup>();
+    const systemPeriodMap = new Map<string, SystemPeriodAggregate>();
+    const periodMap = new Map<string, PeriodGroupAccumulator>();
     const linkedInvoiceIds = new Set(
       monthlyBillings.map((billing) => billing.invoiceId).filter(Boolean),
     );
 
     for (const record of monthlyRecords) {
+      const solarSystemId = record.solarSystemId || record.systemId || null;
+      const systemPeriodKey = buildOperationalPeriodKey(
+        solarSystemId,
+        record.year,
+        record.month,
+      );
+      if (!solarSystemId || !systemPeriodKey) {
+        continue;
+      }
+
       const metrics = extractOperationalPeriodMetrics(record);
-      const key = `${record.year}-${record.month}`;
       const current =
-        periodMap.get(key) ||
-        ({
-          year: record.year,
-          month: record.month,
-          period: `${String(record.month).padStart(2, '0')}/${record.year}`,
-          pvGenerationKwh: 0,
-          loadConsumedKwh: null,
-          previousReading: null,
-          currentReading: null,
-          amount: 0,
-          unpaidAmount: 0,
-          paymentStatus: 'CHUA_PHAT_HANH',
-          updatedAt: null,
-          source: null,
-          sourceLabel: null,
-          systemsCount: 0,
-        } satisfies PeriodGroup);
+        systemPeriodMap.get(systemPeriodKey) ||
+        this.createSystemPeriodAggregate(
+          systemPeriodKey,
+          solarSystemId,
+          record.year,
+          record.month,
+        );
 
-      current.pvGenerationKwh += metrics?.pvGenerationKwh || 0;
-      const loadConsumed = metrics?.loadConsumedKwh ?? metrics?.pvGenerationKwh ?? null;
-      const previousReading = metrics?.previousReading ?? null;
-      const currentReading = metrics?.currentReading ?? null;
-
-      current.loadConsumedKwh =
-        loadConsumed !== null
-          ? (current.loadConsumedKwh || 0) + loadConsumed
-          : current.loadConsumedKwh;
-      current.previousReading =
-        previousReading !== null
-          ? (current.previousReading || 0) + previousReading
-          : current.previousReading;
-      current.currentReading =
-        currentReading !== null
-          ? (current.currentReading || 0) + currentReading
-          : current.currentReading;
+      current.operationalPvKwh = this.resolveMetricValue(
+        current.operationalPvKwh,
+        metrics?.pvGenerationKwh,
+        record.pvGenerationKwh,
+        record.monthlyPvKwh,
+        record.productionKwh,
+      );
+      current.loadConsumedKwh = this.resolveMetricValue(
+        current.loadConsumedKwh,
+        metrics?.loadConsumedKwh,
+        record.loadConsumedKwh,
+      );
       current.updatedAt = this.maxIsoDate([
         current.updatedAt,
         metrics?.syncTime ||
-          record.syncTime?.toISOString?.() ||
-          record.syncTime ||
+          this.toIsoDate(record.syncTime) ||
           null,
       ]);
-      current.systemsCount += 1;
+      this.mergePeriodSource(
+        current,
+        metrics?.source || record.source || null,
+        metrics?.sourceLabel || buildOperationalSourceLabel(record.source),
+      );
 
-      if (!current.source && metrics?.source) {
-        current.source = metrics.source;
-        current.sourceLabel = metrics.sourceLabel;
-      } else if (current.source && metrics?.source && current.source !== metrics.source) {
-        current.source = 'MIXED';
-        current.sourceLabel = 'Nhiều nguồn dữ liệu';
+      systemPeriodMap.set(systemPeriodKey, current);
+    }
+
+    for (const billing of monthlyBillings) {
+      const solarSystemId = billing.solarSystemId || billing.systemId || null;
+      const systemPeriodKey = buildOperationalPeriodKey(
+        solarSystemId,
+        billing.year,
+        billing.month,
+      );
+      if (!solarSystemId || !systemPeriodKey) {
+        continue;
       }
+
+      const current =
+        systemPeriodMap.get(systemPeriodKey) ||
+        this.createSystemPeriodAggregate(
+          systemPeriodKey,
+          solarSystemId,
+          billing.year,
+          billing.month,
+        );
+
+      current.billingPvKwh = this.resolveMetricValue(
+        current.billingPvKwh,
+        billing.pvGenerationKwh,
+        billing.monthlyPvKwh,
+        billing.productionKwh,
+      );
+      current.amount += this.toNullableNumber(billing.totalAmount) || 0;
+      current.updatedAt = this.maxIsoDate([
+        current.updatedAt,
+        this.toIsoDate(billing.syncTime),
+      ]);
+      this.mergePeriodSource(
+        current,
+        billing.source || null,
+        billing.source ? buildOperationalSourceLabel(billing.source) : null,
+      );
+
+      systemPeriodMap.set(systemPeriodKey, current);
+    }
+
+    const cumulativeLookups = buildCumulativePvReadingLookups(
+      [...systemPeriodMap.values()].map((record) => ({
+        id: record.id,
+        solarSystemId: record.solarSystemId,
+        year: record.year,
+        month: record.month,
+        pvGenerationKwh: this.resolveSystemPeriodProductionKwh(record),
+      })),
+    );
+
+    for (const record of systemPeriodMap.values()) {
+      const key = `${record.year}-${record.month}`;
+      const current =
+        periodMap.get(key) || this.createPeriodAccumulator(record.year, record.month);
+      const resolvedProductionKwh = this.resolveSystemPeriodProductionKwh(record);
+      const loadConsumedKwh =
+        record.loadConsumedKwh !== null && record.loadConsumedKwh !== undefined
+          ? record.loadConsumedKwh
+          : resolvedProductionKwh > 0
+            ? resolvedProductionKwh
+            : null;
+
+      current.pvGenerationKwh += resolvedProductionKwh;
+      current.loadConsumedKwh =
+        loadConsumedKwh !== null
+          ? (current.loadConsumedKwh || 0) + loadConsumedKwh
+          : current.loadConsumedKwh;
+      current.amount += record.amount;
+      current.updatedAt = this.maxIsoDate([current.updatedAt, record.updatedAt]);
+      current.systemPeriodKeys.add(record.id);
+      this.mergePeriodSource(current, record.source, record.sourceLabel);
 
       periodMap.set(key, current);
     }
 
-    for (const billing of monthlyBillings) {
-      const key = `${billing.year}-${billing.month}`;
-      const current =
-        periodMap.get(key) ||
-        ({
-          year: billing.year,
-          month: billing.month,
-          period: `${String(billing.month).padStart(2, '0')}/${billing.year}`,
-          pvGenerationKwh: 0,
-          loadConsumedKwh: null,
-          previousReading: null,
-          currentReading: null,
-          amount: 0,
-          unpaidAmount: 0,
-          paymentStatus: 'CHUA_PHAT_HANH',
-          updatedAt: null,
-          source: null,
-          sourceLabel: null,
-          systemsCount: 0,
-        } satisfies PeriodGroup);
+    for (const period of periodMap.values()) {
+      let previousReading = 0;
+      let currentReading = 0;
+      let hasReadings = false;
 
-      current.pvGenerationKwh += this.toNullableNumber(billing.pvGenerationKwh) || 0;
-      current.amount += this.toNullableNumber(billing.totalAmount) || 0;
-      current.updatedAt = this.maxIsoDate([current.updatedAt, billing.syncTime?.toISOString?.()]);
-      current.systemsCount += 1;
-      if (!current.source && billing.source) {
-        current.source = billing.source;
-        current.sourceLabel = buildOperationalSourceLabel(billing.source);
+      for (const systemPeriodKey of period.systemPeriodKeys) {
+        const reading = cumulativeLookups.byRecordId.get(systemPeriodKey);
+        if (!reading) {
+          continue;
+        }
+
+        previousReading += reading.previousReading;
+        currentReading += reading.currentReading;
+        hasReadings = true;
       }
-      periodMap.set(key, current);
+
+      period.previousReading = hasReadings ? previousReading : null;
+      period.currentReading = hasReadings ? currentReading : null;
+      period.systemsCount = period.systemPeriodKeys.size;
     }
 
     for (const invoice of invoices) {
       const key = `${invoice.billingYear}-${invoice.billingMonth}`;
       const current =
         periodMap.get(key) ||
-        ({
-          year: invoice.billingYear,
-          month: invoice.billingMonth,
-          period: `${String(invoice.billingMonth).padStart(2, '0')}/${invoice.billingYear}`,
-          pvGenerationKwh: 0,
-          loadConsumedKwh: null,
-          previousReading: null,
-          currentReading: null,
-          amount: 0,
-          unpaidAmount: 0,
-          paymentStatus: 'CHUA_PHAT_HANH',
-          updatedAt: null,
-          source: null,
-          sourceLabel: null,
-          systemsCount: 0,
-        } satisfies PeriodGroup);
+        this.createPeriodAccumulator(invoice.billingYear, invoice.billingMonth);
 
       const outstanding = Math.max(
         (this.toNullableNumber(invoice.totalAmount) || 0) -
@@ -295,8 +360,8 @@ export class CustomerPortalAggregateService {
       }
       current.updatedAt = this.maxIsoDate([
         current.updatedAt,
-        invoice.updatedAt?.toISOString?.(),
-        invoice.issuedAt?.toISOString?.(),
+        this.toIsoDate(invoice.updatedAt),
+        this.toIsoDate(invoice.issuedAt),
       ]);
       periodMap.set(key, current);
     }
@@ -324,6 +389,69 @@ export class CustomerPortalAggregateService {
       }));
   }
 
+  private createPeriodAccumulator(year: number, month: number): PeriodGroupAccumulator {
+    return {
+      year,
+      month,
+      period: `${String(month).padStart(2, '0')}/${year}`,
+      pvGenerationKwh: 0,
+      loadConsumedKwh: null,
+      previousReading: null,
+      currentReading: null,
+      amount: 0,
+      unpaidAmount: 0,
+      paymentStatus: 'CHUA_PHAT_HANH',
+      updatedAt: null,
+      source: null,
+      sourceLabel: null,
+      systemsCount: 0,
+      systemPeriodKeys: new Set<string>(),
+    };
+  }
+
+  private createSystemPeriodAggregate(
+    id: string,
+    solarSystemId: string,
+    year: number,
+    month: number,
+  ): SystemPeriodAggregate {
+    return {
+      id,
+      solarSystemId,
+      year,
+      month,
+      period: `${String(month).padStart(2, '0')}/${year}`,
+      operationalPvKwh: null,
+      billingPvKwh: null,
+      loadConsumedKwh: null,
+      amount: 0,
+      updatedAt: null,
+      source: null,
+      sourceLabel: null,
+    };
+  }
+
+  private mergePeriodSource(
+    target: { source: string | null; sourceLabel: string | null },
+    source?: string | null,
+    sourceLabel?: string | null,
+  ) {
+    if (!source) {
+      return;
+    }
+
+    if (!target.source) {
+      target.source = source;
+      target.sourceLabel = sourceLabel || buildOperationalSourceLabel(source);
+      return;
+    }
+
+    if (target.source !== source) {
+      target.source = 'MIXED';
+      target.sourceLabel = 'Nhiều nguồn dữ liệu';
+    }
+  }
+
   private resolveAggregatePaymentStatus(currentStatus: string, nextStatus: string) {
     const score: Record<string, number> = {
       OVERDUE: 4,
@@ -337,6 +465,23 @@ export class CustomerPortalAggregateService {
     return (score[nextStatus] ?? 0) > (score[currentStatus] ?? 0) ? nextStatus : currentStatus;
   }
 
+  private resolveMetricValue(...values: unknown[]) {
+    const candidates = values
+      .map((value) => this.toNullableNumber(value))
+      .filter((value): value is number => value !== null && value !== undefined);
+
+    const preferredNonZero = candidates.find((value) => Math.abs(value) > 0);
+    if (preferredNonZero !== undefined) {
+      return preferredNonZero;
+    }
+
+    return candidates[0] ?? null;
+  }
+
+  private resolveSystemPeriodProductionKwh(record: SystemPeriodAggregate) {
+    return this.resolveMetricValue(record.operationalPvKwh, record.billingPvKwh) ?? 0;
+  }
+
   private toNullableNumber(value: unknown) {
     if (value === null || value === undefined) {
       return null;
@@ -344,6 +489,18 @@ export class CustomerPortalAggregateService {
 
     const numeric = Number(value);
     return Number.isFinite(numeric) ? numeric : null;
+  }
+
+  private toIsoDate(value: unknown) {
+    if (!value) {
+      return null;
+    }
+
+    if (typeof value === 'string') {
+      return value;
+    }
+
+    return value instanceof Date ? value.toISOString() : null;
   }
 
   private roundMetric(value: number) {

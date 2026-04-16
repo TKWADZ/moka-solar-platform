@@ -7,7 +7,13 @@ import { formatCurrency, formatDateTime, formatNumber } from '@/lib/utils';
 import { CustomerDashboardData } from '@/types';
 
 function formatMeterReading(value?: number | null) {
-  return value != null ? value.toLocaleString('vi-VN') : 'Chưa áp dụng đo chỉ số';
+  if (value == null) {
+    return 'Chưa áp dụng đo chỉ số';
+  }
+
+  return new Intl.NumberFormat('vi-VN', {
+    maximumFractionDigits: 1,
+  }).format(value);
 }
 
 export default function CustomerMetersPage() {

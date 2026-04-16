@@ -21,6 +21,8 @@ type CumulativePvReadingRecord = {
   year?: number | null;
   month?: number | null;
   pvGenerationKwh?: unknown;
+  monthlyPvKwh?: unknown;
+  productionKwh?: unknown;
 };
 
 type CumulativePvReadingValue = {
@@ -87,6 +89,21 @@ function normalizeCumulativeValue(value: number) {
   }
 
   return Number(value.toFixed(6));
+}
+
+function resolveCumulativeProductionKwh(record: CumulativePvReadingRecord) {
+  const candidates = [
+    toNumber(record.pvGenerationKwh),
+    toNumber(record.monthlyPvKwh),
+    toNumber(record.productionKwh),
+  ].filter((value): value is number => value !== null && value !== undefined);
+
+  const preferredNonZero = candidates.find((value) => Math.abs(value) > 0);
+  if (preferredNonZero !== undefined) {
+    return preferredNonZero;
+  }
+
+  return candidates[0] ?? 0;
 }
 
 export function extractOperationalPeriodMetrics(record: RecordLike | null | undefined) {
@@ -292,7 +309,7 @@ export function buildCumulativePvReadingLookups(
     let cumulative = 0;
 
     for (const item of items) {
-      const pvGeneration = toNumber(item.pvGenerationKwh) ?? 0;
+      const pvGeneration = resolveCumulativeProductionKwh(item);
       const previousReading = normalizeCumulativeValue(cumulative);
       cumulative = normalizeCumulativeValue(cumulative + pvGeneration);
       const currentReading = cumulative;
