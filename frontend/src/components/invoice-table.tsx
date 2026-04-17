@@ -7,7 +7,7 @@ import { InvoiceRow } from '@/types';
 import { StatusPill } from './status-pill';
 
 function formatReading(value?: number | null) {
-  return formatBillingMeterReading(value);
+  return value == null ? '—' : formatBillingMeterReading(value);
 }
 
 function formatUsage(value?: number | null) {

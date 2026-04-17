@@ -67,6 +67,97 @@ function toInvoiceRows(invoices: Array<Record<string, unknown>>) {
   });
 }
 
+type CustomerMeterHistoryEntry = CustomerDashboardData['meterHistory'][number];
+
+function parseBillingNumber(value: unknown) {
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  let normalized = trimmed.replace(/\s+/g, '').replace(/[^\d,.-]/g, '');
+  if (!normalized) {
+    return null;
+  }
+
+  if (normalized.includes(',') && normalized.includes('.')) {
+    normalized = normalized.replace(/\./g, '').replace(/,/g, '.');
+  } else if (normalized.includes(',')) {
+    normalized = normalized.replace(/,/g, '.');
+  } else if (/^-?\d{1,3}(\.\d{3})+$/.test(normalized)) {
+    normalized = normalized.replace(/\./g, '');
+  }
+
+  const numeric = Number(normalized);
+  return Number.isFinite(numeric) ? numeric : null;
+}
+
+function buildMeterHistoryPeriodLookup(rows: CustomerMeterHistoryEntry[]) {
+  return new Map(rows.map((row) => [`${row.year}-${row.month}`, row] as const));
+}
+
+function mergeInvoiceRowsWithMeterHistory(
+  rows: InvoiceRow[],
+  invoices: Array<Record<string, unknown>>,
+  meterHistory: CustomerMeterHistoryEntry[],
+) {
+  const meterHistoryByPeriod = buildMeterHistoryPeriodLookup(meterHistory);
+
+  return rows.map((row, index) => {
+    const invoice = invoices[index] as InvoiceRecord | undefined;
+    if (!invoice) {
+      return row;
+    }
+
+    const matchedPeriod = meterHistoryByPeriod.get(
+      `${invoice.billingYear}-${invoice.billingMonth}`,
+    );
+    const fallbackPreviousReading = parseBillingNumber(invoice.periodMetrics?.previousReading);
+    const fallbackCurrentReading = parseBillingNumber(invoice.periodMetrics?.currentReading);
+    const fallbackLoadConsumedKwh = parseBillingNumber(invoice.periodMetrics?.loadConsumedKwh);
+    const resolvedPreviousReading = matchedPeriod?.previousReading ?? fallbackPreviousReading;
+    const resolvedCurrentReading = matchedPeriod?.currentReading ?? fallbackCurrentReading;
+    const resolvedLoadConsumedKwh = matchedPeriod?.loadConsumedKwh ?? fallbackLoadConsumedKwh;
+    const resolvedSourceLabel =
+      matchedPeriod?.sourceLabel ||
+      row.billingDetails?.sourceLabel ||
+      row.sourceLabel ||
+      (typeof invoice.periodMetrics?.sourceLabel === 'string'
+        ? invoice.periodMetrics.sourceLabel
+        : null);
+
+    return {
+      ...row,
+      loadConsumedKwh: resolvedLoadConsumedKwh,
+      previousReading: resolvedPreviousReading,
+      currentReading: resolvedCurrentReading,
+      sourceLabel: resolvedSourceLabel,
+      billingDetails: row.billingDetails
+        ? {
+            ...row.billingDetails,
+            loadConsumedKwh:
+              matchedPeriod?.loadConsumedKwh ??
+              row.billingDetails.loadConsumedKwh ??
+              resolvedLoadConsumedKwh,
+            previousReading:
+              resolvedPreviousReading ?? row.billingDetails.previousReading ?? null,
+            currentReading:
+              resolvedCurrentReading ?? row.billingDetails.currentReading ?? null,
+            sourceLabel: resolvedSourceLabel,
+          }
+        : row.billingDetails,
+    } satisfies InvoiceRow;
+  });
+}
+
 function formatUsage(value?: number | null) {
   return value != null ? formatNumber(value, 'kWh') : 'Chưa có dữ liệu';
 }
@@ -174,10 +265,18 @@ export default function CustomerPage() {
     dashboard,
   ]);
 
-  const invoiceRows = useMemo(
-    () => (dashboard ? toInvoiceRows(dashboard.invoices.slice(0, 6)) : []),
-    [dashboard],
-  );
+  const invoiceRows = useMemo(() => {
+    if (!dashboard) {
+      return [];
+    }
+
+    const sourceInvoices = dashboard.invoices.slice(0, 6);
+    return mergeInvoiceRowsWithMeterHistory(
+      toInvoiceRows(sourceInvoices),
+      sourceInvoices,
+      meterHistory,
+    );
+  }, [dashboard, meterHistory]);
 
   const currentPeriod = meterHistory[0] || null;
   const headingText = dark ? 'text-white' : 'text-slate-950';
