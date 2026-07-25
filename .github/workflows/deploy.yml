@@ -385,8 +385,8 @@ jobs:
             print_section "Final host checks"
             curl -fsS http://127.0.0.1:4000/api/health
             curl -I -fsS http://127.0.0.1:3000/
-            curl -I -fsS http://127.0.0.1/
-            curl -fsS http://127.0.0.1/api/health
+            curl -I -fsS -H 'Host: mokasolar.com' http://127.0.0.1/
+            curl -fsS -H 'Host: mokasolar.com' http://127.0.0.1/api/health
 
             print_section "Final service state"
             (ss -ltnp 2>/dev/null | grep -E ':(3000|4000)\s' || true)
