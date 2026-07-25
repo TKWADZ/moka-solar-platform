@@ -69,8 +69,8 @@ jobs:
             ($SUDO systemctl status nginx --no-pager -l || true)
 
             print_section "Nginx logs"
-            ($SUDO tail -n 120 /var/log/nginx/error.log || true)
-            ($SUDO tail -n 120 /var/log/nginx/access.log || true)
+            ($SUDO tail -n 60 /var/log/nginx/error.log | grep -iE 'connect\(|upstream|error|failed' || true)
+            ($SUDO tail -n 20 /var/log/nginx/access.log || true)
 
             stack_mode=""
             project_dir=""
