@@ -4,6 +4,11 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+
+concurrency:
+  group: mokasolar-production-deploy
+  cancel-in-progress: false
 
 jobs:
   deploy:
@@ -16,163 +21,279 @@ jobs:
           host: ${{ secrets.HOST }}
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_KEY }}
+          script_stop: true
+          command_timeout: 45m
           script: |
-            ~/deploy.sh
-            REDEPLOY_DONE=0
-            PROJECT_DIRS=""
-            INSPECT_DIR=""
-            INSPECT_CONFIG_FILES=""
+            set -eu
 
-            if command -v docker >/dev/null 2>&1 && docker ps -a --format '{{.Names}}' | grep -q '^moka_solar_backend$'; then
-              INSPECT_DIR="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' moka_solar_backend 2>/dev/null || true)"
-              INSPECT_CONFIG_FILES="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project.config_files" }}' moka_solar_backend 2>/dev/null || true)"
-              if [ -n "$INSPECT_DIR" ]; then
-                PROJECT_DIRS="$INSPECT_DIR"
+            timestamp="$(date +%Y%m%d-%H%M%S)"
+            backup_root="$HOME/moka-solar-backups/$timestamp"
+            mkdir -p "$backup_root"
+
+            print_section() {
+              echo
+              echo "===== $1 ====="
+            }
+
+            backup_file() {
+              file_path="$1"
+              if [ -f "$file_path" ]; then
+                dest_dir="$backup_root$(dirname "$file_path")"
+                mkdir -p "$dest_dir"
+                cp "$file_path" "$dest_dir/"
               fi
-            fi
-
-            if [ -z "$PROJECT_DIRS" ]; then
-              PROJECT_DIRS="$(find "$HOME" /opt /srv /var/www -maxdepth 7 -type f \( -name 'docker-compose.prod.yml' -o -name 'docker-compose.yml' -o -name 'compose.yml' -o -name 'compose.yaml' \) 2>/dev/null | sed -E 's|/(docker-compose\.prod\.yml|docker-compose\.yml|compose\.yml|compose\.yaml)$||' | sort -u)"
-            fi
-
-            for dir in $PROJECT_DIRS; do
-              if [ ! -d "$dir" ]; then
-                continue
-              fi
-
-              COMPOSE_ARGS=""
-              if [ "$dir" = "$INSPECT_DIR" ] && [ -n "$INSPECT_CONFIG_FILES" ]; then
-                OLD_IFS="$IFS"
-                IFS=','
-                for cfg in $INSPECT_CONFIG_FILES; do
-                  case "$cfg" in
-                    /*) cfg_path="$cfg" ;;
-                    *) cfg_path="$dir/$cfg" ;;
-                  esac
-                  if [ -f "$cfg_path" ]; then
-                    COMPOSE_ARGS="$COMPOSE_ARGS -f $cfg_path"
-                  fi
-                done
-                IFS="$OLD_IFS"
-              fi
-
-              if [ -z "$COMPOSE_ARGS" ]; then
-                for candidate in docker-compose.prod.yml docker-compose.yml compose.yml compose.yaml; do
-                  if [ -f "$dir/$candidate" ]; then
-                    COMPOSE_ARGS="$COMPOSE_ARGS -f $dir/$candidate"
-                  fi
-                done
-              fi
-
-              if [ -z "$COMPOSE_ARGS" ]; then
-                continue
-              fi
-
-              if [ "$dir" != "$INSPECT_DIR" ] && ! (cd "$dir" && docker compose --project-directory "$dir" $COMPOSE_ARGS config --services 2>/dev/null | grep -q '^backend$'); then
-                continue
-              fi
-
-              echo "Rebuilding compose stack in $dir with:$COMPOSE_ARGS"
-                (
-                  cd "$dir" && \
-                  if [ -d ".git" ]; then \
-                    git fetch origin main && \
-                    git checkout main && \
-                    git pull --ff-only origin main; \
-                  fi && \
-                  if [ -f ".env" ]; then \
-                    if grep -q '^ZALO_DRY_RUN=' .env; then \
-                      sed -i 's/^ZALO_DRY_RUN=.*/ZALO_DRY_RUN=false/' .env; \
-                    else \
-                      printf '\nZALO_DRY_RUN=false\n' >> .env; \
-                    fi; \
-                  fi && \
-                  docker compose --project-directory "$dir" $COMPOSE_ARGS build backend frontend && \
-                  docker compose --project-directory "$dir" $COMPOSE_ARGS up -d backend frontend && \
-                  docker exec moka_solar_backend sh -lc "cd /app && npx prisma migrate deploy"
-                ) && REDEPLOY_DONE=1 && break
-            done
-
-            if [ "$REDEPLOY_DONE" -ne 1 ] && command -v pm2 >/dev/null 2>&1; then
-              PM2_PROJECT_DIRS="$(find "$HOME" /opt /srv /var/www -maxdepth 7 -type f -name 'ecosystem.config.js' 2>/dev/null | sed 's|/ecosystem.config.js$||' | sort -u)"
-
-              for dir in $PM2_PROJECT_DIRS; do
-                if [ ! -f "$dir/ecosystem.config.js" ]; then
-                  continue
-                fi
-
-                if ! grep -q 'moka-solar-backend' "$dir/ecosystem.config.js" 2>/dev/null; then
-                  continue
-                fi
-
-                if [ ! -d "$dir/backend" ] || [ ! -d "$dir/frontend" ]; then
-                  continue
-                fi
-
-                echo "Rebuilding PM2 app in $dir"
-                (
-                  cd "$dir" && \
-                  if [ -d ".git" ]; then \
-                    git fetch origin main && \
-                    git checkout main && \
-                    git pull --ff-only origin main; \
-                  fi && \
-                  if [ -f ".env" ]; then \
-                    if grep -q '^ZALO_DRY_RUN=' .env; then \
-                      sed -i 's/^ZALO_DRY_RUN=.*/ZALO_DRY_RUN=false/' .env; \
-                    else \
-                      printf '\nZALO_DRY_RUN=false\n' >> .env; \
-                    fi; \
-                  fi && \
-                  cd backend && \
-                  npm install && \
-                  npx prisma generate && \
-                  npx prisma migrate deploy && \
-                  npm run build && \
-                  cd ../frontend && \
-                  npm install && \
-                  npm run build && \
-                  cd .. && \
-                  (pm2 startOrReload ecosystem.config.js --update-env || pm2 start ecosystem.config.js --update-env || pm2 restart moka-solar-backend moka-solar-frontend)
-                ) && REDEPLOY_DONE=1 && break
-              done
-            fi
-
-            if [ "$REDEPLOY_DONE" -ne 1 ]; then
-              echo "Could not locate a production docker-compose or PM2 stack for Moka Solar"
-              exit 1
-            fi
+            }
 
             SUDO=""
             if command -v sudo >/dev/null 2>&1; then
               SUDO="sudo"
             fi
 
-            NGINX_FIX_APPLIED=0
-            for dir in /etc/nginx/sites-enabled /etc/nginx/sites-available /etc/nginx/conf.d; do
-              if [ ! -d "$dir" ]; then
-                continue
-              fi
+            print_section "Host diagnostics"
+            date
+            uname -a || true
+            uptime || true
+            df -h || true
+            df -i || true
+            free -m || true
+            swapon --show || true
+            ($SUDO journalctl -k -n 200 --no-pager | grep -iE 'oom|killed process|out of memory' || true)
 
-              files="$($SUDO grep -RIl 'proxy_pass http://127.0.0.1:4000/;' "$dir" 2>/dev/null || true)"
+            print_section "Current listeners"
+            (ss -ltnp 2>/dev/null | grep -E ':(3000|4000)\s' || true)
 
-              if [ -z "$files" ]; then
-                continue
-              fi
+            print_section "Current services"
+            (docker ps -a --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' || true)
+            (pm2 status || true)
+            ($SUDO systemctl status docker --no-pager -l || true)
+            ($SUDO systemctl status nginx --no-pager -l || true)
 
-              echo "$files" | while IFS= read -r file; do
-                if [ -n "$file" ]; then
-                  $SUDO sed -i 's|proxy_pass http://127.0.0.1:4000/;|proxy_pass http://127.0.0.1:4000;|g' "$file"
+            print_section "Nginx logs"
+            ($SUDO tail -n 120 /var/log/nginx/error.log || true)
+            ($SUDO tail -n 120 /var/log/nginx/access.log || true)
+
+            stack_mode=""
+            project_dir=""
+            compose_file=""
+            ecosystem_file=""
+
+            if command -v docker >/dev/null 2>&1; then
+              if docker ps -a --format '{{.Names}}' | grep -qx 'moka_solar_backend'; then
+                inspect_dir="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' moka_solar_backend 2>/dev/null || true)"
+                if [ -n "$inspect_dir" ] && [ -f "$inspect_dir/docker-compose.prod.yml" ]; then
+                  stack_mode="docker"
+                  project_dir="$inspect_dir"
+                  compose_file="$inspect_dir/docker-compose.prod.yml"
                 fi
-              done
+              fi
+            fi
 
-              NGINX_FIX_APPLIED=1
+            if [ -z "$stack_mode" ]; then
+              compose_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'docker-compose.prod.yml' 2>/dev/null | head -n 1 || true)"
+              if [ -n "$compose_candidate" ]; then
+                stack_mode="docker"
+                project_dir="$(dirname "$compose_candidate")"
+                compose_file="$compose_candidate"
+              fi
+            fi
+
+            if [ -z "$stack_mode" ] && command -v pm2 >/dev/null 2>&1; then
+              ecosystem_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'ecosystem.config.js' 2>/dev/null | head -n 1 || true)"
+              if [ -n "$ecosystem_candidate" ]; then
+                stack_mode="pm2"
+                project_dir="$(dirname "$ecosystem_candidate")"
+                ecosystem_file="$ecosystem_candidate"
+              fi
+            fi
+
+            if [ -z "$stack_mode" ] || [ -z "$project_dir" ]; then
+              echo "Could not determine the active production stack"
+              exit 1
+            fi
+
+            print_section "Selected production stack"
+            echo "stack_mode=$stack_mode"
+            echo "project_dir=$project_dir"
+            [ -n "$compose_file" ] && echo "compose_file=$compose_file"
+            [ -n "$ecosystem_file" ] && echo "ecosystem_file=$ecosystem_file"
+
+            cd "$project_dir"
+
+            if [ -f ".env" ]; then
+              backup_file "$project_dir/.env"
+            fi
+
+            if [ -d ".git" ]; then
+              print_section "Git status before sync"
+              git status --short || true
+
+              if [ -n "$(git status --porcelain)" ]; then
+                git diff > "$backup_root/repo-local.diff" || true
+                git diff --cached > "$backup_root/repo-staged.diff" || true
+                git stash push -m "codex-production-recover-$timestamp" || true
+              fi
+
+              git fetch origin main
+              git checkout main
+              git pull --ff-only origin main
+            fi
+
+            print_section "Back up production config"
+            backup_file "$project_dir/docker-compose.prod.yml"
+            backup_file "$project_dir/docker-compose.yml"
+            backup_file "$project_dir/ecosystem.config.js"
+
+            for file in $($SUDO grep -RIl 'mokasolar.com' /etc/nginx/sites-enabled /etc/nginx/sites-available /etc/nginx/conf.d 2>/dev/null || true); do
+              [ -n "$file" ] || continue
+              backup_file "$file"
             done
 
-            if [ "$NGINX_FIX_APPLIED" -eq 1 ]; then
-              $SUDO nginx -t
-              ($SUDO systemctl reload nginx || $SUDO service nginx reload || $SUDO nginx -s reload)
+            print_section "Current Nginx upstream config"
+            ($SUDO grep -RIn 'mokasolar.com\|proxy_pass\|frontend:3000\|backend:4000\|127\.0\.0\.1:3000\|127\.0\.0\.1:4000' /etc/nginx/sites-enabled /etc/nginx/sites-available /etc/nginx/conf.d 2>/dev/null || true)
+
+            if [ "$stack_mode" = "docker" ]; then
+              print_section "Docker compose production deploy"
+
+              ($SUDO systemctl start docker || true)
+              docker info --format 'Docker server {{.ServerVersion}}'
+
+              if command -v pm2 >/dev/null 2>&1; then
+                (pm2 describe moka-solar-backend >/dev/null 2>&1 && pm2 stop moka-solar-backend || true)
+                (pm2 describe moka-solar-frontend >/dev/null 2>&1 && pm2 stop moka-solar-frontend || true)
+              fi
+
+              docker compose -f "$compose_file" config --services
+
+              if docker ps -a --format '{{.Names}}' | grep -qx 'moka_solar_db'; then
+                print_section "PostgreSQL backup"
+                docker exec moka_solar_db sh -lc 'export PGPASSWORD="$POSTGRES_PASSWORD"; pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --format=custom' > "$backup_root/moka_solar_db.dump" || true
+              fi
+
+              docker compose -f "$compose_file" up -d db
+
+              db_ready=0
+              for _attempt in $(seq 1 40); do
+                db_status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' moka_solar_db 2>/dev/null || echo missing)"
+                echo "db_status=$db_status"
+                if [ "$db_status" = "healthy" ] || [ "$db_status" = "running" ]; then
+                  db_ready=1
+                  break
+                fi
+                sleep 3
+              done
+
+              if [ "$db_ready" -ne 1 ]; then
+                docker logs --tail 200 moka_solar_db || true
+                exit 1
+              fi
+
+              docker compose -f "$compose_file" build backend frontend
+              docker compose -f "$compose_file" up -d backend frontend
+              docker compose -f "$compose_file" ps
+
+              docker exec moka_solar_backend sh -lc "cd /app && npx prisma migrate deploy"
+
+              backend_ready=0
+              for _attempt in $(seq 1 50); do
+                if curl -fsS http://127.0.0.1:4000/api/health >/tmp/moka-api-health.json 2>/dev/null; then
+                  backend_ready=1
+                  break
+                fi
+                sleep 3
+              done
+
+              if [ "$backend_ready" -ne 1 ]; then
+                print_section "Backend failure logs"
+                docker logs --tail 200 moka_solar_backend || true
+                docker logs --tail 200 moka_solar_db || true
+                exit 1
+              fi
+
+              frontend_ready=0
+              for _attempt in $(seq 1 50); do
+                if curl -fsS http://127.0.0.1:3000/ >/dev/null 2>&1; then
+                  frontend_ready=1
+                  break
+                fi
+                sleep 3
+              done
+
+              if [ "$frontend_ready" -ne 1 ]; then
+                print_section "Frontend failure logs"
+                docker logs --tail 200 moka_solar_frontend || true
+                exit 1
+              fi
+
+              print_section "Container logs"
+              docker logs --tail 80 moka_solar_db || true
+              docker logs --tail 80 moka_solar_backend || true
+              docker logs --tail 80 moka_solar_frontend || true
+            else
+              print_section "PM2 production deploy"
+
+              if [ ! -f "$ecosystem_file" ]; then
+                echo "Missing ecosystem file for PM2 deploy"
+                exit 1
+              fi
+
+              cd "$project_dir/backend"
+              npm install
+              npx prisma generate
+              npx prisma migrate deploy
+              npm run build
+
+              cd "$project_dir/frontend"
+              npm install
+              npm run build
+
+              cd "$project_dir"
+              pm2 startOrReload "$ecosystem_file" --update-env
+              pm2 save
+              pm2 status
+
+              backend_ready=0
+              for _attempt in $(seq 1 50); do
+                if curl -fsS http://127.0.0.1:4000/api/health >/tmp/moka-api-health.json 2>/dev/null; then
+                  backend_ready=1
+                  break
+                fi
+                sleep 3
+              done
+
+              if [ "$backend_ready" -ne 1 ]; then
+                print_section "PM2 backend logs"
+                pm2 logs moka-solar-backend --lines 200 --nostream || true
+                exit 1
+              fi
+
+              frontend_ready=0
+              for _attempt in $(seq 1 50); do
+                if curl -fsS http://127.0.0.1:3000/ >/dev/null 2>&1; then
+                  frontend_ready=1
+                  break
+                fi
+                sleep 3
+              done
+
+              if [ "$frontend_ready" -ne 1 ]; then
+                print_section "PM2 frontend logs"
+                pm2 logs moka-solar-frontend --lines 200 --nostream || true
+                exit 1
+              fi
             fi
+
+            print_section "Normalize Nginx production upstreams"
+            for file in $($SUDO grep -RIl 'mokasolar.com' /etc/nginx/sites-enabled /etc/nginx/sites-available /etc/nginx/conf.d 2>/dev/null || true); do
+              [ -n "$file" ] || continue
+              backup_file "$file"
+              $SUDO sed -i 's|proxy_pass http://127.0.0.1:4000/;|proxy_pass http://127.0.0.1:4000;|g' "$file"
+              $SUDO sed -i 's|proxy_pass http://127.0.0.1:4000/api/;|proxy_pass http://127.0.0.1:4000;|g' "$file"
+              $SUDO sed -i 's|proxy_pass http://frontend:3000;|proxy_pass http://127.0.0.1:3000;|g' "$file"
+              $SUDO sed -i 's|proxy_pass http://backend:4000/;|proxy_pass http://127.0.0.1:4000;|g' "$file"
+              $SUDO sed -i 's|proxy_pass http://backend:4000;|proxy_pass http://127.0.0.1:4000;|g' "$file"
+              $SUDO sed -i 's|set $frontend_upstream http://frontend:3000;|set $frontend_upstream http://127.0.0.1:3000;|g' "$file"
+              $SUDO sed -i 's|set $backend_upstream http://backend:4000;|set $backend_upstream http://127.0.0.1:4000;|g' "$file"
+            done
 
             python3 - <<'PY'
             from pathlib import Path
@@ -201,7 +322,6 @@ jobs:
                     "server_name mokasolar.com www.mokasolar.com;\n",
                     "server_name mokasolar.com www.mokasolar.com;\n" + redirect_line,
                 )
-
                 updated = updated.replace(
                     "server_name www.mokasolar.com mokasolar.com;\n",
                     "server_name www.mokasolar.com mokasolar.com;\n" + redirect_line,
@@ -211,44 +331,18 @@ jobs:
                     file_path.write_text(updated)
             PY
 
+            print_section "Validate and reload Nginx"
             $SUDO nginx -t
             ($SUDO systemctl reload nginx || $SUDO service nginx reload || $SUDO nginx -s reload)
 
-            if command -v docker >/dev/null 2>&1 && docker ps --format '{{.Names}}' | grep -q '^moka_solar_backend$'; then
-              docker exec moka_solar_backend sh -lc "cd /app && BOOTSTRAP_ADMIN_EMAIL=admin@mokasolar.com BOOTSTRAP_ADMIN_PASSWORD=123456 BOOTSTRAP_ADMIN_NAME='Moka Solar Admin' npm run admin:reset"
-            fi
+            print_section "Final host checks"
+            curl -fsS http://127.0.0.1:4000/api/health
+            curl -I -fsS http://127.0.0.1:3000/
+            curl -I -fsS http://127.0.0.1/
+            curl -fsS http://127.0.0.1/api/health
 
-            if ! command -v docker >/dev/null 2>&1 || ! docker ps --format '{{.Names}}' | grep -q '^moka_solar_backend$'; then
-              BACKEND_DIRS="$(find "$HOME" -maxdepth 5 -type f \( -path '*/backend/package.json' -o -path '*/dist/src/admin-reset.js' -o -path '*/src/admin-reset.ts' \) 2>/dev/null | sed -e 's|/package.json$||' -e 's|/dist/src/admin-reset.js$||' -e 's|/src/admin-reset.ts$||' | sort -u)"
-
-              RESET_DONE=0
-              for dir in $BACKEND_DIRS; do
-                if [ ! -d "$dir" ]; then
-                  continue
-                fi
-
-                if [ -f "$dir/dist/src/admin-reset.js" ]; then
-                  (
-                    cd "$dir" && \
-                    BOOTSTRAP_ADMIN_EMAIL=admin@mokasolar.com \
-                    BOOTSTRAP_ADMIN_PASSWORD=123456 \
-                    BOOTSTRAP_ADMIN_NAME='Moka Solar Admin' \
-                    npm run admin:reset
-                  ) && RESET_DONE=1 && break
-                fi
-
-                if [ -f "$dir/src/admin-reset.ts" ] && command -v npx >/dev/null 2>&1; then
-                  (
-                    cd "$dir" && \
-                    BOOTSTRAP_ADMIN_EMAIL=admin@mokasolar.com \
-                    BOOTSTRAP_ADMIN_PASSWORD=123456 \
-                    BOOTSTRAP_ADMIN_NAME='Moka Solar Admin' \
-                    npx ts-node src/admin-reset.ts
-                  ) && RESET_DONE=1 && break
-                fi
-              done
-
-              if [ "$RESET_DONE" -ne 1 ]; then
-                echo "Could not locate backend to reset admin account"
-              fi
-            fi
+            print_section "Final service state"
+            (ss -ltnp 2>/dev/null | grep -E ':(3000|4000)\s' || true)
+            (docker ps -a --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' || true)
+            (pm2 status || true)
+            ($SUDO tail -n 80 /var/log/nginx/error.log || true)
