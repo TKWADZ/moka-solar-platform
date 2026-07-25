@@ -24,7 +24,7 @@ jobs:
           script_stop: true
           command_timeout: 45m
           script: |
-            set -eu
+            set -eux
 
             timestamp="$(date +%Y%m%d-%H%M%S)"
             backup_root="$HOME/moka-solar-backups/$timestamp"
