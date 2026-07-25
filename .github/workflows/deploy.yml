@@ -375,41 +375,8 @@ jobs:
               $SUDO sed -i 's|set $backend_upstream http://backend:4000;|set $backend_upstream http://127.0.0.1:4000;|g' "$file"
             done
 
-            python3 - <<'PY'
-            from pathlib import Path
-
-            redirect_line = "    if ($host = www.mokasolar.com) {\n        return 301 https://mokasolar.com$request_uri;\n    }\n"
-            candidates = []
-            for root in ("/etc/nginx/sites-enabled", "/etc/nginx/sites-available", "/etc/nginx/conf.d"):
-                path = Path(root)
-                if not path.exists():
-                    continue
-                candidates.extend([item for item in path.rglob("*") if item.is_file()])
-
-            for file_path in candidates:
-                try:
-                    text = file_path.read_text()
-                except Exception:
-                    continue
-
-                if "mokasolar.com" not in text:
-                    continue
-
-                if "www.mokasolar.com" in text and "return 301 https://mokasolar.com$request_uri;" in text:
-                    continue
-
-                updated = text.replace(
-                    "server_name mokasolar.com www.mokasolar.com;\n",
-                    "server_name mokasolar.com www.mokasolar.com;\n" + redirect_line,
-                )
-                updated = updated.replace(
-                    "server_name www.mokasolar.com mokasolar.com;\n",
-                    "server_name www.mokasolar.com mokasolar.com;\n" + redirect_line,
-                )
-
-                if updated != text:
-                    file_path.write_text(updated)
-            PY
+            print_section "Current redirect rules"
+            ($SUDO grep -RIn 'return 301 https://mokasolar.com\$request_uri;' /etc/nginx/sites-enabled /etc/nginx/sites-available /etc/nginx/conf.d 2>/dev/null || true)
 
             print_section "Validate and reload Nginx"
             $SUDO nginx -t
