@@ -118,6 +118,9 @@ jobs:
             [ -n "$ecosystem_file" ] && echo "ecosystem_file=$ecosystem_file"
 
             cd "$project_dir"
+            print_section "Project directory"
+            pwd || true
+            ls -la || true
 
             if [ -f ".env" ]; then
               backup_file "$project_dir/.env"
@@ -125,17 +128,37 @@ jobs:
 
             if [ -d ".git" ]; then
               print_section "Git status before sync"
+              git rev-parse --show-toplevel || true
+              git branch --show-current || true
+              git remote -v || true
               git status --short || true
 
-              if [ -n "$(git status --porcelain)" ]; then
+              repo_dirty=0
+              if git status --porcelain >/tmp/moka-git-status.txt 2>/tmp/moka-git-status.err; then
+                if [ -s /tmp/moka-git-status.txt ]; then
+                  repo_dirty=1
+                fi
+              else
+                echo "WARN: git status --porcelain failed; continuing without repo cleanliness check"
+                cat /tmp/moka-git-status.err || true
+              fi
+
+              if [ "$repo_dirty" -eq 1 ]; then
                 git diff > "$backup_root/repo-local.diff" || true
                 git diff --cached > "$backup_root/repo-staged.diff" || true
                 git stash push -m "codex-production-recover-$timestamp" || true
               fi
 
-              git fetch origin main
-              git checkout main
-              git pull --ff-only origin main
+              if ! git fetch origin main; then
+                echo "WARN: git fetch origin main failed; continuing with current checkout"
+              fi
+              if ! git checkout main; then
+                echo "WARN: git checkout main failed; continuing with current checkout"
+              fi
+              if ! git pull --ff-only origin main; then
+                echo "WARN: git pull --ff-only origin main failed; continuing with current checkout"
+              fi
+              git rev-parse --short HEAD || true
             fi
 
             print_section "Back up production config"
