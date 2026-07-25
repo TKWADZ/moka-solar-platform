@@ -2,6 +2,7 @@ import './common/helpers/bootstrap-env';
 import * as bcrypt from 'bcrypt';
 import { PrismaClient } from '@prisma/client';
 import {
+  isValidEmail,
   normalizeEmail,
   normalizeVietnamPhone,
 } from './common/helpers/identity.helper';
@@ -12,18 +13,42 @@ function readEnv(name: string) {
   return process.env[name]?.trim();
 }
 
+function requireEnv(name: string) {
+  const value = readEnv(name);
+
+  if (!value) {
+    throw new Error(`${name} is required.`);
+  }
+
+  return value;
+}
+
+function validateAdminPassword(password: string) {
+  const knownWeakPasswords = new Set([
+    '123456',
+    'admin',
+    'changeme',
+    'password',
+  ]);
+
+  if (password.length < 16 || knownWeakPasswords.has(password.toLowerCase())) {
+    throw new Error(
+      'BOOTSTRAP_ADMIN_PASSWORD must be at least 16 characters and must not be a known default.',
+    );
+  }
+}
+
 async function main() {
-  const email = normalizeEmail(readEnv('BOOTSTRAP_ADMIN_EMAIL') || 'admin@mokasolar.com');
+  const email = normalizeEmail(requireEnv('BOOTSTRAP_ADMIN_EMAIL'));
   const phone = normalizeVietnamPhone(readEnv('BOOTSTRAP_ADMIN_PHONE'));
-  const password = readEnv('BOOTSTRAP_ADMIN_PASSWORD') || '123456';
+  const password = requireEnv('BOOTSTRAP_ADMIN_PASSWORD');
   const fullName = readEnv('BOOTSTRAP_ADMIN_NAME') || 'Moka Operations Admin';
 
-  const adminRole = await prisma.role.upsert({
-    where: { code: 'ADMIN' },
-    update: { name: 'Admin' },
-    create: { code: 'ADMIN', name: 'Admin' },
-  });
+  if (!isValidEmail(email)) {
+    throw new Error('BOOTSTRAP_ADMIN_EMAIL must be a valid email address.');
+  }
 
+  validateAdminPassword(password);
   const passwordHash = await bcrypt.hash(password, 10);
 
   const existingUser =
@@ -38,35 +63,60 @@ async function main() {
         })
       : null);
 
-  const user = existingUser
-    ? await prisma.user.update({
-        where: { id: existingUser.id },
-        data: {
-          email,
-          phone,
-          phoneVerifiedAt: phone ? new Date() : null,
-          fullName,
-          passwordHash,
-          roleId: adminRole.id,
-          deletedAt: null,
-        },
-        include: {
-          role: true,
-        },
-      })
-    : await prisma.user.create({
-        data: {
-          email,
-          phone,
-          phoneVerifiedAt: phone ? new Date() : null,
-          fullName,
-          passwordHash,
-          roleId: adminRole.id,
-        },
-        include: {
-          role: true,
-        },
-      });
+  const now = new Date();
+  const user = await prisma.$transaction(async (transaction) => {
+    const adminRole = await transaction.role.upsert({
+      where: { code: 'ADMIN' },
+      update: { name: 'Admin' },
+      create: { code: 'ADMIN', name: 'Admin' },
+    });
+
+    const updatedUser = existingUser
+      ? await transaction.user.update({
+          where: { id: existingUser.id },
+          data: {
+            email,
+            phone,
+            phoneVerifiedAt: phone ? now : null,
+            fullName,
+            passwordHash,
+            roleId: adminRole.id,
+            refreshToken: null,
+            failedPasswordLoginCount: 0,
+            lockedUntil: null,
+            deletedAt: null,
+          },
+          include: {
+            role: true,
+          },
+        })
+      : await transaction.user.create({
+          data: {
+            email,
+            phone,
+            phoneVerifiedAt: phone ? now : null,
+            fullName,
+            passwordHash,
+            roleId: adminRole.id,
+          },
+          include: {
+            role: true,
+          },
+        });
+
+    await transaction.authSession.updateMany({
+      where: {
+        userId: updatedUser.id,
+        revokedAt: null,
+      },
+      data: {
+        revokedAt: now,
+        revokedReason: 'ADMIN_PASSWORD_RESET',
+      },
+    });
+
+    return updatedUser;
+  });
 
   console.log(
     JSON.stringify(
