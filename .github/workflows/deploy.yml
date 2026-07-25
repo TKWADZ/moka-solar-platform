@@ -192,26 +192,42 @@ jobs:
             if [ "$stack_mode" = "docker" ]; then
               print_section "Docker compose production deploy"
 
-              ($SUDO systemctl start docker || true)
-              docker info --format 'Docker server {{.ServerVersion}}'
+              docker_run() {
+                docker "$@"
+              }
+
+              ($SUDO systemctl start docker || $SUDO service docker start || $SUDO snap start docker || true)
+
+              if ! docker version >/dev/null 2>&1; then
+                if [ -n "$SUDO" ] && $SUDO docker version >/dev/null 2>&1; then
+                  docker_run() {
+                    $SUDO docker "$@"
+                  }
+                else
+                  echo "Docker CLI/daemon is not accessible for the SSH user"
+                  exit 1
+                fi
+              fi
+
+              docker_run version --format 'Docker server {{.ServerVersion}}'
 
               if command -v pm2 >/dev/null 2>&1; then
                 (pm2 describe moka-solar-backend >/dev/null 2>&1 && pm2 stop moka-solar-backend || true)
                 (pm2 describe moka-solar-frontend >/dev/null 2>&1 && pm2 stop moka-solar-frontend || true)
               fi
 
-              docker compose -f "$compose_file" config --services
+              docker_run compose -f "$compose_file" config --services
 
-              if docker ps -a --format '{{.Names}}' | grep -qx 'moka_solar_db'; then
+              if docker_run ps -a --format '{{.Names}}' | grep -qx 'moka_solar_db'; then
                 print_section "PostgreSQL backup"
-                docker exec moka_solar_db sh -lc 'export PGPASSWORD="$POSTGRES_PASSWORD"; pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --format=custom' > "$backup_root/moka_solar_db.dump" || true
+                docker_run exec moka_solar_db sh -lc 'export PGPASSWORD="$POSTGRES_PASSWORD"; pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --format=custom' > "$backup_root/moka_solar_db.dump" || true
               fi
 
-              docker compose -f "$compose_file" up -d db
+              docker_run compose -f "$compose_file" up -d db
 
               db_ready=0
               for _attempt in $(seq 1 40); do
-                db_status="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' moka_solar_db 2>/dev/null || echo missing)"
+                db_status="$(docker_run inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' moka_solar_db 2>/dev/null || echo missing)"
                 echo "db_status=$db_status"
                 if [ "$db_status" = "healthy" ] || [ "$db_status" = "running" ]; then
                   db_ready=1
@@ -221,15 +237,15 @@ jobs:
               done
 
               if [ "$db_ready" -ne 1 ]; then
-                docker logs --tail 200 moka_solar_db || true
+                docker_run logs --tail 200 moka_solar_db || true
                 exit 1
               fi
 
-              docker compose -f "$compose_file" build backend frontend
-              docker compose -f "$compose_file" up -d backend frontend
-              docker compose -f "$compose_file" ps
+              docker_run compose -f "$compose_file" build backend frontend
+              docker_run compose -f "$compose_file" up -d backend frontend
+              docker_run compose -f "$compose_file" ps
 
-              docker exec moka_solar_backend sh -lc "cd /app && npx prisma migrate deploy"
+              docker_run exec moka_solar_backend sh -lc "cd /app && npx prisma migrate deploy"
 
               backend_ready=0
               for _attempt in $(seq 1 50); do
@@ -242,8 +258,8 @@ jobs:
 
               if [ "$backend_ready" -ne 1 ]; then
                 print_section "Backend failure logs"
-                docker logs --tail 200 moka_solar_backend || true
-                docker logs --tail 200 moka_solar_db || true
+                docker_run logs --tail 200 moka_solar_backend || true
+                docker_run logs --tail 200 moka_solar_db || true
                 exit 1
               fi
 
@@ -258,14 +274,14 @@ jobs:
 
               if [ "$frontend_ready" -ne 1 ]; then
                 print_section "Frontend failure logs"
-                docker logs --tail 200 moka_solar_frontend || true
+                docker_run logs --tail 200 moka_solar_frontend || true
                 exit 1
               fi
 
               print_section "Container logs"
-              docker logs --tail 80 moka_solar_db || true
-              docker logs --tail 80 moka_solar_backend || true
-              docker logs --tail 80 moka_solar_frontend || true
+              docker_run logs --tail 80 moka_solar_db || true
+              docker_run logs --tail 80 moka_solar_backend || true
+              docker_run logs --tail 80 moka_solar_frontend || true
             else
               print_section "PM2 production deploy"
 
