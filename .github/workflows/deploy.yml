@@ -80,7 +80,7 @@ jobs:
             if command -v docker >/dev/null 2>&1; then
               if docker ps -a --format '{{.Names}}' | grep -qx 'moka_solar_backend'; then
                 inspect_dir="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' moka_solar_backend 2>/dev/null || true)"
-                if [ -n "$inspect_dir" ] && [ -f "$inspect_dir/docker-compose.prod.yml" ]; then
+                if [ -n "$inspect_dir" ] && [ -d "$inspect_dir" ] && [ -f "$inspect_dir/docker-compose.prod.yml" ]; then
                   stack_mode="docker"
                   project_dir="$inspect_dir"
                   compose_file="$inspect_dir/docker-compose.prod.yml"
@@ -89,7 +89,10 @@ jobs:
             fi
 
             if [ -z "$stack_mode" ]; then
-              compose_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'docker-compose.prod.yml' 2>/dev/null | head -n 1 || true)"
+              compose_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'docker-compose.prod.yml' 2>/dev/null | grep 'moka-solar-platform' | head -n 1 || true)"
+              if [ -z "$compose_candidate" ]; then
+                compose_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'docker-compose.prod.yml' 2>/dev/null | head -n 1 || true)"
+              fi
               if [ -n "$compose_candidate" ]; then
                 stack_mode="docker"
                 project_dir="$(dirname "$compose_candidate")"
@@ -98,7 +101,10 @@ jobs:
             fi
 
             if [ -z "$stack_mode" ] && command -v pm2 >/dev/null 2>&1; then
-              ecosystem_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'ecosystem.config.js' 2>/dev/null | head -n 1 || true)"
+              ecosystem_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'ecosystem.config.js' 2>/dev/null | grep 'moka-solar-platform' | head -n 1 || true)"
+              if [ -z "$ecosystem_candidate" ]; then
+                ecosystem_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'ecosystem.config.js' 2>/dev/null | head -n 1 || true)"
+              fi
               if [ -n "$ecosystem_candidate" ]; then
                 stack_mode="pm2"
                 project_dir="$(dirname "$ecosystem_candidate")"
@@ -116,6 +122,41 @@ jobs:
             echo "project_dir=$project_dir"
             [ -n "$compose_file" ] && echo "compose_file=$compose_file"
             [ -n "$ecosystem_file" ] && echo "ecosystem_file=$ecosystem_file"
+
+            print_section "Project path checks"
+            if [ -d "$project_dir" ]; then
+              echo "project_dir is readable"
+            else
+              echo "WARN: project_dir is missing or not readable"
+            fi
+            if [ -n "$compose_file" ] && [ -f "$compose_file" ]; then
+              echo "compose_file is readable"
+            elif [ -n "$compose_file" ]; then
+              echo "WARN: compose_file is missing or not readable"
+            fi
+
+            fallback_compose_candidate=""
+            if [ "$stack_mode" = "docker" ]; then
+              fallback_compose_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'docker-compose.prod.yml' 2>/dev/null | grep 'moka-solar-platform' | head -n 1 || true)"
+              if [ -z "$fallback_compose_candidate" ]; then
+                fallback_compose_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'docker-compose.prod.yml' 2>/dev/null | head -n 1 || true)"
+              fi
+              [ -n "$fallback_compose_candidate" ] && echo "fallback_compose_candidate=$fallback_compose_candidate"
+            fi
+
+            if ! cd "$project_dir" 2>/tmp/moka-project-dir.err; then
+              echo "WARN: cannot enter project_dir=$project_dir"
+              cat /tmp/moka-project-dir.err || true
+              if [ "$stack_mode" = "docker" ] && [ -n "$fallback_compose_candidate" ]; then
+                project_dir="$(dirname "$fallback_compose_candidate")"
+                compose_file="$fallback_compose_candidate"
+                echo "Using fallback project_dir=$project_dir"
+                echo "Using fallback compose_file=$compose_file"
+                cd "$project_dir"
+              else
+                exit 1
+              fi
+            fi
 
             cd "$project_dir"
             print_section "Project directory"
