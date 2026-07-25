@@ -24,9 +24,11 @@ jobs:
           script_stop: true
           command_timeout: 45m
           script: |
-            set -eux
+            set -eu
+            umask 077
 
             timestamp="$(date +%Y%m%d-%H%M%S)"
+            expected_sha="${{ github.sha }}"
             backup_root="$HOME/moka-solar-backups/$timestamp"
             mkdir -p "$backup_root"
 
@@ -89,9 +91,9 @@ jobs:
             fi
 
             if [ -z "$stack_mode" ]; then
-              compose_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'docker-compose.prod.yml' 2>/dev/null | grep 'moka-solar-platform' | head -n 1 || true)"
+              compose_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'docker-compose.prod.yml' ! -path "$HOME/moka-solar-backups/*" 2>/dev/null | grep 'moka-solar-platform' | head -n 1 || true)"
               if [ -z "$compose_candidate" ]; then
-                compose_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'docker-compose.prod.yml' 2>/dev/null | head -n 1 || true)"
+                compose_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'docker-compose.prod.yml' ! -path "$HOME/moka-solar-backups/*" 2>/dev/null | head -n 1 || true)"
               fi
               if [ -n "$compose_candidate" ]; then
                 stack_mode="docker"
@@ -101,9 +103,9 @@ jobs:
             fi
 
             if [ -z "$stack_mode" ] && command -v pm2 >/dev/null 2>&1; then
-              ecosystem_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'ecosystem.config.js' 2>/dev/null | grep 'moka-solar-platform' | head -n 1 || true)"
+              ecosystem_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'ecosystem.config.js' ! -path "$HOME/moka-solar-backups/*" 2>/dev/null | grep 'moka-solar-platform' | head -n 1 || true)"
               if [ -z "$ecosystem_candidate" ]; then
-                ecosystem_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'ecosystem.config.js' 2>/dev/null | head -n 1 || true)"
+                ecosystem_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'ecosystem.config.js' ! -path "$HOME/moka-solar-backups/*" 2>/dev/null | head -n 1 || true)"
               fi
               if [ -n "$ecosystem_candidate" ]; then
                 stack_mode="pm2"
@@ -148,42 +150,6 @@ jobs:
               ecosystem_file="$project_dir/ecosystem.config.js"
             fi
 
-            if [ "$stack_mode" = "pm2" ] && [ -d "$project_dir/.git" ]; then
-              cd "$project_dir"
-              print_section "Git status before sync"
-              git rev-parse --show-toplevel || true
-              git branch --show-current || true
-              git remote -v || true
-              git status --short || true
-
-              repo_dirty=0
-              if git status --porcelain >/tmp/moka-git-status.txt 2>/tmp/moka-git-status.err; then
-                if [ -s /tmp/moka-git-status.txt ]; then
-                  repo_dirty=1
-                fi
-              else
-                echo "WARN: git status --porcelain failed; continuing without repo cleanliness check"
-                cat /tmp/moka-git-status.err || true
-              fi
-
-              if [ "$repo_dirty" -eq 1 ]; then
-                git diff > "$backup_root/repo-local.diff" || true
-                git diff --cached > "$backup_root/repo-staged.diff" || true
-                git stash push -m "codex-production-recover-$timestamp" || true
-              fi
-
-              if ! git fetch origin main; then
-                echo "WARN: git fetch origin main failed; continuing with current checkout"
-              fi
-              if ! git checkout main; then
-                echo "WARN: git checkout main failed; continuing with current checkout"
-              fi
-              if ! git pull --ff-only origin main; then
-                echo "WARN: git pull --ff-only origin main failed; continuing with current checkout"
-              fi
-              git rev-parse --short HEAD || true
-            fi
-
             print_section "Back up production config"
             backup_file "$project_dir/docker-compose.prod.yml"
             backup_file "$project_dir/docker-compose.yml"
@@ -205,6 +171,36 @@ jobs:
                 exit 1
               fi
 
+              if [ ! -d "$project_dir/.git" ]; then
+                echo "PM2 project is not a Git checkout"
+                exit 1
+              fi
+
+              print_section "Sync PM2 checkout"
+              cd "$project_dir"
+
+              if ! git status --porcelain >/tmp/moka-git-status.txt 2>/tmp/moka-git-status.err; then
+                echo "Unable to inspect the production checkout"
+                exit 1
+              fi
+
+              if [ -s /tmp/moka-git-status.txt ]; then
+                git diff > "$backup_root/repo-local.diff"
+                git diff --cached > "$backup_root/repo-staged.diff"
+                git stash push -m "codex-production-recover-$timestamp"
+              fi
+
+              git fetch --no-tags origin main
+              git checkout main
+              git rev-parse --verify "$expected_sha^{commit}" >/dev/null
+              git merge --ff-only "$expected_sha"
+
+              deployed_sha="$(git rev-parse HEAD)"
+              if [ "$deployed_sha" != "$expected_sha" ]; then
+                echo "Production checkout does not match the triggering commit"
+                exit 1
+              fi
+
               cd "$project_dir/backend"
               npm install
               npx prisma generate
@@ -217,7 +213,22 @@ jobs:
 
               cd "$project_dir"
               pm2 startOrReload "$ecosystem_file" --update-env
+
+              if ! command -v systemctl >/dev/null 2>&1; then
+                echo "systemd is required to keep PM2 applications online after a reboot"
+                exit 1
+              fi
+
+              pm2_user="$(id -un)"
+              pm2_home="$HOME"
+              pm2_bin="$(command -v pm2)"
+              pm2_service="pm2-$pm2_user"
+
+              $SUDO env PATH="$PATH" "$pm2_bin" startup systemd -u "$pm2_user" --hp "$pm2_home"
               pm2 save
+              $SUDO systemctl enable "$pm2_service"
+              $SUDO systemctl is-enabled --quiet "$pm2_service"
+              $SUDO systemctl cat "$pm2_service" | grep -F 'pm2 resurrect' >/dev/null
               pm2 status
 
               backend_ready=0
@@ -393,3 +404,22 @@ jobs:
             (docker ps -a --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' || true)
             (pm2 status || true)
             ($SUDO tail -n 80 /var/log/nginx/error.log || true)
+
+      - name: Verify public production endpoints
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          curl --fail --silent --show-error \
+            --retry 5 --retry-delay 3 --retry-all-errors \
+            --connect-timeout 10 --max-time 30 \
+            https://mokasolar.com/ >/dev/null
+
+          health="$(
+            curl --fail --silent --show-error \
+              --retry 5 --retry-delay 3 --retry-all-errors \
+              --connect-timeout 10 --max-time 30 \
+              https://mokasolar.com/api/health
+          )"
+
+          jq -e '.status == "ok" and .database == "up"' <<<"$health" >/dev/null
