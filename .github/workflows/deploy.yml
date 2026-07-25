@@ -134,40 +134,14 @@ jobs:
             elif [ -n "$compose_file" ]; then
               echo "WARN: compose_file is missing or not readable"
             fi
+            ls -la "$project_dir" || true
 
-            fallback_compose_candidate=""
-            if [ "$stack_mode" = "docker" ]; then
-              fallback_compose_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'docker-compose.prod.yml' 2>/dev/null | grep 'moka-solar-platform' | head -n 1 || true)"
-              if [ -z "$fallback_compose_candidate" ]; then
-                fallback_compose_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'docker-compose.prod.yml' 2>/dev/null | head -n 1 || true)"
-              fi
-              [ -n "$fallback_compose_candidate" ] && echo "fallback_compose_candidate=$fallback_compose_candidate"
-            fi
-
-            if ! cd "$project_dir" 2>/tmp/moka-project-dir.err; then
-              echo "WARN: cannot enter project_dir=$project_dir"
-              cat /tmp/moka-project-dir.err || true
-              if [ "$stack_mode" = "docker" ] && [ -n "$fallback_compose_candidate" ]; then
-                project_dir="$(dirname "$fallback_compose_candidate")"
-                compose_file="$fallback_compose_candidate"
-                echo "Using fallback project_dir=$project_dir"
-                echo "Using fallback compose_file=$compose_file"
-                cd "$project_dir"
-              else
-                exit 1
-              fi
-            fi
-
-            cd "$project_dir"
-            print_section "Project directory"
-            pwd || true
-            ls -la || true
-
-            if [ -f ".env" ]; then
+            if [ -f "$project_dir/.env" ]; then
               backup_file "$project_dir/.env"
             fi
 
-            if [ -d ".git" ]; then
+            if [ "$stack_mode" = "pm2" ] && [ -d "$project_dir/.git" ]; then
+              cd "$project_dir"
               print_section "Git status before sync"
               git rev-parse --show-toplevel || true
               git branch --show-current || true
