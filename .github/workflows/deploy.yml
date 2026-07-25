@@ -120,8 +120,12 @@ jobs:
             print_section "Selected production stack"
             echo "stack_mode=$stack_mode"
             echo "project_dir=$project_dir"
-            [ -n "$compose_file" ] && echo "compose_file=$compose_file"
-            [ -n "$ecosystem_file" ] && echo "ecosystem_file=$ecosystem_file"
+            if [ -n "$compose_file" ]; then
+              echo "compose_file=$compose_file"
+            fi
+            if [ -n "$ecosystem_file" ]; then
+              echo "ecosystem_file=$ecosystem_file"
+            fi
 
             print_section "Project path checks"
             if [ -d "$project_dir" ]; then
