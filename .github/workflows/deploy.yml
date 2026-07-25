@@ -262,10 +262,14 @@ jobs:
               ($SUDO systemctl start docker || $SUDO service docker start || $SUDO snap start docker || true)
 
               if ! docker version >/dev/null 2>&1; then
-                if [ -n "$SUDO" ] && $SUDO docker version >/dev/null 2>&1; then
-                  docker_run() {
-                    $SUDO docker "$@"
-                  }
+                if [ -n "$SUDO" ]; then
+                  if ! $SUDO docker version >/dev/null 2>&1; then
+                    docker_available=0
+                  else
+                    docker_run() {
+                      $SUDO docker "$@"
+                    }
+                  fi
                 else
                   docker_available=0
                 fi
