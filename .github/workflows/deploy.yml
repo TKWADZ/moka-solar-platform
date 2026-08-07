@@ -42,7 +42,13 @@ jobs:
               if [ -f "$file_path" ] || [ -L "$file_path" ]; then
                 dest_dir="$backup_root$(dirname "$file_path")"
                 mkdir -p "$dest_dir"
-                cp -a "$file_path" "$dest_dir/"
+                if ! cp -a "$file_path" "$dest_dir/" 2>/dev/null; then
+                  if [ -n "$SUDO" ]; then
+                    $SUDO cp -a "$file_path" "$dest_dir/"
+                  else
+                    cp -a "$file_path" "$dest_dir/"
+                  fi
+                fi
               fi
             }
 
