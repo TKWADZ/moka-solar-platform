@@ -10,7 +10,11 @@
 - build status: Passed backend `npm run build` and frontend `npm run build`
 - approval requested or not: yes
 - approved or not: yes
-- deployed or not: pending
+- deployed or not: yes; production commit `248bf6d5292c1cd663289dabb38e9572b85d6c36` deployed successfully by Actions run `31225055689`
+- production verification: Passed homepage, API health, staff login, and staff forgot-password route with HTTP 200; the forgot-password page contains the Zalo OTP flow and no longer contains the legacy email-link copy; HTTP and `www` redirect to the canonical HTTPS domain with HTTP 301
+- production runtime: PostgreSQL reports `up`; migration `20260808113000_add_staff_password_reset_otp_purpose` applied successfully; PM2 backend/frontend remained online for the workflow's 5-minute stability window with zero restarts; PM2 state was saved for reboot recovery
+- production backup: The guarded workflow created and validated a PostgreSQL backup before migration and preserved the prior production release as the rollback target
 - production prerequisites: each internal account needs a valid registered Vietnamese phone; production Zalo OTP template/token configuration must be available; `AUTH_OTP_DEBUG_MODE` must remain `false`
-- deploy command after explicit approval: commit the reviewed changes, then `git push origin HEAD:main` to trigger the guarded GitHub Actions production workflow
-- rollback target if needed: current production commit `5362594b615fb298b10e3849b45cf82576f3d893`; the additive OTP enum value may remain unused after code rollback
+- deploy command used after explicit approval: `git push origin HEAD:main`
+- remaining live check: A real OTP was not intentionally sent during smoke testing; successful delivery requires the selected internal account to have a registered Vietnamese phone and valid production Zalo OA/token/template configuration
+- rollback target if needed: previous production commit `0d7c8c90a416dd1664e51d941fa140b63a1ac8e9`; the additive OTP enum value may remain unused after code rollback
