@@ -452,7 +452,7 @@ export class InvoicesService {
     invoices: T[],
   ) {
     const formatter = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Asia/Saigon',
+      timeZone: 'Asia/Ho_Chi_Minh',
       year: 'numeric',
       month: '2-digit',
     });

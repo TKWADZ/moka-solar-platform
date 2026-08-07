@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Param,
   Patch,
@@ -23,6 +24,7 @@ import { FeaturePlugin } from '../feature-plugins/feature-plugin.decorator';
 import { FeaturePluginGuard } from '../feature-plugins/feature-plugin.guard';
 import { ReviewPaymentDto } from './dto/review-payment.dto';
 import { SubmitManualPaymentDto } from './dto/submit-manual-payment.dto';
+import { hasPermission } from '../common/auth/permissions';
 
 const MAX_PAYMENT_PROOF_FILE_SIZE = 8 * 1024 * 1024;
 
@@ -86,11 +88,14 @@ export class PaymentsController {
 
   @Get(':paymentId/proof')
   @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF', 'CUSTOMER')
-  @Permissions('payments.read')
   async downloadProof(
     @Param('paymentId') paymentId: string,
     @CurrentUser() user: AuthenticatedUser,
   ) {
+    if (user.role !== 'CUSTOMER' && !hasPermission(user.permissions, 'payments.read')) {
+      throw new ForbiddenException('You do not have permission to access this proof file');
+    }
+
     const result = await this.paymentsService.resolveProofFile(paymentId, user);
     return new StreamableFile(createReadStream(result.filePath), {
       type: result.mimeType,

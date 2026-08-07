@@ -1,4 +1,13 @@
-import { Controller, Get, Param, Post, Query, StreamableFile, UseGuards } from '@nestjs/common';
+import {
+  Controller,
+  ForbiddenException,
+  Get,
+  Param,
+  Post,
+  Query,
+  StreamableFile,
+  UseGuards,
+} from '@nestjs/common';
 import { InvoicesService } from './invoices.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -8,6 +17,7 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { FeaturePlugin } from '../feature-plugins/feature-plugin.decorator';
 import { FeaturePluginGuard } from '../feature-plugins/feature-plugin.guard';
+import { hasPermission } from '../common/auth/permissions';
 
 @Controller('invoices')
 @FeaturePlugin('billing')
@@ -30,15 +40,15 @@ export class InvoicesController {
 
   @Get(':id')
   @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF', 'CUSTOMER')
-  @Permissions('billing.read')
   findOne(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    this.assertStaffPermission(user, 'billing.read');
     return this.invoicesService.findOne(id, user);
   }
 
   @Get(':id/pdf')
   @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF', 'CUSTOMER')
-  @Permissions('billing.read')
   async downloadPdf(@Param('id') id: string, @CurrentUser() user: AuthenticatedUser) {
+    this.assertStaffPermission(user, 'billing.read');
     const result = await this.invoicesService.buildPdf(id, user);
     return new StreamableFile(result.buffer, {
       type: 'application/pdf',
@@ -61,5 +71,14 @@ export class InvoicesController {
       Number(year),
       user.sub,
     );
+  }
+
+  private assertStaffPermission(
+    user: AuthenticatedUser,
+    permission: 'billing.read',
+  ) {
+    if (user.role !== 'CUSTOMER' && !hasPermission(user.permissions, permission)) {
+      throw new ForbiddenException('You do not have permission to access this invoice');
+    }
   }
 }

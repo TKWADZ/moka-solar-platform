@@ -69,6 +69,15 @@ export class PaymentsService {
     method = 'MOCK_VNPAY',
     user?: AuthenticatedUser,
   ) {
+    if (
+      process.env.NODE_ENV === 'production' ||
+      process.env.ENABLE_CUSTOMER_MOCK_PAYMENT !== 'true'
+    ) {
+      throw new ServiceUnavailableException(
+        'Mock payment is disabled. Use the reviewed payment reconciliation flow.',
+      );
+    }
+
     const invoice = await this.prisma.invoice.findFirst({
       where: { id: invoiceId, deletedAt: null },
       include: {
@@ -82,12 +91,6 @@ export class PaymentsService {
 
     if (user?.role === 'CUSTOMER' && invoice.customerId !== user.customerId) {
       throw new ForbiddenException('You do not have access to this invoice');
-    }
-
-    if (user?.role === 'CUSTOMER' && process.env.ENABLE_CUSTOMER_MOCK_PAYMENT !== 'true') {
-      throw new ServiceUnavailableException(
-        'Online payment gateway is not enabled. Please contact support or pay by manual reconciliation.',
-      );
     }
 
     const payment = await this.prisma.payment.create({
