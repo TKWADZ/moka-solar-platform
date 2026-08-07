@@ -36,9 +36,10 @@ Các biến tối thiểu cần có trên VPS:
 - `NEXT_PUBLIC_API_BASE_URL=/api`
 - `NEXT_PUBLIC_API_URL=/api`
 - `BOOTSTRAP_SUPERADMIN_EMAIL`
-- `BOOTSTRAP_SUPERADMIN_PASSWORD`
 - `BOOTSTRAP_SUPERADMIN_NAME`
 - `MEDIA_STORAGE_DIR=storage/media`
+
+Không cấu hình mật khẩu admin trong env. Tạo hoặc khôi phục tài khoản nội bộ bằng CLI nhập ẩn được mô tả trong `STAFF_PASSWORD_RECOVERY.md`.
 
 Biến tùy chọn:
 

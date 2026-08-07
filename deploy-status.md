@@ -1,9 +1,11 @@
 # Deploy Status
 
-- latest task: Fix customer billing UI mapping so "Hóa đơn gần đây" uses the same corrected meter readings as "Lịch sử chỉ số và thanh toán"
-- local test status: Frontend build passed after joining invoice rows with normalized meter history and replacing fake missing readings with `—`
-- build status: Passed (`frontend: npm run build`)
-- approval requested or not: requested and approved for VPS deployment
-- approved or not: yes
-- deployed or not: deployment is being prepared from this billing mapping patch and will be verified after push
-- rollback target if needed: redeploy the previous stable `main` revision before this customer billing table/meter-reading mapping patch if the production billing view regresses
+- latest task: Staff/Admin login recovery, secure CLI reset, forgot/reset password, and authenticated change-password
+- local test status: Passed backend unit tests (5/5), typecheck, Prisma validation/generation, and browser checks for staff login/forgot/reset routes; customer phone normalization regression test passed
+- build status: Passed (`backend: npm run build`, `frontend: npm run build`)
+- approval requested or not: yes; final deployment summary is ready
+- approved or not: yes; user approved VPS deployment
+- deployed or not: deployment in progress; production verification pending
+- remaining checks: staff recovery e2e suite safely skipped because no isolated `TEST_DATABASE_URL`/PostgreSQL is available; real email delivery requires VPS SMTP configuration
+- dependency warning: Nodemailer was upgraded to the patched 9.0.5 release; pre-existing Nest/Express/XLSX/native dependency advisories remain outside this focused change and must not be force-upgraded during auth recovery
+- rollback target if needed: production commit `08702f88fb4dd1c30a94b4667b5e1b1d03a18191`; the additive reset-token table may remain unused during code rollback

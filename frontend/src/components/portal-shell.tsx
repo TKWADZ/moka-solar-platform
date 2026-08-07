@@ -19,6 +19,7 @@ import {
   Image,
   LayoutDashboard,
   LifeBuoy,
+  LockKeyhole,
   LogOut,
   LucideIcon,
   Menu,
@@ -118,6 +119,7 @@ const navIconMap: Record<string, LucideIcon> = {
   '/admin/support': LifeBuoy,
   '/admin/audit': FileText,
   '/admin/plugins': Blocks,
+  '/admin/security': LockKeyhole,
   '/customer': LayoutDashboard,
   '/customer/meters': FileSpreadsheet,
   '/customer/billing': CircleDollarSign,
@@ -270,7 +272,7 @@ function groupPortalNav(nav: NavItem[]) {
         '/admin/packages',
       ],
     },
-    { label: 'Hệ thống lõi', hrefs: ['/admin/ai', '/admin/audit', '/admin/plugins'] },
+    { label: 'Hệ thống lõi', hrefs: ['/admin/security', '/admin/ai', '/admin/audit', '/admin/plugins'] },
   ];
 
   return definitions

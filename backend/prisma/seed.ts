@@ -2,33 +2,28 @@ import { ContractType, Prisma, PrismaClient, TicketPriority } from '@prisma/clie
 import * as bcrypt from 'bcrypt';
 import { buildDefaultFeaturePlugins } from '../src/feature-plugins/default-feature-plugins';
 import { buildDefaultMarketingPages } from '../src/marketing-pages/default-marketing-pages';
+import { assertPasswordPolicy } from '../src/common/auth/password-policy';
+import { promptHidden } from '../src/common/cli/interactive-prompt';
 import {
   normalizeEmail,
   normalizeVietnamPhone,
 } from '../src/common/helpers/identity.helper';
 
 const prisma = new PrismaClient();
-const defaultSeedPassword = process.env.SEED_DEFAULT_PASSWORD?.trim() || '123456';
 const bootstrapSuperAdminEmail =
   normalizeEmail(process.env.BOOTSTRAP_SUPERADMIN_EMAIL?.trim()) || 'superadmin@example.com';
 const bootstrapSuperAdminPhone = normalizeVietnamPhone(process.env.BOOTSTRAP_SUPERADMIN_PHONE?.trim());
 const bootstrapSuperAdminName =
   process.env.BOOTSTRAP_SUPERADMIN_NAME?.trim() || 'Moka Super Admin';
-const bootstrapSuperAdminPassword =
-  process.env.BOOTSTRAP_SUPERADMIN_PASSWORD?.trim() || defaultSeedPassword;
 const bootstrapAdminEmail =
-  normalizeEmail(process.env.BOOTSTRAP_ADMIN_EMAIL?.trim()) || 'admin@mokasolar.com';
+  normalizeEmail(process.env.BOOTSTRAP_ADMIN_EMAIL?.trim()) || 'admin@example.com';
 const bootstrapAdminPhone = normalizeVietnamPhone(process.env.BOOTSTRAP_ADMIN_PHONE?.trim());
 const bootstrapAdminName =
   process.env.BOOTSTRAP_ADMIN_NAME?.trim() || 'Moka Operations Admin';
-const bootstrapAdminPassword =
-  process.env.BOOTSTRAP_ADMIN_PASSWORD?.trim() || defaultSeedPassword;
 const bootstrapManagerEmail = normalizeEmail(process.env.BOOTSTRAP_MANAGER_EMAIL?.trim());
 const bootstrapManagerPhone = normalizeVietnamPhone(process.env.BOOTSTRAP_MANAGER_PHONE?.trim());
 const bootstrapManagerName =
   process.env.BOOTSTRAP_MANAGER_NAME?.trim() || 'Moka Operations Manager';
-const bootstrapManagerPassword =
-  process.env.BOOTSTRAP_MANAGER_PASSWORD?.trim() || defaultSeedPassword;
 
 function fixed(value: number) {
   return Number(value.toFixed(2));
@@ -205,6 +200,17 @@ const featurePluginsSeed = buildDefaultFeaturePlugins();
 const marketingPagesSeed = buildDefaultMarketingPages();
 
 async function main() {
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('Development seed is disabled when NODE_ENV=production.');
+  }
+
+  const seedPassword = await promptHidden('Development seed password');
+  const seedPasswordConfirmation = await promptHidden('Confirm development seed password');
+  if (seedPassword !== seedPasswordConfirmation) {
+    throw new Error('Password confirmation does not match.');
+  }
+  assertPasswordPolicy(seedPassword);
+
   await prisma.featurePlugin.deleteMany();
   await prisma.marketingPage.deleteMany();
   await prisma.contactInquiry.deleteMany();
@@ -265,9 +271,7 @@ async function main() {
     }),
   ]);
 
-  const superAdminPasswordHash = await bcrypt.hash(bootstrapSuperAdminPassword, 10);
-  const adminPasswordHash = await bcrypt.hash(bootstrapAdminPassword, 10);
-  const managerPasswordHash = await bcrypt.hash(bootstrapManagerPassword, 10);
+  const seedPasswordHash = await bcrypt.hash(seedPassword, 12);
 
   const superAdmin = await prisma.user.create({
     data: {
@@ -275,7 +279,7 @@ async function main() {
       phone: bootstrapSuperAdminPhone,
       phoneVerifiedAt: bootstrapSuperAdminPhone ? new Date() : null,
       fullName: bootstrapSuperAdminName,
-      passwordHash: superAdminPasswordHash,
+      passwordHash: seedPasswordHash,
       roleId: superAdminRole.id,
     },
   });
@@ -286,7 +290,7 @@ async function main() {
       phone: bootstrapAdminPhone,
       phoneVerifiedAt: bootstrapAdminPhone ? new Date() : null,
       fullName: bootstrapAdminName,
-      passwordHash: adminPasswordHash,
+      passwordHash: seedPasswordHash,
       roleId: adminRole.id,
     },
   });
@@ -298,7 +302,7 @@ async function main() {
         phone: bootstrapManagerPhone,
         phoneVerifiedAt: bootstrapManagerPhone ? new Date() : null,
         fullName: bootstrapManagerName,
-        passwordHash: managerPasswordHash,
+        passwordHash: seedPasswordHash,
         roleId: managerRole.id,
       },
     });
@@ -606,7 +610,7 @@ async function main() {
       fullName: account.fullName,
       phone: normalizeVietnamPhone(account.phone),
       phoneVerifiedAt: normalizeVietnamPhone(account.phone) ? new Date() : null,
-      passwordHash: adminPasswordHash,
+      passwordHash: seedPasswordHash,
       roleId: customerRole.id,
       },
     });

@@ -198,11 +198,15 @@ backup_database() {
   postgres_mode="$1"
   db_backup_path="$backup_root/postgres/mokasolar-production.dump"
   ensure_dir "$(dirname "$db_backup_path")"
+  rm -f "$db_backup_path"
 
   case "$postgres_mode" in
     docker)
       if command -v docker >/dev/null 2>&1; then
-        docker exec moka_solar_db sh -lc 'export PGPASSWORD="$POSTGRES_PASSWORD"; pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --format=custom' > "$db_backup_path" || true
+        if ! docker exec moka_solar_db sh -lc 'export PGPASSWORD="$POSTGRES_PASSWORD"; pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --format=custom' > "$db_backup_path"; then
+          echo "PostgreSQL backup failed for Docker database." >&2
+          return 1
+        fi
       fi
       ;;
     systemd|direct)
@@ -212,7 +216,7 @@ backup_database() {
         database_url="$(trim_wrapping_quotes "$database_url")"
         database_url="$(sanitize_database_url_for_pg_dump "$database_url")"
         if [ -n "$database_url" ]; then
-          pg_dump "$database_url" --no-owner --format=custom > "$db_backup_path" || true
+          pg_dump "$database_url" --no-owner --format=custom > "$db_backup_path" || rm -f "$db_backup_path"
         fi
         if [ ! -s "$db_backup_path" ]; then
           pg_db="$(trim_wrapping_quotes "$(extract_env_value POSTGRES_DB "$env_source" || true)")"
@@ -235,12 +239,31 @@ backup_database() {
               -U "$pg_user" \
               -d "$pg_db" \
               --no-owner \
-              --format=custom > "$db_backup_path" || true
+              --format=custom > "$db_backup_path" || rm -f "$db_backup_path"
           fi
         fi
       fi
       ;;
+    *)
+      echo "PostgreSQL mode could not be determined; refusing deployment without a database backup." >&2
+      return 1
+      ;;
   esac
+
+  if [ ! -s "$db_backup_path" ]; then
+    echo "PostgreSQL backup is missing or empty; refusing deployment." >&2
+    return 1
+  fi
+
+  if command -v pg_restore >/dev/null 2>&1; then
+    if ! pg_restore --list "$db_backup_path" >/dev/null; then
+      echo "PostgreSQL backup validation failed; refusing deployment." >&2
+      return 1
+    fi
+  fi
+
+  chmod 600 "$db_backup_path" || true
+  echo "PostgreSQL backup created and validated at $db_backup_path"
 }
 
 lock_internal_app_ports() {

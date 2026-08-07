@@ -12,6 +12,7 @@ import {
 import { LanguageSwitcher } from '@/components/language-switcher';
 import { loginRequest } from '@/lib/api';
 import { getDefaultRouteForRole, getSession, saveSession } from '@/lib/auth';
+import { useI18n } from '@/lib/i18n';
 import { UserRole } from '@/types';
 
 const SAMPLE_ACCOUNTS_ENABLED = process.env.NEXT_PUBLIC_ENABLE_SAMPLE_ACCOUNTS === 'true';
@@ -67,6 +68,7 @@ function normalizeVietnamPhoneCandidate(value: string) {
 }
 
 export default function LoginPage() {
+  const { locale } = useI18n();
   const [mode, setMode] = useState<'CUSTOMER' | 'INTERNAL'>('CUSTOMER');
   const [customerPhone, setCustomerPhone] = useState('');
   const [customerPassword, setCustomerPassword] = useState('');
@@ -77,6 +79,10 @@ export default function LoginPage() {
   const [hint, setHint] = useState('');
 
   useEffect(() => {
+    if (new URLSearchParams(window.location.search).get('mode') === 'staff') {
+      setMode('INTERNAL');
+    }
+
     const session = getSession();
     if (session) {
       window.location.replace(getDefaultRouteForRole(session.user.role));
@@ -124,7 +130,11 @@ export default function LoginPage() {
     event.preventDefault();
 
     if (!internalEmail.trim() || !internalPassword.trim()) {
-      setError('Vui lòng nhập email và mật khẩu để tiếp tục.');
+      setError(
+        locale === 'vi'
+          ? 'Vui lòng nhập email và mật khẩu để tiếp tục.'
+          : 'Enter your email and password to continue.',
+      );
       return;
     }
 
@@ -137,10 +147,14 @@ export default function LoginPage() {
       saveSession(session);
       window.location.href = getDefaultRouteForRole(session.user.role);
     } catch (requestError) {
+      const message = requestError instanceof Error ? requestError.message : '';
+      const isCredentialError = /invalid credentials|email or password is incorrect/i.test(message);
       setError(
-        requestError instanceof Error
-          ? requestError.message
-          : 'Không thể đăng nhập bằng email. Vui lòng kiểm tra lại thông tin.',
+        isCredentialError || !message
+          ? locale === 'vi'
+            ? 'Email hoặc mật khẩu không đúng.'
+            : 'Email or password is incorrect.'
+          : message,
       );
     } finally {
       setLoading(false);
@@ -287,6 +301,15 @@ export default function LoginPage() {
                 type="password"
                 autoComplete="current-password"
               />
+
+              <div className="flex justify-end">
+                <Link
+                  href="/portal/nhan-su/quen-mat-khau"
+                  className="text-sm font-semibold text-slate-700 underline decoration-slate-300 underline-offset-4 transition hover:text-slate-950"
+                >
+                  {locale === 'vi' ? 'Quên mật khẩu?' : 'Forgot password?'}
+                </Link>
+              </div>
 
               {error ? <p className="text-sm text-rose-600">{error}</p> : null}
               {hint ? <p className="text-sm text-emerald-700">{hint}</p> : null}

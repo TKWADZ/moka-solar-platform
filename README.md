@@ -373,11 +373,13 @@ Seed portfolio includes:
 - Several contracts using PPA, lease, hybrid and installment models
 - Invoices, payments, support tickets, notifications and audit logs
 
-Demo accounts:
+Demo account emails:
 
-- `superadmin@example.com / 123456`
-- `admin@example.com / 123456`
-- `customer@example.com / 123456`
+- `superadmin@example.com`
+- `admin@example.com`
+- `customer@example.com`
+
+`npm run prisma:seed` asks for one development-only password through a hidden interactive prompt. No default password is stored in source or environment files, and the seed refuses to run with `NODE_ENV=production`.
 
 Seed entrypoint: [backend/prisma/seed.ts](/D:/thietkeweb/webmokasolar/moka-solar-platform/backend/prisma/seed.ts)
 
@@ -468,7 +470,7 @@ Key production changes:
 - Production runs `prisma migrate deploy` on startup
 - Production does not auto-seed demo data
 - Healthchecks are enabled for backend and frontend
-- Initial `SUPER_ADMIN` can be bootstrapped from env
+- Initial `SUPER_ADMIN` is created explicitly with the interactive server CLI
 - Demo fallback in frontend can be disabled with `NEXT_PUBLIC_ENABLE_DEMO_FALLBACK=false`
 - Customer mock checkout can be disabled with `ENABLE_CUSTOMER_MOCK_PAYMENT=false` and `NEXT_PUBLIC_ENABLE_CUSTOMER_MOCK_PAYMENT=false`
 
@@ -479,13 +481,14 @@ cp .env.production.example .env
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-Recommended first-login env values:
+Recommended first-login command from an interactive server terminal:
 
-- `BOOTSTRAP_SUPERADMIN_EMAIL`
-- `BOOTSTRAP_SUPERADMIN_PASSWORD`
-- `BOOTSTRAP_SUPERADMIN_NAME`
+```bash
+cd /var/www/mokasolar/source/backend
+npm run admin:create-first -- --email owner@example.com
+```
 
-The bootstrap password is used to create the first super admin account. After the user exists, restarts do not overwrite the stored password.
+The command refuses to run when an internal account already exists and never accepts a password through arguments or environment files. Existing accounts use `npm run admin:reset-password -- --email user@example.com`.
 
 Suggested reverse proxy:
 

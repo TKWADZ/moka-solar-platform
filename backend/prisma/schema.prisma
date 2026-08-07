@@ -245,6 +245,7 @@ model User {
   otpRequests   OtpRequest[]
   authSessions  AuthSession[]
   authLoginAttempts AuthLoginAttempt[]
+  staffPasswordResetTokens StaffPasswordResetToken[]
   systemDashboardPresence SystemDashboardPresence[]
   manualOverrideMonthlyPvBillings MonthlyPvBilling[] @relation("MonthlyPvBillingManualOverrideBy")
   createdAt    DateTime    @default(now())
@@ -1416,6 +1417,22 @@ model AuthLoginAttempt {
   @@index([identifierType, identifierValue, createdAt])
   @@index([ipAddress, createdAt])
   @@index([userId, createdAt])
+}
+
+model StaffPasswordResetToken {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash   String   @unique
+  expiresAt   DateTime
+  usedAt      DateTime?
+  revokedAt   DateTime?
+  requestedIp String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId, createdAt])
+  @@index([expiresAt])
 }
 
 model InternalNote {

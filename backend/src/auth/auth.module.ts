@@ -7,6 +7,9 @@ import { AuthService } from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
 import { OTP_PROVIDER } from './otp/otp-provider.interface';
 import { ZaloOtpProvider } from './otp/zalo-otp.provider';
+import { StaffPasswordService } from './staff-password.service';
+import { STAFF_MAIL_PROVIDER } from './mail/staff-mail-provider.interface';
+import { SmtpStaffMailProvider } from './mail/smtp-staff-mail.provider';
 
 @Module({
   imports: [
@@ -19,11 +22,17 @@ import { ZaloOtpProvider } from './otp/zalo-otp.provider';
   controllers: [AuthController],
   providers: [
     AuthService,
+    StaffPasswordService,
+    SmtpStaffMailProvider,
     JwtStrategy,
     ZaloOtpProvider,
     {
       provide: OTP_PROVIDER,
       useExisting: ZaloOtpProvider,
+    },
+    {
+      provide: STAFF_MAIL_PROVIDER,
+      useExisting: SmtpStaffMailProvider,
     },
   ],
   exports: [AuthService],

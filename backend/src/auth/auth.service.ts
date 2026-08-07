@@ -137,7 +137,7 @@ export class AuthService {
         outcome: 'INVALID_CREDENTIALS',
         failureReason: 'User not found',
       });
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException(this.getInvalidCredentialsMessage(identity.kind));
     }
 
     this.assertUserCanUsePasswordLogin(user, identity.kind);
@@ -152,7 +152,7 @@ export class AuthService {
         identifierValue: identity.value,
         failureReason: 'Invalid password',
       });
-      throw new UnauthorizedException('Invalid credentials');
+      throw new UnauthorizedException(this.getInvalidCredentialsMessage(identity.kind));
     }
 
     return this.buildAuthResponse(user, {
@@ -647,10 +647,18 @@ export class AuthService {
 
   private async findUserForIdentifier(identifier: ResolvedIdentifier) {
     if (identifier.kind === 'EMAIL') {
-      return this.prisma.user.findUnique({
-        where: { email: identifier.email },
+      const matches = await this.prisma.user.findMany({
+        where: {
+          email: {
+            equals: identifier.email,
+            mode: 'insensitive',
+          },
+        },
         include: { role: true, customer: true },
+        take: 2,
       });
+
+      return matches.length === 1 ? matches[0] : null;
     }
 
     return this.prisma.user.findFirst({
@@ -717,7 +725,7 @@ export class AuthService {
 
   private assertUserCanUsePasswordLogin(user: AuthUser, identifierKind: 'EMAIL' | 'PHONE') {
     if (identifierKind === 'EMAIL' && user.role.code === 'CUSTOMER') {
-      throw new UnauthorizedException('Customers sign in with phone number and password');
+      throw new UnauthorizedException(this.getInvalidCredentialsMessage(identifierKind));
     }
 
     if (identifierKind === 'PHONE' && user.role.code !== 'CUSTOMER') {
@@ -1282,6 +1290,12 @@ export class AuthService {
 
   private buildRefreshExpiryAt() {
     return new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  }
+
+  private getInvalidCredentialsMessage(identifierKind: 'EMAIL' | 'PHONE') {
+    return identifierKind === 'EMAIL'
+      ? 'Email or password is incorrect.'
+      : 'Invalid credentials';
   }
 
   private buildAccountLockExpiryAt() {

@@ -40,6 +40,23 @@ Internal users stay on a separate auth flow:
 Supported endpoint:
 
 - `POST /api/auth/login`
+- `POST /api/auth/staff/forgot-password`
+- `POST /api/auth/staff/reset-password`
+- `POST /api/auth/staff/change-password` (authenticated internal session)
+
+Staff password recovery is email-based and is completely separate from customer Zalo OTP.
+Reset links are single-use, expire after 20 minutes by default, and only a SHA-256 token hash is stored.
+Successful reset revokes every active session without changing role or MFA configuration.
+
+Emergency recovery on the application server:
+
+```bash
+cd /var/www/mokasolar/source/backend
+npm run admin:reset-password -- --email user@example.com
+```
+
+The command requires an interactive TTY and reads the new password twice without echoing it.
+It never creates a missing account. Use `--activate` only after explicit authorization for an inactive account.
 
 ## Main flows
 
@@ -172,6 +189,19 @@ General auth:
 - `AUTH_LOGIN_RATE_LIMIT_IP_MAX`
 - `AUTH_LOGIN_LOCKOUT_THRESHOLD`
 - `AUTH_LOGIN_LOCKOUT_MINUTES`
+
+Staff password recovery:
+
+- `APP_PUBLIC_URL`
+- `MAIL_FROM`
+- `SMTP_HOST`
+- `SMTP_PORT`
+- `SMTP_SECURE`
+- `SMTP_USER`
+- `SMTP_PASSWORD`
+- `STAFF_PASSWORD_RESET_TTL_MINUTES`
+- `STAFF_PASSWORD_RESET_REQUEST_MAX_PER_HOUR`
+- `STAFF_PASSWORD_RESET_SUBMIT_MAX_PER_HOUR`
 
 OTP:
 

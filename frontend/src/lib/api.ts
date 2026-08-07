@@ -579,6 +579,39 @@ export async function loginRequest(identifier: string, password: string) {
   }
 }
 
+export async function requestStaffPasswordResetRequest(email: string) {
+  return apiFetch<{ success: boolean; message: string }>('/auth/staff/forgot-password', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function resetStaffPasswordRequest(payload: {
+  token: string;
+  newPassword: string;
+  confirmPassword: string;
+}) {
+  return apiFetch<{ success: boolean; message: string }>('/auth/staff/reset-password', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function changeStaffPasswordRequest(payload: {
+  currentPassword: string;
+  newPassword: string;
+  confirmPassword: string;
+}) {
+  return apiFetch<{
+    success: boolean;
+    message: string;
+    reauthenticationRequired: boolean;
+  }>('/auth/staff/change-password', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function requestLoginOtpRequest(identifier: string) {
   return apiFetch<LoginOtpRequestResult>('/auth/login-otp/request', {
     method: 'POST',
