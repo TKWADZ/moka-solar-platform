@@ -11,6 +11,7 @@ import { RequestPasswordResetOtpDto } from './dto/request-password-reset-otp.dto
 import { ResetPasswordWithOtpDto } from './dto/reset-password-with-otp.dto';
 import { StaffForgotPasswordDto } from './dto/staff-forgot-password.dto';
 import { StaffResetPasswordDto } from './dto/staff-reset-password.dto';
+import { StaffResetPasswordOtpDto } from './dto/staff-reset-password-otp.dto';
 import { StaffChangePasswordDto } from './dto/staff-change-password.dto';
 import { StaffPasswordService } from './staff-password.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
@@ -67,6 +68,16 @@ export class AuthController {
   @Post('staff/forgot-password')
   requestStaffPasswordReset(@Body() dto: StaffForgotPasswordDto) {
     return this.staffPasswordService.requestPasswordReset(dto.email);
+  }
+
+  @Post('staff/password-reset/request')
+  requestStaffPasswordResetOtp(@Body() dto: StaffForgotPasswordDto) {
+    return this.staffPasswordService.requestPasswordResetOtp(dto.email);
+  }
+
+  @Post('staff/password-reset/verify')
+  resetStaffPasswordWithOtp(@Body() dto: StaffResetPasswordOtpDto) {
+    return this.staffPasswordService.resetPasswordWithOtp(dto);
   }
 
   @Post('staff/reset-password')

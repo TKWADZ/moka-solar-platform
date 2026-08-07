@@ -92,6 +92,10 @@ Billing formatting rules:
 - `bank_transfer_note` is a clean transfer note built from invoice/customer/contract references
 
 OTP template stays completely separate from billing template and uses `templateOtpId` plus `templateOtpSchema`.
+The same approved OTP template supports customer verification and internal password recovery, but the
+backend uses separate purposes (`CUSTOMER_*` and `STAFF_PASSWORD_RESET`) so a challenge cannot cross roles.
+For staff recovery, the registered internal-user phone is resolved server-side from the submitted work
+email; the browser never receives the full phone number or any Zalo credential.
 
 If any required billing param is missing or invalid, backend blocks the send before calling Zalo and returns an explicit message such as:
 

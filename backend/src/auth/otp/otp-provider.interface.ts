@@ -3,7 +3,8 @@ export type OtpProviderPurpose =
   | 'CUSTOMER_REGISTER'
   | 'CUSTOMER_PASSWORD_RESET'
   | 'CUSTOMER_PHONE_VERIFICATION'
-  | 'CUSTOMER_SENSITIVE_ACTION';
+  | 'CUSTOMER_SENSITIVE_ACTION'
+  | 'STAFF_PASSWORD_RESET';
 
 export type OtpSendParams = {
   requestId: string;

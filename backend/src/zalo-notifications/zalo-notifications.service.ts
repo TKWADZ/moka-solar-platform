@@ -272,7 +272,8 @@ export class ZaloNotificationsService {
       | 'CUSTOMER_REGISTER'
       | 'CUSTOMER_PASSWORD_RESET'
       | 'CUSTOMER_PHONE_VERIFICATION'
-      | 'CUSTOMER_SENSITIVE_ACTION';
+      | 'CUSTOMER_SENSITIVE_ACTION'
+      | 'STAFF_PASSWORD_RESET';
     customerName?: string | null;
     expiresInMinutes?: number;
     dryRun?: boolean;
@@ -883,7 +884,7 @@ export class ZaloNotificationsService {
     if (effectiveDryRun) {
       const tokenResolution = await this.getValidZaloAccessToken({
         actorId: params.actorId,
-        purpose: params.templateType === 'TEST' ? 'TEST' : 'INVOICE',
+        purpose: this.resolveTokenPurpose(params.templateType),
         allowRefresh: false,
         config: params.config,
       });
@@ -929,7 +930,7 @@ export class ZaloNotificationsService {
 
     const tokenResolution = await this.getValidZaloAccessToken({
       actorId: params.actorId,
-      purpose: params.templateType === 'TEST' ? 'TEST' : 'INVOICE',
+      purpose: this.resolveTokenPurpose(params.templateType),
       allowRefresh: true,
       config: params.config,
     });
@@ -1050,7 +1051,7 @@ export class ZaloNotificationsService {
 
       const tokenResolution = await this.getValidZaloAccessToken({
         actorId: params.actorId,
-        purpose: params.templateType === 'TEST' ? 'TEST' : 'INVOICE',
+        purpose: this.resolveTokenPurpose(params.templateType),
         allowRefresh: true,
         config: params.config,
         invalidTokenFingerprint: params.primaryAttempt.tokenFingerprint,
@@ -1394,6 +1395,10 @@ export class ZaloNotificationsService {
   }
 
   private async logAndReturnResult(params: SendExecutionParams) {
+    const safeRequestPayload =
+      params.templateType === 'OTP'
+        ? this.redactOtpTemplatePayload(params.requestPayload)
+        : params.requestPayload;
     const responsePayloadWithDebug =
       params.debug && params.responsePayload && typeof params.responsePayload === 'object'
         ? {
@@ -1441,7 +1446,7 @@ export class ZaloNotificationsService {
         providerMessage: params.providerMessage,
         dryRun: params.dryRun,
         requestPayload:
-          (params.requestPayload as Prisma.InputJsonValue) ?? Prisma.JsonNull,
+          (safeRequestPayload as Prisma.InputJsonValue) ?? Prisma.JsonNull,
         responsePayload:
           responsePayloadWithValidation !== undefined
             ? ((responsePayloadWithValidation as Prisma.InputJsonValue) ?? Prisma.JsonNull)
@@ -1487,10 +1492,35 @@ export class ZaloNotificationsService {
       invalidTemplateFields: params.invalidTemplateFields || [],
       logId: log.id,
       sentAt: log.createdAt.toISOString(),
-      requestPayload: params.requestPayload || null,
+      requestPayload: safeRequestPayload || null,
       responsePayload: responsePayloadWithValidation || null,
       debug: params.debug || null,
     };
+  }
+
+  private resolveTokenPurpose(templateType: ZaloTemplateType | 'TEST') {
+    if (templateType === 'TEST') return 'TEST' as const;
+    if (templateType === 'OTP') return 'OTP' as const;
+    return 'INVOICE' as const;
+  }
+
+  private redactOtpTemplatePayload(payload: Record<string, unknown>) {
+    const redact = (value: unknown): unknown => {
+      if (Array.isArray(value)) {
+        return value.map(redact);
+      }
+      if (!value || typeof value !== 'object') {
+        return value;
+      }
+      return Object.fromEntries(
+        Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+          key,
+          key === 'otp' || key === 'otp_code' ? '[REDACTED]' : redact(item),
+        ]),
+      );
+    };
+
+    return redact(payload) as Record<string, unknown>;
   }
 
   private prepareProviderSendRequest(params: {
@@ -1647,12 +1677,15 @@ export class ZaloNotificationsService {
       | 'CUSTOMER_REGISTER'
       | 'CUSTOMER_PASSWORD_RESET'
       | 'CUSTOMER_PHONE_VERIFICATION'
-      | 'CUSTOMER_SENSITIVE_ACTION';
+      | 'CUSTOMER_SENSITIVE_ACTION'
+      | 'STAFF_PASSWORD_RESET';
   }) {
     const purposeLabel =
       params.purpose === 'CUSTOMER_REGISTER'
         ? 'register'
-        : params.purpose === 'CUSTOMER_PASSWORD_RESET'
+        : params.purpose === 'STAFF_PASSWORD_RESET'
+          ? 'staff_password_reset'
+          : params.purpose === 'CUSTOMER_PASSWORD_RESET'
           ? 'password_reset'
           : params.purpose === 'CUSTOMER_PHONE_VERIFICATION'
             ? 'phone_verification'

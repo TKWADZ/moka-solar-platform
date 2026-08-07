@@ -40,13 +40,19 @@ Internal users stay on a separate auth flow:
 Supported endpoint:
 
 - `POST /api/auth/login`
-- `POST /api/auth/staff/forgot-password`
-- `POST /api/auth/staff/reset-password`
+- `POST /api/auth/staff/password-reset/request`
+- `POST /api/auth/staff/password-reset/verify`
 - `POST /api/auth/staff/change-password` (authenticated internal session)
 
-Staff password recovery is email-based and is completely separate from customer Zalo OTP.
-Reset links are single-use, expire after 20 minutes by default, and only a SHA-256 token hash is stored.
-Successful reset revokes every active session without changing role or MFA configuration.
+Staff password recovery uses the work email to locate the internal account, then sends a Zalo OTP
+to its registered Vietnamese phone number. It has a dedicated `STAFF_PASSWORD_RESET` purpose and
+never accepts customer OTP requests. The public request response does not reveal whether the email
+exists or whether a phone is registered. Successful reset revokes every active session without
+changing the role or MFA configuration.
+
+The legacy email-link endpoints remain available only when
+`STAFF_PASSWORD_RECOVERY_EMAIL_ENABLED=true`. They are disabled by default until transactional
+email is configured and approved.
 
 Emergency recovery on the application server:
 
@@ -91,6 +97,18 @@ It never creates a missing account. Use `--activate` only after explicit authori
    - `password`
 4. Backend resets password, revokes active sessions, verifies phone if needed, and creates a fresh session/JWT
 
+### 4. Internal password recovery with email -> Zalo OTP -> reset password
+
+1. Call `POST /api/auth/staff/password-reset/request` with `email`
+2. Receive generic challenge metadata without a phone/account existence disclosure
+3. Call `POST /api/auth/staff/password-reset/verify` with:
+   - `email`
+   - `requestId`
+   - `otpCode`
+   - `newPassword`
+   - `confirmPassword`
+4. Backend verifies an internal-role-only OTP, updates the password, and revokes all sessions
+
 ## Password security
 
 - Passwords are hashed with `bcrypt`
@@ -116,7 +134,7 @@ Examples:
 - `+84912345678` -> `84912345678`
 - `84 912 345 678` -> `84912345678`
 
-## Customer OTP storage
+## OTP storage
 
 OTP requests are stored in `otp_requests` via Prisma model `OtpRequest`.
 
@@ -192,6 +210,12 @@ General auth:
 
 Staff password recovery:
 
+- `STAFF_PASSWORD_RECOVERY_EMAIL_ENABLED=false`
+- `STAFF_PASSWORD_RESET_REQUEST_MAX_PER_HOUR`
+- `STAFF_PASSWORD_RESET_SUBMIT_MAX_PER_HOUR`
+
+Legacy email-link recovery, only when explicitly enabled later:
+
 - `APP_PUBLIC_URL`
 - `MAIL_FROM`
 - `SMTP_HOST`
@@ -200,8 +224,6 @@ Staff password recovery:
 - `SMTP_USER`
 - `SMTP_PASSWORD`
 - `STAFF_PASSWORD_RESET_TTL_MINUTES`
-- `STAFF_PASSWORD_RESET_REQUEST_MAX_PER_HOUR`
-- `STAFF_PASSWORD_RESET_SUBMIT_MAX_PER_HOUR`
 
 OTP:
 
@@ -256,4 +278,5 @@ Then verify:
 2. Customer register page uses OTP only for verification
 3. Customer forgot password page uses OTP only for reset
 4. Internal login page uses email + password
-5. Backend and frontend `npm run build` both pass
+5. Internal forgot-password page uses email lookup + Zalo OTP
+6. Backend and frontend `npm run build` both pass

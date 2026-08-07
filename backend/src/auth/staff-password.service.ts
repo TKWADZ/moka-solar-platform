@@ -5,23 +5,33 @@ import {
   Inject,
   Injectable,
   Logger,
+  NotFoundException,
   UnauthorizedException,
 } from '@nestjs/common';
-import { createHash, randomBytes } from 'node:crypto';
+import { OtpRequestPurpose, OtpRequestStatus, Prisma } from '@prisma/client';
+import { createHash, randomBytes, randomInt, randomUUID } from 'node:crypto';
 import * as bcrypt from 'bcrypt';
 import { assertPasswordPolicy } from '../common/auth/password-policy';
-import { isValidEmail, normalizeEmail } from '../common/helpers/identity.helper';
+import {
+  isValidEmail,
+  normalizeEmail,
+  normalizeVietnamPhone,
+} from '../common/helpers/identity.helper';
 import { RequestContextService } from '../common/request-context/request-context.service';
 import { PrismaService } from '../prisma/prisma.service';
 import {
   STAFF_MAIL_PROVIDER,
   StaffMailProvider,
 } from './mail/staff-mail-provider.interface';
+import { OTP_PROVIDER, OtpProvider, OtpSendResult } from './otp/otp-provider.interface';
 
 const INTERNAL_ROLES = new Set(['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF']);
 const GENERIC_REQUEST_MESSAGE =
   'Nếu email tồn tại trong hệ thống, hướng dẫn đặt lại mật khẩu đã được gửi.';
 const GENERIC_RESET_ERROR = 'Liên kết đặt lại mật khẩu không hợp lệ hoặc đã hết hạn.';
+const GENERIC_OTP_REQUEST_MESSAGE =
+  'Nếu tài khoản đủ điều kiện, mã OTP sẽ được gửi qua Zalo đến số điện thoại đã đăng ký.';
+const GENERIC_OTP_RESET_ERROR = 'Mã OTP không hợp lệ, đã hết hạn hoặc không còn hiệu lực.';
 
 @Injectable()
 export class StaffPasswordService {
@@ -30,11 +40,371 @@ export class StaffPasswordService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly requestContextService: RequestContextService,
+    @Inject(OTP_PROVIDER)
+    private readonly otpProvider: OtpProvider,
     @Inject(STAFF_MAIL_PROVIDER)
     private readonly mailProvider: StaffMailProvider,
   ) {}
 
+  async requestPasswordResetOtp(rawEmail: string) {
+    const email = normalizeEmail(rawEmail);
+    if (!email || !isValidEmail(email)) {
+      throw new BadRequestException('Email is invalid.');
+    }
+
+    const requestContext = this.requestContextService.get();
+    await this.assertRequestRateLimit(email, requestContext?.ipAddress || null);
+
+    const matches = await this.prisma.user.findMany({
+      where: {
+        email: { equals: email, mode: 'insensitive' },
+      },
+      include: { role: true },
+      take: 2,
+    });
+    const matchedUser =
+      matches.length === 1 &&
+      !matches[0].deletedAt &&
+      INTERNAL_ROLES.has(matches[0].role.code)
+        ? matches[0]
+        : null;
+    const phone = matchedUser ? normalizeVietnamPhone(matchedUser.phone) : null;
+    const user = matchedUser && phone ? matchedUser : null;
+
+    await this.prisma.authLoginAttempt.create({
+      data: {
+        userId: matchedUser?.id || null,
+        authMethod: 'STAFF_PASSWORD_RESET_OTP_REQUEST',
+        identifierType: 'EMAIL',
+        identifierValue: email,
+        ipAddress: requestContext?.ipAddress || null,
+        userAgent: requestContext?.userAgent || null,
+        success: true,
+        outcome: user ? 'ACCEPTED' : 'GENERIC_ACCEPTED',
+        failureReason: matchedUser && !phone ? 'REGISTERED_PHONE_UNAVAILABLE' : null,
+      },
+    });
+
+    if (!user || !phone) {
+      return this.buildDecoyOtpRequestResponse();
+    }
+
+    const now = new Date();
+    const latestRequest = await this.prisma.otpRequest.findFirst({
+      where: {
+        phone,
+        purpose: OtpRequestPurpose.STAFF_PASSWORD_RESET,
+        deletedAt: null,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    if (
+      latestRequest?.resendAvailableAt &&
+      latestRequest.resendAvailableAt.getTime() > now.getTime()
+    ) {
+      return this.buildDecoyOtpRequestResponse();
+    }
+
+    if (await this.isOtpPhoneRateLimited(phone)) {
+      return this.buildDecoyOtpRequestResponse();
+    }
+
+    await this.prisma.otpRequest.updateMany({
+      where: {
+        userId: user.id,
+        purpose: OtpRequestPurpose.STAFF_PASSWORD_RESET,
+        verifiedAt: null,
+        consumedAt: null,
+        deletedAt: null,
+      },
+      data: {
+        sendStatus: OtpRequestStatus.EXPIRED,
+        consumedAt: now,
+      },
+    });
+
+    const otpCode = String(randomInt(100000, 1000000));
+    const expiresAt = new Date(now.getTime() + this.getOtpTtlMinutes() * 60 * 1000);
+    const resendAvailableAt = new Date(
+      now.getTime() + this.getOtpResendCooldownSeconds() * 1000,
+    );
+    const otpRequest = await this.prisma.otpRequest.create({
+      data: {
+        id: randomUUID(),
+        userId: user.id,
+        purpose: OtpRequestPurpose.STAFF_PASSWORD_RESET,
+        provider: this.otpProvider.name,
+        phone,
+        emailSnapshot: email,
+        fullNameSnapshot: user.fullName,
+        codeHash: await bcrypt.hash(otpCode, 10),
+        expiresAt,
+        resendAvailableAt,
+        maxAttempts: this.getOtpMaxAttempts(),
+        requestedIp: requestContext?.ipAddress || null,
+        requestedUserAgent: requestContext?.userAgent || null,
+        sendStatus: OtpRequestStatus.PENDING,
+      },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        userId: user.id,
+        action: 'STAFF_PASSWORD_RESET_OTP_REQUESTED',
+        moduleKey: 'security',
+        entityType: 'User',
+        entityId: user.id,
+        payload: {
+          source: 'public_staff_zalo_otp_recovery',
+          otpRequestId: otpRequest.id,
+          expiresAt: expiresAt.toISOString(),
+        },
+        ipAddress: requestContext?.ipAddress || null,
+        userAgent: requestContext?.userAgent || null,
+      },
+    });
+
+    let sendResult: OtpSendResult;
+    try {
+      sendResult = await this.otpProvider.sendOtp({
+        requestId: otpRequest.id,
+        phone,
+        otpCode,
+        expiresInMinutes: this.getOtpTtlMinutes(),
+        purpose: 'STAFF_PASSWORD_RESET',
+        fullName: user.fullName,
+        ipAddress: requestContext?.ipAddress || null,
+        userAgent: requestContext?.userAgent || null,
+      });
+    } catch {
+      sendResult = {
+        success: false,
+        provider: this.otpProvider.name,
+        channel: 'ZALO',
+        sendStatus: 'FAILED',
+        providerCode: 'PROVIDER_EXCEPTION',
+        providerMessage: 'Không thể gửi OTP qua Zalo vào lúc này.',
+      };
+    }
+
+    const delivered = sendResult.sendStatus === 'SENT' || sendResult.sendStatus === 'DRY_RUN';
+    const updatedRequest = await this.prisma.$transaction(async (transaction) => {
+      const updated = await transaction.otpRequest.update({
+        where: { id: otpRequest.id },
+        data: {
+          sendStatus: this.mapOtpRequestStatus(sendResult.sendStatus),
+          providerCode: sendResult.providerCode || null,
+          providerMessage: sendResult.providerMessage,
+          requestPayload: this.toSanitizedJson(sendResult.requestPayload),
+          responsePayload: this.toSanitizedJson(sendResult.responsePayload),
+          ...(!delivered ? { consumedAt: new Date() } : {}),
+        },
+      });
+
+      await transaction.auditLog.create({
+        data: {
+          userId: user.id,
+          action: delivered
+            ? 'STAFF_PASSWORD_RESET_OTP_SENT'
+            : 'STAFF_PASSWORD_RESET_OTP_DELIVERY_FAILED',
+          moduleKey: 'security',
+          entityType: 'User',
+          entityId: user.id,
+          payload: {
+            source: 'zalo',
+            otpRequestId: otpRequest.id,
+            provider: sendResult.provider,
+            providerCode: sendResult.providerCode || null,
+            sendStatus: sendResult.sendStatus,
+          },
+          ipAddress: requestContext?.ipAddress || null,
+          userAgent: requestContext?.userAgent || null,
+        },
+      });
+
+      return updated;
+    });
+
+    if (!delivered) {
+      this.logger.error(`Staff password reset OTP delivery failed for user ${user.id}.`);
+    }
+
+    return this.buildOtpRequestResponse(updatedRequest, sendResult.debugCode || undefined);
+  }
+
+  async resetPasswordWithOtp(params: {
+    email: string;
+    requestId: string;
+    otpCode: string;
+    newPassword: string;
+    confirmPassword: string;
+  }) {
+    const email = normalizeEmail(params.email);
+    if (!email || !isValidEmail(email)) {
+      throw new BadRequestException('Email is invalid.');
+    }
+    this.assertMatchingPasswords(params.newPassword, params.confirmPassword);
+    this.assertPolicy(params.newPassword);
+
+    const requestContext = this.requestContextService.get();
+    await this.assertResetRateLimit(requestContext?.ipAddress || null);
+
+    const otpRequest = await this.prisma.otpRequest.findUnique({
+      where: { id: String(params.requestId || '').trim() },
+      include: { user: { include: { role: true } } },
+    });
+    const now = new Date();
+    const user = otpRequest?.user || null;
+    const currentPhone = user ? normalizeVietnamPhone(user.phone) : null;
+    const requestIsValid = Boolean(
+      otpRequest &&
+        user &&
+        !user.deletedAt &&
+        INTERNAL_ROLES.has(user.role.code) &&
+        normalizeEmail(otpRequest.emailSnapshot) === email &&
+        currentPhone === otpRequest.phone &&
+        otpRequest.purpose === OtpRequestPurpose.STAFF_PASSWORD_RESET &&
+        !otpRequest.verifiedAt &&
+        !otpRequest.consumedAt &&
+        otpRequest.expiresAt.getTime() > now.getTime() &&
+        otpRequest.attemptCount < otpRequest.maxAttempts &&
+        (otpRequest.sendStatus === OtpRequestStatus.SENT ||
+          otpRequest.sendStatus === OtpRequestStatus.DRY_RUN),
+    );
+
+    if (!requestIsValid || !otpRequest || !user) {
+      if (otpRequest && !otpRequest.consumedAt && otpRequest.expiresAt.getTime() <= now.getTime()) {
+        await this.prisma.otpRequest.update({
+          where: { id: otpRequest.id },
+          data: { sendStatus: OtpRequestStatus.EXPIRED, consumedAt: now },
+        });
+      }
+      await this.recordOtpResetSubmission({
+        userId: user?.id || null,
+        success: false,
+        outcome: 'INVALID_OR_EXPIRED_OTP',
+      });
+      throw new BadRequestException(GENERIC_OTP_RESET_ERROR);
+    }
+
+    const otpMatches = await bcrypt.compare(String(params.otpCode || '').trim(), otpRequest.codeHash);
+    if (!otpMatches) {
+      const nextAttemptCount = otpRequest.attemptCount + 1;
+      await this.prisma.otpRequest.update({
+        where: { id: otpRequest.id },
+        data: {
+          attemptCount: nextAttemptCount,
+          lastAttemptAt: now,
+          ...(nextAttemptCount >= otpRequest.maxAttempts
+            ? { sendStatus: OtpRequestStatus.BLOCKED, consumedAt: now }
+            : {}),
+        },
+      });
+      await this.recordOtpResetSubmission({
+        userId: user.id,
+        success: false,
+        outcome:
+          nextAttemptCount >= otpRequest.maxAttempts
+            ? 'OTP_MAX_ATTEMPTS_EXCEEDED'
+            : 'OTP_MISMATCH',
+      });
+      throw new BadRequestException(GENERIC_OTP_RESET_ERROR);
+    }
+
+    if (await bcrypt.compare(params.newPassword, user.passwordHash)) {
+      throw new BadRequestException('Mật khẩu mới phải khác mật khẩu hiện tại.');
+    }
+
+    const passwordHash = await bcrypt.hash(params.newPassword, 12);
+    await this.prisma.$transaction(async (transaction) => {
+      const consumed = await transaction.otpRequest.updateMany({
+        where: {
+          id: otpRequest.id,
+          purpose: OtpRequestPurpose.STAFF_PASSWORD_RESET,
+          verifiedAt: null,
+          consumedAt: null,
+          expiresAt: { gt: now },
+          attemptCount: { lt: otpRequest.maxAttempts },
+          sendStatus: { in: [OtpRequestStatus.SENT, OtpRequestStatus.DRY_RUN] },
+        },
+        data: {
+          verifiedAt: now,
+          consumedAt: now,
+          lastAttemptAt: now,
+          sendStatus: OtpRequestStatus.VERIFIED,
+        },
+      });
+      if (consumed.count !== 1) {
+        throw new BadRequestException(GENERIC_OTP_RESET_ERROR);
+      }
+
+      await transaction.user.update({
+        where: { id: user.id },
+        data: {
+          passwordHash,
+          phoneVerifiedAt: user.phoneVerifiedAt || now,
+          refreshToken: null,
+          failedPasswordLoginCount: 0,
+          lockedUntil: null,
+        },
+      });
+      await transaction.authSession.updateMany({
+        where: { userId: user.id, revokedAt: null },
+        data: { revokedAt: now, revokedReason: 'STAFF_PASSWORD_RESET_ZALO_OTP' },
+      });
+      await transaction.otpRequest.updateMany({
+        where: {
+          userId: user.id,
+          purpose: OtpRequestPurpose.STAFF_PASSWORD_RESET,
+          id: { not: otpRequest.id },
+          verifiedAt: null,
+          consumedAt: null,
+        },
+        data: { sendStatus: OtpRequestStatus.EXPIRED, consumedAt: now },
+      });
+      await transaction.staffPasswordResetToken.updateMany({
+        where: { userId: user.id, usedAt: null, revokedAt: null },
+        data: { revokedAt: now },
+      });
+      await transaction.auditLog.create({
+        data: {
+          userId: user.id,
+          action: 'STAFF_PASSWORD_RESET_OTP_COMPLETED',
+          moduleKey: 'security',
+          entityType: 'User',
+          entityId: user.id,
+          payload: {
+            source: 'public_staff_zalo_otp_recovery',
+            otpRequestId: otpRequest.id,
+            sessionsRevoked: true,
+          },
+          ipAddress: requestContext?.ipAddress || null,
+          userAgent: requestContext?.userAgent || null,
+        },
+      });
+      await transaction.authLoginAttempt.create({
+        data: {
+          userId: user.id,
+          authMethod: 'STAFF_PASSWORD_RESET_OTP_SUBMIT',
+          identifierType: 'EMAIL',
+          identifierValue: email,
+          ipAddress: requestContext?.ipAddress || null,
+          userAgent: requestContext?.userAgent || null,
+          success: true,
+          outcome: 'PASSWORD_RESET',
+        },
+      });
+    });
+
+    return {
+      success: true,
+      message: 'Mật khẩu đã được đặt lại. Vui lòng đăng nhập lại.',
+    };
+  }
+
   async requestPasswordReset(rawEmail: string) {
+    this.assertEmailRecoveryEnabled();
     const email = normalizeEmail(rawEmail);
     if (!email || !isValidEmail(email)) {
       throw new BadRequestException('Email is invalid.');
@@ -154,6 +524,7 @@ export class StaffPasswordService {
     newPassword: string;
     confirmPassword: string;
   }) {
+    this.assertEmailRecoveryEnabled();
     this.assertMatchingPasswords(params.newPassword, params.confirmPassword);
     this.assertPolicy(params.newPassword);
 
@@ -339,13 +710,123 @@ export class StaffPasswordService {
     };
   }
 
+  private buildOtpRequestResponse(
+    otpRequest: {
+      id: string;
+      expiresAt: Date;
+      resendAvailableAt: Date;
+    },
+    debugCode?: string,
+  ) {
+    return {
+      success: true,
+      requestId: otpRequest.id,
+      expiresAt: otpRequest.expiresAt.toISOString(),
+      resendAvailableAt: otpRequest.resendAvailableAt.toISOString(),
+      cooldownSeconds: this.getOtpResendCooldownSeconds(),
+      debugCode,
+      message: GENERIC_OTP_REQUEST_MESSAGE,
+    };
+  }
+
+  private buildDecoyOtpRequestResponse() {
+    const now = new Date();
+    return this.buildOtpRequestResponse({
+      id: randomUUID(),
+      expiresAt: new Date(now.getTime() + this.getOtpTtlMinutes() * 60 * 1000),
+      resendAvailableAt: new Date(
+        now.getTime() + this.getOtpResendCooldownSeconds() * 1000,
+      ),
+    });
+  }
+
+  private async isOtpPhoneRateLimited(phone: string) {
+    const windowStart = new Date(
+      Date.now() - this.getOtpPhoneRateLimitWindowMinutes() * 60 * 1000,
+    );
+    const count = await this.prisma.otpRequest.count({
+      where: {
+        phone,
+        deletedAt: null,
+        createdAt: { gte: windowStart },
+      },
+    });
+    return count >= this.getOtpPhoneRateLimitMax();
+  }
+
+  private mapOtpRequestStatus(status: OtpSendResult['sendStatus']) {
+    switch (status) {
+      case 'SENT':
+        return OtpRequestStatus.SENT;
+      case 'DRY_RUN':
+        return OtpRequestStatus.DRY_RUN;
+      case 'BLOCKED':
+        return OtpRequestStatus.BLOCKED;
+      case 'FAILED':
+      default:
+        return OtpRequestStatus.FAILED;
+    }
+  }
+
+  private toSanitizedJson(value?: Record<string, unknown> | null) {
+    if (!value) {
+      return Prisma.JsonNull;
+    }
+    return this.redactSensitiveProviderData(value) as Prisma.InputJsonValue;
+  }
+
+  private redactSensitiveProviderData(value: unknown): unknown {
+    if (Array.isArray(value)) {
+      return value.map((item) => this.redactSensitiveProviderData(item));
+    }
+    if (!value || typeof value !== 'object') {
+      return value;
+    }
+
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+        key,
+        /(otp|code|token|secret|authorization)/i.test(key)
+          ? '[REDACTED]'
+          : this.redactSensitiveProviderData(item),
+      ]),
+    );
+  }
+
+  private recordOtpResetSubmission(params: {
+    userId: string | null;
+    success: boolean;
+    outcome: string;
+  }) {
+    const requestContext = this.requestContextService.get();
+    return this.prisma.authLoginAttempt.create({
+      data: {
+        userId: params.userId,
+        authMethod: 'STAFF_PASSWORD_RESET_OTP_SUBMIT',
+        identifierType: 'EMAIL',
+        identifierValue: null,
+        ipAddress: requestContext?.ipAddress || null,
+        userAgent: requestContext?.userAgent || null,
+        success: params.success,
+        outcome: params.outcome,
+      },
+    });
+  }
+
+  private assertEmailRecoveryEnabled() {
+    if (String(process.env.STAFF_PASSWORD_RECOVERY_EMAIL_ENABLED || '').toLowerCase() !== 'true') {
+      throw new NotFoundException('Email password recovery is not enabled.');
+    }
+  }
+
   private async assertRequestRateLimit(email: string, ipAddress: string | null) {
     const windowStart = new Date(Date.now() - 60 * 60 * 1000);
     const max = this.getRequestRateLimitMax();
+    const authMethods = ['STAFF_PASSWORD_RESET_REQUEST', 'STAFF_PASSWORD_RESET_OTP_REQUEST'];
     const [emailCount, ipCount] = await Promise.all([
       this.prisma.authLoginAttempt.count({
         where: {
-          authMethod: 'STAFF_PASSWORD_RESET_REQUEST',
+          authMethod: { in: authMethods },
           identifierValue: email,
           createdAt: { gte: windowStart },
         },
@@ -353,7 +834,7 @@ export class StaffPasswordService {
       ipAddress
         ? this.prisma.authLoginAttempt.count({
             where: {
-              authMethod: 'STAFF_PASSWORD_RESET_REQUEST',
+              authMethod: { in: authMethods },
               ipAddress,
               createdAt: { gte: windowStart },
             },
@@ -371,7 +852,9 @@ export class StaffPasswordService {
     const windowStart = new Date(Date.now() - 60 * 60 * 1000);
     const count = await this.prisma.authLoginAttempt.count({
       where: {
-        authMethod: 'STAFF_PASSWORD_RESET_SUBMIT',
+        authMethod: {
+          in: ['STAFF_PASSWORD_RESET_SUBMIT', 'STAFF_PASSWORD_RESET_OTP_SUBMIT'],
+        },
         ipAddress,
         createdAt: { gte: windowStart },
       },
@@ -440,5 +923,30 @@ export class StaffPasswordService {
   private getResetSubmitRateLimitMax() {
     const value = Number(process.env.STAFF_PASSWORD_RESET_SUBMIT_MAX_PER_HOUR || 10);
     return Number.isFinite(value) && value > 0 ? Math.floor(value) : 10;
+  }
+
+  private getOtpTtlMinutes() {
+    const value = Number(process.env.AUTH_OTP_TTL_MINUTES || 5);
+    return Number.isFinite(value) && value > 0 ? value : 5;
+  }
+
+  private getOtpMaxAttempts() {
+    const value = Number(process.env.AUTH_OTP_MAX_ATTEMPTS || 5);
+    return Number.isFinite(value) && value > 0 ? Math.floor(value) : 5;
+  }
+
+  private getOtpResendCooldownSeconds() {
+    const value = Number(process.env.AUTH_OTP_RESEND_COOLDOWN_SECONDS || 60);
+    return Number.isFinite(value) && value > 0 ? Math.floor(value) : 60;
+  }
+
+  private getOtpPhoneRateLimitWindowMinutes() {
+    const value = Number(process.env.AUTH_OTP_RATE_LIMIT_PHONE_WINDOW_MINUTES || 15);
+    return Number.isFinite(value) && value > 0 ? value : 15;
+  }
+
+  private getOtpPhoneRateLimitMax() {
+    const value = Number(process.env.AUTH_OTP_RATE_LIMIT_PHONE_MAX || 5);
+    return Number.isFinite(value) && value > 0 ? Math.floor(value) : 5;
   }
 }

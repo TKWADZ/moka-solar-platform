@@ -1,12 +1,16 @@
 # Deploy Status
 
-- latest task: Staff/Admin login recovery, secure CLI reset, forgot/reset password, and authenticated change-password
-- local test status: Passed backend unit tests (5/5), typecheck, Prisma validation/generation, and browser checks for staff login/forgot/reset routes; customer phone normalization regression test passed
-- build status: Passed (`backend: npm run build`, `frontend: npm run build`)
-- approval requested or not: yes; final deployment summary was presented
-- approved or not: yes; user approved VPS deployment
-- deployed or not: yes; production commit `5362594b615fb298b10e3849b45cf82576f3d893` deployed successfully by Actions run `31220442630`
-- production verification: Passed homepage, public pages, staff login, forgot/reset password, admin security, Next.js asset, redirects, API health, and 5-minute PM2 stability checks; PostgreSQL reports `up`
-- remaining checks: staff recovery e2e suite safely skipped because no isolated `TEST_DATABASE_URL`/PostgreSQL is available; real email delivery requires VPS SMTP configuration
-- dependency warning: Nodemailer was upgraded to the patched 9.0.5 release; pre-existing Nest/Express/XLSX/native dependency advisories remain outside this focused change and must not be force-upgraded during auth recovery
-- rollback target if needed: production commit `08702f88fb4dd1c30a94b4667b5e1b1d03a18191`; the additive reset-token table may remain unused during code rollback
+- latest task: Replace staff email-link recovery with Zalo OTP for `SUPER_ADMIN`, `ADMIN`, `MANAGER`, and `STAFF`
+- local test status: Passed isolated PostgreSQL e2e for all four internal roles, wrong/correct OTP handling, password reset, session revocation, customer auth regression, and raw OTP/token redaction; local page returned HTTP 200 and passed a 390px browser layout/console check
+- localhost URL checked: `http://127.0.0.1:3100/portal/nhan-su/quen-mat-khau` (port 3000 was already occupied by an unrelated local process; the project default remains port 3000)
+- typecheck status: Passed backend `npm run typecheck` and frontend `npx tsc --noEmit`
+- unit test status: Passed 5/5
+- e2e status: Passed 1/1 against an isolated temporary PostgreSQL container; the container and its non-persistent data were removed after testing
+- Prisma status: Schema valid; all 35 migrations, including `20260808113000_add_staff_password_reset_otp_purpose`, applied successfully to the isolated test database
+- build status: Passed backend `npm run build` and frontend `npm run build`
+- approval requested or not: yes
+- approved or not: yes
+- deployed or not: pending
+- production prerequisites: each internal account needs a valid registered Vietnamese phone; production Zalo OTP template/token configuration must be available; `AUTH_OTP_DEBUG_MODE` must remain `false`
+- deploy command after explicit approval: commit the reviewed changes, then `git push origin HEAD:main` to trigger the guarded GitHub Actions production workflow
+- rollback target if needed: current production commit `5362594b615fb298b10e3849b45cf82576f3d893`; the additive OTP enum value may remain unused after code rollback

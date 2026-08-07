@@ -1,131 +1,121 @@
 # Staff Password Recovery
 
-This workflow applies only to `SUPER_ADMIN`, `ADMIN`, `MANAGER`, and `STAFF` accounts.
-Customer phone/password and Zalo OTP flows are unchanged.
+This workflow applies to `SUPER_ADMIN`, `ADMIN`, `MANAGER`, and `STAFF` accounts.
+Daily internal login remains email plus password. Password recovery uses Zalo OTP.
+
+## Active recovery flow
+
+1. The operator opens `/portal/nhan-su/quen-mat-khau` and enters the work email.
+2. The backend returns generic challenge metadata, whether or not the account exists.
+3. For an active internal account with a registered Vietnamese phone, the backend sends a six-digit
+   OTP through the configured Zalo OTP template.
+4. The operator submits email, challenge ID, OTP, new password, and confirmation.
+5. A successful reset revokes all existing sessions and legacy reset links.
+
+API endpoints:
+
+- `POST /api/auth/staff/password-reset/request`
+- `POST /api/auth/staff/password-reset/verify`
+
+The old email-link endpoints are retained for a future transactional-email rollout, but are disabled
+unless `STAFF_PASSWORD_RECOVERY_EMAIL_ENABLED=true`.
 
 ## Security model
 
-- Internal email is normalized with `trim().toLowerCase()` before lookup.
-- Passwords use bcrypt and the shared 12-128 character policy.
-- Reset tokens use 32 cryptographically random bytes; only their SHA-256 hashes are stored.
-- A token expires after 20 minutes, is single-use, and revokes earlier unused tokens.
-- Reset revokes all sessions. Authenticated password change preserves only the current tracked session.
-- Role, customer ownership, and MFA/TOTP fields are never changed by password recovery.
-- Public forgot-password responses do not reveal whether an account exists.
-- CLI recovery requires hidden interactive input and records `source=server_cli` in `AuditLog`.
+- Work email is normalized before lookup.
+- Public responses do not disclose account or phone existence.
+- Internal roles and customer OTP purposes are kept separate.
+- OTP has six digits, expires after five minutes by default, and is stored only as a bcrypt hash.
+- Resend cooldown defaults to 60 seconds and verification is blocked after five failed attempts.
+- Requests are rate-limited by email, registered phone, and IP.
+- OTP and token fields are redacted from provider payloads stored by the staff challenge flow.
+- Passwords use bcrypt and the shared 12 to 128 character policy.
+- Successful recovery revokes all sessions and writes security audit records.
+- An internal account must have a valid registered Vietnamese phone number.
 
-## Local commands
+## Required configuration
+
+Configure Zalo credentials only in the secure VPS settings/env. Never commit real values:
+
+```dotenv
+AUTH_OTP_TTL_MINUTES=5
+AUTH_OTP_MAX_ATTEMPTS=5
+AUTH_OTP_DEBUG_MODE=false
+AUTH_OTP_RESEND_COOLDOWN_SECONDS=60
+AUTH_OTP_RATE_LIMIT_PHONE_WINDOW_MINUTES=15
+AUTH_OTP_RATE_LIMIT_PHONE_MAX=5
+AUTH_OTP_RATE_LIMIT_IP_WINDOW_MINUTES=15
+AUTH_OTP_RATE_LIMIT_IP_MAX=20
+STAFF_PASSWORD_RESET_REQUEST_MAX_PER_HOUR=5
+STAFF_PASSWORD_RESET_SUBMIT_MAX_PER_HOUR=10
+STAFF_PASSWORD_RECOVERY_EMAIL_ENABLED=false
+ZALO_TEMPLATE_OTP_ID=
+```
+
+The remaining Zalo app/OA credentials are resolved through the existing backend-only Zalo settings
+service. The staff flow uses the same approved OTP template and token-refresh path as customer OTP.
+
+## Local verification
+
+Use dry-run only outside production:
+
+```dotenv
+AUTH_OTP_DEBUG_MODE=true
+```
+
+Then run:
 
 ```bash
-git switch -c fix/staff-password-recovery
 cd backend
-npm install
 npx prisma validate
 npx prisma generate
 npm run test:unit
 npm run test:e2e
 npm run typecheck
 npm run build
-cd ../frontend
-npm install
-npm run build
-```
-
-`npm run test:e2e` requires an isolated PostgreSQL database in `TEST_DATABASE_URL` with migrations applied.
-It skips rather than touching a development or production database when that variable is absent.
-
-## Production environment
-
-Configure these values only in the VPS secret env file. Never commit the values:
-
-```dotenv
-APP_PUBLIC_URL=https://mokasolar.com
-MAIL_FROM=
-SMTP_HOST=
-SMTP_PORT=587
-SMTP_SECURE=false
-SMTP_USER=
-SMTP_PASSWORD=
-STAFF_PASSWORD_RESET_TTL_MINUTES=20
-STAFF_PASSWORD_RESET_REQUEST_MAX_PER_HOUR=5
-STAFF_PASSWORD_RESET_SUBMIT_MAX_PER_HOUR=10
-```
-
-## Safe PM2 deployment
-
-Production process names are `moka-solar-backend` and `moka-solar-frontend`.
-
-```bash
-cd /var/www/mokasolar/source
-timestamp="$(date +%Y%m%d-%H%M%S)"
-mkdir -p "/var/www/mokasolar/shared/backups/$timestamp"
-
-cd backend
-database_url="$(node -r ./dist/src/common/helpers/bootstrap-env.js -p 'process.env.DATABASE_URL')"
-pg_dump "$database_url" --format=custom --no-owner \
-  --file="/var/www/mokasolar/shared/backups/$timestamp/pre-staff-password-recovery.dump"
-
-npx prisma validate
-npx prisma migrate status
-sed -n '1,220p' prisma/migrations/20260808100000_add_staff_password_reset_tokens/migration.sql
-npx prisma migrate deploy
-npm install
-npx prisma generate
-npm run test:unit
-npm run typecheck
-npm run build
 
 cd ../frontend
-npm install
+npx tsc --noEmit
 npm run build
-
-cd ..
-pm2 startOrReload /var/www/mokasolar/scripts/ecosystem.config.js --update-env
-pm2 save
-pm2 status moka-solar-backend moka-solar-frontend
-curl -fsS http://127.0.0.1:4000/api/health
-curl -fsS http://127.0.0.1:3000/ >/dev/null
 ```
 
-Do not pass a password through an argument, env variable, shell history, or package script.
+`npm run test:e2e` requires an isolated migrated PostgreSQL database in `TEST_DATABASE_URL`. It skips
+instead of touching a development or production database when that variable is absent.
 
-## Emergency reset
+## Production migration
 
-Run this from a real interactive SSH terminal after the migration and build:
+The additive migration is:
+
+`backend/prisma/migrations/20260808113000_add_staff_password_reset_otp_purpose/migration.sql`
+
+Back up PostgreSQL before `npx prisma migrate deploy`. Do not drop the existing
+`StaffPasswordResetToken` table; it remains available for the future email channel.
+
+## Emergency recovery
+
+If an internal account has no usable registered phone or Zalo is unavailable, use the existing
+interactive server command from a trusted SSH session:
 
 ```bash
 cd /var/www/mokasolar/source/backend
 npm run admin:reset-password -- --email user@example.com
 ```
 
-For an intentionally deactivated internal account only:
+The command reads the password without echoing it and writes an audit event. It does not create a
+missing account.
 
-```bash
-npm run admin:reset-password -- --email user@example.com --activate
-```
+## Verification checklist
 
-Creating the first internal account is a separate operation and is refused when any internal account exists:
-
-```bash
-npm run admin:create-first -- --email owner@example.com
-```
-
-There is no MFA-reset command because this repository does not currently store a TOTP secret. Password recovery must remain separate if TOTP is added later.
-
-## Verification
-
-1. Open `/login?mode=staff` and verify the generic invalid-credential message.
-2. Open `/portal/nhan-su/quen-mat-khau`; submit an existing and nonexistent email and compare responses.
-3. Confirm SMTP delivery without inspecting application logs for the reset URL.
-4. Use the reset link once, then verify that reuse and expiry are rejected identically.
-5. Confirm the old password and old refresh sessions no longer work.
-6. Sign in with the new password and open `/admin/security` to test authenticated password change.
-7. Verify customer phone/password and Zalo OTP routes are unchanged.
+1. Request OTP for each internal role and confirm the Zalo OTP template is used.
+2. Compare public responses for existing and nonexistent emails.
+3. Confirm wrong OTP attempts increment and the sixth attempt cannot proceed after the five-attempt cap.
+4. Confirm resend is blocked for 60 seconds and OTP expires after five minutes.
+5. Confirm the old password and all old refresh sessions fail after a successful reset.
+6. Confirm customer password reset still accepts only `CUSTOMER_PASSWORD_RESET` challenges.
+7. Confirm no raw OTP appears in `OtpRequest`, Zalo message logs, application logs, or audit payloads.
 
 ## Rollback
 
-Prefer a Git revert of the staff-auth commit, followed by backend/frontend rebuild and PM2 reload.
-The new reset-token table is additive and can remain safely unused during application rollback.
-Do not drop the table or restore the full database merely to roll back application code.
-
-If a data restore is independently required, stop the app, verify the target dump, restore only into a separately reviewed database target, and obtain explicit approval first.
+Revert the application commit, rebuild backend/frontend, and reload the approved production process.
+The enum value and existing reset-token table are additive and can remain unused. Do not drop a table,
+delete a volume, or restore the whole database merely to roll back this feature.

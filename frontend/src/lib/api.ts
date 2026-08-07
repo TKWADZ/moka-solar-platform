@@ -586,6 +586,36 @@ export async function requestStaffPasswordResetRequest(email: string) {
   });
 }
 
+export type StaffPasswordResetOtpRequestResult = {
+  success: boolean;
+  requestId: string;
+  expiresAt: string;
+  resendAvailableAt: string;
+  cooldownSeconds: number;
+  message: string;
+  debugCode?: string;
+};
+
+export async function requestStaffPasswordResetOtpRequest(email: string) {
+  return apiFetch<StaffPasswordResetOtpRequestResult>('/auth/staff/password-reset/request', {
+    method: 'POST',
+    body: JSON.stringify({ email }),
+  });
+}
+
+export async function resetStaffPasswordWithOtpRequest(payload: {
+  email: string;
+  requestId: string;
+  otpCode: string;
+  newPassword: string;
+  confirmPassword: string;
+}) {
+  return apiFetch<{ success: boolean; message: string }>('/auth/staff/password-reset/verify', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
 export async function resetStaffPasswordRequest(payload: {
   token: string;
   newPassword: string;
