@@ -440,11 +440,13 @@ jobs:
             echo "canonical_moka_nginx=${CANONICAL_MOKA_NGINX:-}"
             echo "web_moi_nginx=${WEB_MOI_NGINX:-}"
 
+            set -x
             if [ "$stack_mode" = "docker" ]; then
               run_docker_deploy
             else
               run_pm2_deploy
             fi
+            set +x
 
             normalize_nginx_file() {
               nginx_file="$1"
