@@ -440,56 +440,36 @@ jobs:
             echo "canonical_moka_nginx=${CANONICAL_MOKA_NGINX:-}"
             echo "web_moi_nginx=${WEB_MOI_NGINX:-}"
 
-            list_moka_nginx_files() {
-              seen_files=""
-              for candidate in "${ACTIVE_MOKA_NGINX:-}" "${CANONICAL_MOKA_NGINX:-}"; do
-                [ -n "$candidate" ] || continue
-                if [ ! -f "$candidate" ] && [ ! -L "$candidate" ]; then
-                  continue
-                fi
-                if printf '%s\n' "$seen_files" | grep -Fx -- "$candidate" >/dev/null 2>&1; then
-                  continue
-                fi
-                if [ -n "$seen_files" ]; then
-                  seen_files="${seen_files}"$'\n'"${candidate}"
-                else
-                  seen_files="${candidate}"
-                fi
-                printf '%s\n' "$candidate"
-              done
-
-              if [ -z "$seen_files" ]; then
-                $SUDO grep -RIl 'mokasolar.com' /etc/nginx/sites-enabled /etc/nginx/sites-available /etc/nginx/conf.d 2>/dev/null || true
-              fi
-
-              return 0
-            }
-
-            print_section "Canonical deployment inventory"
-            ls -la "$project_dir" || true
-            if [ -f "$ecosystem_file" ]; then
-              ls -la "$ecosystem_file" || true
-            fi
-            list_moka_nginx_files || true
-
             if [ "$stack_mode" = "docker" ]; then
               run_docker_deploy
             else
               run_pm2_deploy
             fi
 
+            normalize_nginx_file() {
+              nginx_file="$1"
+              if [ -z "$nginx_file" ]; then
+                return 0
+              fi
+              if [ ! -f "$nginx_file" ] && [ ! -L "$nginx_file" ]; then
+                return 0
+              fi
+
+              backup_file "$nginx_file" || true
+              $SUDO sed -i 's|proxy_pass http://127.0.0.1:4000/;|proxy_pass http://127.0.0.1:4000;|g' "$nginx_file"
+              $SUDO sed -i 's|proxy_pass http://127.0.0.1:4000/api/;|proxy_pass http://127.0.0.1:4000;|g' "$nginx_file"
+              $SUDO sed -i 's|proxy_pass http://frontend:3000;|proxy_pass http://127.0.0.1:3000;|g' "$nginx_file"
+              $SUDO sed -i 's|proxy_pass http://backend:4000/;|proxy_pass http://127.0.0.1:4000;|g' "$nginx_file"
+              $SUDO sed -i 's|proxy_pass http://backend:4000;|proxy_pass http://127.0.0.1:4000;|g' "$nginx_file"
+              $SUDO sed -i 's|set $frontend_upstream http://frontend:3000;|set $frontend_upstream http://127.0.0.1:3000;|g' "$nginx_file"
+              $SUDO sed -i 's|set $backend_upstream http://backend:4000;|set $backend_upstream http://127.0.0.1:4000;|g' "$nginx_file"
+            }
+
             print_section "Normalize Nginx production upstreams"
-            for file in $(list_moka_nginx_files || true); do
-              [ -n "$file" ] || continue
-              backup_file "$file" || true
-              $SUDO sed -i 's|proxy_pass http://127.0.0.1:4000/;|proxy_pass http://127.0.0.1:4000;|g' "$file"
-              $SUDO sed -i 's|proxy_pass http://127.0.0.1:4000/api/;|proxy_pass http://127.0.0.1:4000;|g' "$file"
-              $SUDO sed -i 's|proxy_pass http://frontend:3000;|proxy_pass http://127.0.0.1:3000;|g' "$file"
-              $SUDO sed -i 's|proxy_pass http://backend:4000/;|proxy_pass http://127.0.0.1:4000;|g' "$file"
-              $SUDO sed -i 's|proxy_pass http://backend:4000;|proxy_pass http://127.0.0.1:4000;|g' "$file"
-              $SUDO sed -i 's|set $frontend_upstream http://frontend:3000;|set $frontend_upstream http://127.0.0.1:3000;|g' "$file"
-              $SUDO sed -i 's|set $backend_upstream http://backend:4000;|set $backend_upstream http://127.0.0.1:4000;|g' "$file"
-            done
+            normalize_nginx_file "${ACTIVE_MOKA_NGINX:-}"
+            if [ "${CANONICAL_MOKA_NGINX:-}" != "${ACTIVE_MOKA_NGINX:-}" ]; then
+              normalize_nginx_file "${CANONICAL_MOKA_NGINX:-}"
+            fi
 
             print_section "Validate and reload Nginx"
             $SUDO nginx -t
