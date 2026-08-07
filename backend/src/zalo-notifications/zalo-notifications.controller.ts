@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Patch, Post, Query, UseGuards } from '@nestjs/common';
+import { ZaloAutomationService } from './zalo-automation.service';
 import { ZaloNotificationsService } from './zalo-notifications.service';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { RolesGuard } from '../common/guards/roles.guard';
@@ -15,18 +16,21 @@ import { UpdateZaloSettingsDto } from './dto/update-zalo-settings.dto';
 @FeaturePlugin('billing')
 @UseGuards(JwtAuthGuard, RolesGuard, FeaturePluginGuard)
 export class ZaloNotificationsController {
-  constructor(private readonly zaloNotificationsService: ZaloNotificationsService) {}
+  constructor(
+    private readonly zaloNotificationsService: ZaloNotificationsService,
+    private readonly zaloAutomationService: ZaloAutomationService,
+  ) {}
 
   @Get('status')
   @Roles('SUPER_ADMIN', 'ADMIN', 'STAFF')
-  getStatus() {
-    return this.zaloNotificationsService.getStatus();
+  getStatus(@CurrentUser() user: AuthenticatedUser) {
+    return this.zaloNotificationsService.getStatus(user);
   }
 
   @Get('settings')
   @Roles('SUPER_ADMIN', 'ADMIN')
-  getSettings() {
-    return this.zaloNotificationsService.getSettings();
+  getSettings(@CurrentUser() user: AuthenticatedUser) {
+    return this.zaloNotificationsService.getSettings(user);
   }
 
   @Patch('settings')
@@ -57,6 +61,23 @@ export class ZaloNotificationsController {
     @CurrentUser() user: AuthenticatedUser,
   ) {
     return this.zaloNotificationsService.testConnection(dto, user.sub);
+  }
+
+
+  @Get('automation/status')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'STAFF')
+  getAutomationStatus() {
+    return this.zaloAutomationService.getStatus();
+  }
+
+  @Post('automation/run')
+  @Roles('SUPER_ADMIN', 'ADMIN')
+  runAutomation(
+    @Query('dryRun') dryRun: string | undefined,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    const forceDryRun = dryRun === undefined ? true : dryRun.toLowerCase() !== 'false';
+    return this.zaloAutomationService.runNow(user.sub, forceDryRun);
   }
 
   @Post('invoices/:invoiceId/send')

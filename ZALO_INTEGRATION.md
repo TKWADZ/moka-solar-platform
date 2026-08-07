@@ -162,3 +162,46 @@ Each send attempt writes a `ZaloMessageLog` record with:
 - status
 - provider response code/message
 - timestamp
+
+## Automatic invoice, reminder and paid notifications
+
+The backend now includes a scheduler for billing notifications. It is disabled by default so a production deployment cannot accidentally send messages before the OA package, token and approved templates are verified.
+
+Add these backend variables:
+
+- `ZALO_AUTOMATION_ENABLED=true`
+- `ZALO_AUTOMATION_CRON=0 */15 * * * *`
+- `ZALO_AUTOMATION_TIMEZONE=Asia/Ho_Chi_Minh`
+- `ZALO_AUTOMATION_BATCH_SIZE=50`
+- `ZALO_INVOICE_LOOKBACK_DAYS=60`
+- `ZALO_REMINDER_DAYS_BEFORE_DUE=3`
+- `ZALO_REMINDER_COOLDOWN_HOURS=72`
+- `ZALO_RETRY_COOLDOWN_HOURS=6`
+- `ZALO_PAID_LOOKBACK_DAYS=30`
+
+Scheduler behavior:
+
+- sends the first `INVOICE` notification for recently issued invoices that have not already been sent successfully
+- sends `REMINDER` notifications for unpaid invoices near or past their due date, respecting the reminder cooldown
+- sends one `PAID` confirmation for recently paid invoices
+- keeps dry-run attempts separate from successful live sends
+- prevents duplicate successful `INVOICE` and `PAID` sends
+- keeps an in-process lock so one application instance does not overlap its own scheduled run
+
+Admin endpoints:
+
+- `GET /api/zalo-notifications/automation/status`
+- `POST /api/zalo-notifications/automation/run` runs a safe dry-run by default
+- `POST /api/zalo-notifications/automation/run?dryRun=false` explicitly runs a live batch
+
+Production activation order:
+
+1. Confirm the OA service package and approved template IDs.
+2. Confirm customer phone numbers are normalized correctly.
+3. Set `ZALO_DRY_RUN=true` and run the automation endpoint once.
+4. Review `ZaloMessageLog` records and provider diagnostics.
+5. Set `ZALO_DRY_RUN=false`.
+6. Set `ZALO_AUTOMATION_ENABLED=true`.
+7. Restart the backend and confirm the automation status endpoint reports `enabled: true`.
+
+The current lightweight implementation uses log-based deduplication. Before running multiple backend instances, add a database-backed outbox and distributed lock so two processes cannot claim the same invoice at the same time.

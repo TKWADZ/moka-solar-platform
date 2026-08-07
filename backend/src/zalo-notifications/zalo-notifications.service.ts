@@ -356,6 +356,7 @@ export class ZaloNotificationsService {
     templateType?: ZaloTemplateType;
     recipientPhone?: string;
     dryRun?: boolean;
+    skipIfAlreadySent?: boolean;
   }) {
     const invoice = await this.prisma.invoice.findFirst({
       where: {
@@ -382,6 +383,35 @@ export class ZaloNotificationsService {
     }
 
     const templateType: ZaloTemplateType = options.templateType || 'INVOICE';
+
+    if (options.skipIfAlreadySent) {
+      const existingSuccessfulSend = await this.prisma.zaloMessageLog.findFirst({
+        where: {
+          invoiceId: invoice.id,
+          templateType,
+          sendStatus: 'SENT',
+          dryRun: false,
+          deletedAt: null,
+        },
+        orderBy: [{ createdAt: 'desc' }],
+      });
+
+      if (existingSuccessfulSend) {
+        return {
+          success: true,
+          skipped: true,
+          dryRun: false,
+          status: 'SKIPPED',
+          reason: 'ALREADY_SENT',
+          invoiceId: invoice.id,
+          invoiceNumber: invoice.invoiceNumber,
+          templateType,
+          previousLogId: existingSuccessfulSend.id,
+          previousSentAt: existingSuccessfulSend.createdAt.toISOString(),
+        };
+      }
+    }
+
     const config = await this.zaloSettingsService.resolveConfig();
     const recipientPhone = this.normalizePhoneNumber(
       options.recipientPhone || invoice.customer?.user?.phone || '',

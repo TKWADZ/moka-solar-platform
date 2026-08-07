@@ -1,5 +1,4 @@
 import { Module } from '@nestjs/common';
-import { ScheduleModule } from '@nestjs/schedule';
 import { DeyeConnectionsModule } from '../deye-connections/deye-connections.module';
 import { EnergyRecordsModule } from '../energy-records/energy-records.module';
 import { LuxPowerConnectionsModule } from '../luxpower-connections/luxpower-connections.module';
@@ -8,7 +7,6 @@ import { MonitorSyncService } from './monitor-sync.service';
 
 @Module({
   imports: [
-    ScheduleModule.forRoot(),
     EnergyRecordsModule,
     DeyeConnectionsModule,
     LuxPowerConnectionsModule,

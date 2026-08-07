@@ -1,6 +1,7 @@
 import { resolve } from 'path';
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { ScheduleModule } from '@nestjs/schedule';
 import { PrismaModule } from './prisma/prisma.module';
 import { AuthModule } from './auth/auth.module';
 import { CustomersModule } from './customers/customers.module';
@@ -46,6 +47,7 @@ import { RequestContextMiddleware } from './common/request-context/request-conte
         resolve(process.cwd(), '..', '..', '.env'),
       ],
     }),
+    ScheduleModule.forRoot(),
     PrismaModule,
     BootstrapModule,
     HealthModule,
