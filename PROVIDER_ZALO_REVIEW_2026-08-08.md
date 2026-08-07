@@ -42,6 +42,9 @@ Additional local hardening:
 - Docker Compose defaults match the safe env examples: energy/payment mocks off,
   Zalo dry-run on, and Zalo automation off;
 - focused provider, ownership, payment, and Zalo safety tests were added.
+- a pure SEMS+ mapper merges the full and enriched plant lists, keeps offline
+  plants, maps documented production kWh fields to the legacy contract, and keeps
+  `pSystem` unmapped until a sanitized energy-flow fixture proves its unit.
 
 ## Deferred P1 work
 
@@ -85,6 +88,10 @@ Keep URL, method, content type, query/body schema, header names, cookie names,
 status code, and response schema. Remove password, cookie values, access tokens,
 Authorization values, customer addresses, and other personal data.
 
+No SEMS+ JSON or HAR fixture file was present in the repository, bundle, or local
+workspace. The mapper therefore has structural unit fixtures only; a vendor-fixture
+contract test must be added when the sanitized responses are supplied.
+
 ## LuxPower network evidence still required
 
 Provide sanitized HAR or cURL entries for:
@@ -126,7 +133,7 @@ separate. Do not store real values in Git.
 
 - backend and frontend `npm ci` completed from lockfiles;
 - Prisma schema validation and client generation passed;
-- backend unit/safety tests: 15 passed, 0 failed;
+- backend unit/safety tests: 18 passed, 0 failed;
 - backend typecheck passed;
 - backend production build passed;
 - frontend production build passed, including all 51 routes;
