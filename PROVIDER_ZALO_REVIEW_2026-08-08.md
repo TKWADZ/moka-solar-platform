@@ -145,6 +145,49 @@ separate. Do not store real values in Git.
 No live provider or Zalo message call was made because no production credentials
 or approved live-test recipient was used.
 
+## Changed files
+
+```text
+.env.example
+.env.production.example
+PROVIDER_ZALO_REVIEW_2026-08-08.md
+ZALO_INTEGRATION.md
+backend/.env.example
+backend/package.json
+backend/src/app.module.ts
+backend/src/billing-lifecycle/billing-lifecycle.provider-safety.spec.ts
+backend/src/billing-lifecycle/billing-lifecycle.service.ts
+backend/src/deye-connections/deye-api.service.ts
+backend/src/deye-connections/deye-api.spec.ts
+backend/src/deye-connections/deye-auth.service.ts
+backend/src/energy-records/energy-records.provider-safety.spec.ts
+backend/src/energy-records/energy-records.service.ts
+backend/src/energy-records/sems-plus.mapper.spec.ts
+backend/src/energy-records/sems-plus.mapper.ts
+backend/src/energy-records/solarman-auth.spec.ts
+backend/src/energy-records/solarman.service.ts
+backend/src/invoices/invoice-access.spec.ts
+backend/src/invoices/invoices.controller.ts
+backend/src/invoices/invoices.service.ts
+backend/src/monitor-sync/monitor-sync.module.ts
+backend/src/monitor-sync/monitor-sync.service.ts
+backend/src/monthly-pv-billings/monthly-pv-billings.service.ts
+backend/src/payments/payments.controller.ts
+backend/src/payments/payments.production-safety.spec.ts
+backend/src/payments/payments.service.ts
+backend/src/solarman-connections/solarman-client.service.ts
+backend/src/solarman-connections/solarman-connections.service.ts
+backend/src/solarman-connections/solarman-cookie-session.provider.ts
+backend/src/solarman-connections/solarman-official-openapi.provider.ts
+backend/src/zalo-notifications/zalo-automation.service.ts
+backend/src/zalo-notifications/zalo-automation.spec.ts
+backend/src/zalo-notifications/zalo-notifications.controller.ts
+backend/src/zalo-notifications/zalo-notifications.module.ts
+backend/src/zalo-notifications/zalo-notifications.service.ts
+docker-compose.prod.yml
+docker-compose.yml
+```
+
 ## Deployment commands - do not run without explicit approval
 
 Push the review branch without deploying:
