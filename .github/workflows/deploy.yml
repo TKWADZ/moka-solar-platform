@@ -305,9 +305,9 @@ jobs:
             fi
 
             if [ -z "$stack_mode" ]; then
-              compose_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'docker-compose.prod.yml' ! -path "$HOME/moka-solar-backups/*' 2>/dev/null | grep 'moka-solar-platform' | head -n 1 || true)"
+              compose_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'docker-compose.prod.yml' ! -path "$HOME/moka-solar-backups/*" 2>/dev/null | grep 'moka-solar-platform' | head -n 1 || true)"
               if [ -z "$compose_candidate" ]; then
-                compose_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'docker-compose.prod.yml' ! -path "$HOME/moka-solar-backups/*' 2>/dev/null | head -n 1 || true)"
+                compose_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'docker-compose.prod.yml' ! -path "$HOME/moka-solar-backups/*" 2>/dev/null | head -n 1 || true)"
               fi
               if [ -n "$compose_candidate" ]; then
                 stack_mode="docker"
@@ -317,9 +317,9 @@ jobs:
             fi
 
             if [ -z "$stack_mode" ] && command -v pm2 >/dev/null 2>&1; then
-              ecosystem_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'ecosystem.config.js' ! -path "$HOME/moka-solar-backups/*' 2>/dev/null | grep 'moka-solar-platform' | head -n 1 || true)"
+              ecosystem_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'ecosystem.config.js' ! -path "$HOME/moka-solar-backups/*" 2>/dev/null | grep 'moka-solar-platform' | head -n 1 || true)"
               if [ -z "$ecosystem_candidate" ]; then
-                ecosystem_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'ecosystem.config.js' ! -path "$HOME/moka-solar-backups/*' 2>/dev/null | head -n 1 || true)"
+                ecosystem_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'ecosystem.config.js' ! -path "$HOME/moka-solar-backups/*" 2>/dev/null | head -n 1 || true)"
               fi
               if [ -n "$ecosystem_candidate" ]; then
                 stack_mode="pm2"
