@@ -243,6 +243,57 @@ backup_database() {
   esac
 }
 
+lock_internal_app_ports() {
+  ports_to_lock="${1:-3000 4000 3100 4100}"
+
+  if command -v ufw >/dev/null 2>&1; then
+    ufw_status="$($SUDO ufw status 2>/dev/null || true)"
+    if printf '%s\n' "$ufw_status" | grep -q '^Status: active'; then
+      for port in $ports_to_lock; do
+        if ! printf '%s\n' "$ufw_status" | grep -Eq "(^|[[:space:]])${port}/tcp([[:space:]]|$).*DENY IN"; then
+          $SUDO ufw deny "${port}/tcp" >/dev/null || true
+        fi
+      done
+      return 0
+    fi
+  fi
+
+  if command -v iptables >/dev/null 2>&1; then
+    for port in $ports_to_lock; do
+      $SUDO iptables -C INPUT -p tcp --dport "$port" ! -i lo -j DROP 2>/dev/null || \
+        $SUDO iptables -I INPUT -p tcp --dport "$port" ! -i lo -j DROP
+    done
+
+    if command -v ip6tables >/dev/null 2>&1; then
+      for port in $ports_to_lock; do
+        $SUDO ip6tables -C INPUT -p tcp --dport "$port" ! -i lo -j DROP 2>/dev/null || \
+          $SUDO ip6tables -I INPUT -p tcp --dport "$port" ! -i lo -j DROP
+      done
+    fi
+
+    if command -v netfilter-persistent >/dev/null 2>&1; then
+      $SUDO netfilter-persistent save || true
+    elif [ -d /etc/iptables ] && command -v iptables-save >/dev/null 2>&1; then
+      ipv4_rules_path="$backup_root/iptables.rules.v4"
+      $SUDO iptables-save > "$ipv4_rules_path" || true
+      if [ -s "$ipv4_rules_path" ]; then
+        $SUDO cp "$ipv4_rules_path" /etc/iptables/rules.v4 || true
+      fi
+
+      if command -v ip6tables-save >/dev/null 2>&1; then
+        ipv6_rules_path="$backup_root/ip6tables.rules.v6"
+        $SUDO ip6tables-save > "$ipv6_rules_path" || true
+        if [ -s "$ipv6_rules_path" ]; then
+          $SUDO cp "$ipv6_rules_path" /etc/iptables/rules.v6 || true
+        fi
+      fi
+    fi
+    return 0
+  fi
+
+  return 1
+}
+
 active_moka_nginx=""
 for nginx_candidate in $($SUDO grep -RIl 'mokasolar.com' /etc/nginx/sites-enabled /etc/nginx/sites-available /etc/nginx/conf.d 2>/dev/null || true); do
   active_moka_nginx="$nginx_candidate"
@@ -391,10 +442,17 @@ Suggested Nginx file:
 
 Recommended rollout:
 1. Clone the new repository into /var/www/web-moi/source.
-2. Place runtime env files under /var/www/web-moi/shared/env and symlink them into the source tree.
-3. Create a dedicated PM2 ecosystem file under /var/www/web-moi/scripts.
-4. Copy /etc/nginx/sites-available/web-moi into a domain-specific server block when DNS is ready.
-5. Validate with nginx -t before enabling the site publicly.
+2. Upload runtime env files into /var/www/web-moi/shared/env and symlink them into the source tree. Never commit .env, API keys, database passwords, or tokens.
+3. Install dependencies inside /var/www/web-moi/source for each app directory that exists, for example npm install in frontend and backend.
+4. Run the production build commands for the new project before creating PM2 processes.
+5. Create a dedicated PM2 ecosystem file under /var/www/web-moi/scripts with clear process names such as web-moi-frontend and web-moi-backend.
+6. Keep internal application ports bound to 127.0.0.1 and proxy public traffic only through Nginx.
+7. Copy /etc/nginx/sites-available/web-moi into a real domain-specific server block after DNS is ready, then point it to 127.0.0.1:3100 and 127.0.0.1:4100 or the final chosen ports.
+8. Validate with nginx -t before enabling the site publicly.
+9. After DNS points correctly, request SSL with certbot or the existing server certificate workflow for the new domain only.
+10. If the new site needs PostgreSQL, create a dedicated database and database user instead of sharing the Moka Solar production database.
+11. Check health and logs from pm2 status, pm2 logs, /var/www/web-moi/shared/logs, nginx access/error logs, and the new site's health endpoint.
+12. Roll back by stopping the new PM2 processes, restoring the previous source snapshot from /var/www/web-moi/shared/backups, and reloading Nginx only after nginx -t succeeds.
 EOF
 
 if [ -f "$current_project_dir/deploy/nginx/web-moi.conf.example" ]; then
@@ -409,6 +467,11 @@ fi
 
 if [ -f "$moka_nginx_canonical" ] && [ ! -e /etc/nginx/sites-enabled/mokasolar.com ] && [ "${active_moka_nginx#/etc/nginx/sites-available/}" != "$active_moka_nginx" ]; then
   $SUDO ln -sfn "$moka_nginx_canonical" /etc/nginx/sites-enabled/mokasolar.com
+fi
+
+print_section "Lock internal application ports"
+if ! lock_internal_app_ports "3000 4000 3100 4100"; then
+  echo "WARNING: could not enforce host firewall rules for internal application ports"
 fi
 
 print_section "Persist backup copy inside shared storage"
