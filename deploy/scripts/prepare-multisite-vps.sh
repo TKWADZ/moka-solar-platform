@@ -101,6 +101,44 @@ extract_env_value() {
   ' "$env_path"
 }
 
+sanitize_database_url_for_pg_dump() {
+  raw_url="$1"
+  base_url="${raw_url%%\?*}"
+
+  if [ "$base_url" = "$raw_url" ]; then
+    printf '%s\n' "$raw_url"
+    return 0
+  fi
+
+  query_string="${raw_url#*\?}"
+  filtered_query=""
+  old_ifs="$IFS"
+  IFS='&'
+  # shellcheck disable=SC2086
+  set -- $query_string
+  IFS="$old_ifs"
+
+  for query_part in "$@"; do
+    case "$query_part" in
+      schema=*)
+        ;;
+      *)
+        if [ -n "$filtered_query" ]; then
+          filtered_query="${filtered_query}&${query_part}"
+        else
+          filtered_query="$query_part"
+        fi
+        ;;
+    esac
+  done
+
+  if [ -n "$filtered_query" ]; then
+    printf '%s?%s\n' "$base_url" "$filtered_query"
+  else
+    printf '%s\n' "$base_url"
+  fi
+}
+
 link_shared_env() {
   rel_path="$1"
   shared_name="$2"
@@ -166,6 +204,7 @@ backup_database() {
       if [ -n "$env_source" ] && command -v pg_dump >/dev/null 2>&1; then
         database_url="$(extract_env_value DATABASE_URL "$env_source" || true)"
         database_url="$(trim_wrapping_quotes "$database_url")"
+        database_url="$(sanitize_database_url_for_pg_dump "$database_url")"
         if [ -n "$database_url" ]; then
           pg_dump "$database_url" --no-owner --format=custom > "$db_backup_path" || true
         fi
