@@ -51,6 +51,8 @@ function parseCorsOrigins(value?: string) {
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
   const expressApp = app.getHttpAdapter().getInstance();
+  const port = process.env.PORT || 4000;
+  const host = process.env.HOST || '127.0.0.1';
 
   if (typeof expressApp?.disable === 'function') {
     expressApp.disable('x-powered-by');
@@ -76,7 +78,7 @@ async function bootstrap() {
     }),
   );
 
-  await app.listen(process.env.PORT || 4000, '0.0.0.0');
+  await app.listen(port, host);
 }
 
 bootstrap();
