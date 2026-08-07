@@ -12,7 +12,7 @@ import { MonthlyPvBillingsService } from '../monthly-pv-billings/monthly-pv-bill
 import { PrismaService } from '../prisma/prisma.service';
 import { ZaloNotificationsService } from '../zalo-notifications/zalo-notifications.service';
 
-const BILLING_TIMEZONE = process.env.BILLING_TIMEZONE || 'Asia/Saigon';
+const BILLING_TIMEZONE = process.env.BILLING_TIMEZONE || 'Asia/Ho_Chi_Minh';
 
 @Injectable()
 export class BillingLifecycleService {
@@ -103,6 +103,7 @@ export class BillingLifecycleService {
             await this.zaloNotificationsService.sendInvoiceNotification({
               invoiceId: result.invoice.id,
               templateType: 'INVOICE',
+              skipIfAlreadySent: true,
             });
           }
         } catch (error) {
@@ -166,13 +167,13 @@ export class BillingLifecycleService {
 
     if (provider === 'SEMS_PORTAL') {
       const missingDates = await this.findMissingDates(system.id, month, year);
-      for (const recordDate of missingDates) {
-        await this.energyRecordsService.syncFromSems(system.id, {
-          plantId: system.monitoringPlantId || system.stationId || undefined,
-          recordDate: recordDate.toISOString(),
-        });
+      if (!missingDates.length) {
+        return;
       }
-      return;
+
+      throw new Error(
+        'Khong tu dong backfill SEMS bang endpoint realtime vi se chep san luong hom nay vao cac ngay cu. Can endpoint history SEMS+ hoac manual override da duoc doi soat.',
+      );
     }
 
     if (provider === 'SOLARMAN') {

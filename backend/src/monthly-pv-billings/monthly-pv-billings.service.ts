@@ -66,7 +66,7 @@ const MUTABLE_INVOICE_STATUSES = new Set<InvoiceStatus>([
   InvoiceStatus.CANCELLED,
 ]);
 
-const BILLING_TIMEZONE = process.env.BILLING_TIMEZONE || 'Asia/Saigon';
+const BILLING_TIMEZONE = process.env.BILLING_TIMEZONE || 'Asia/Ho_Chi_Minh';
 const STABLE_AUTO_BILLING_PROVIDERS = new Set([
   'SEMS_PORTAL',
   'DEYE',

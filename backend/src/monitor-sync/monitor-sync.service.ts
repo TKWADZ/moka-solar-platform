@@ -12,7 +12,7 @@ type SyncScope = 'REALTIME' | 'HISTORY' | 'DAY_CLOSE';
 type SyncTier = 'ACTIVE_VIEW' | 'ONLINE' | 'IDLE' | 'BACKOFF';
 type ManagedProvider = 'SEMS_PORTAL' | 'SOLARMAN' | 'DEYE' | 'LUXPOWER';
 
-const MONITOR_SYNC_TIMEZONE = process.env.MONITOR_SYNC_TIMEZONE || 'Asia/Saigon';
+const MONITOR_SYNC_TIMEZONE = process.env.MONITOR_SYNC_TIMEZONE || 'Asia/Ho_Chi_Minh';
 const MANAGED_PROVIDERS = new Set<ManagedProvider>([
   'SEMS_PORTAL',
   'SOLARMAN',

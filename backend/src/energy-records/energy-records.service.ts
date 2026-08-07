@@ -1,4 +1,10 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import {
+  BadGatewayException,
+  BadRequestException,
+  Injectable,
+  NotFoundException,
+  ServiceUnavailableException,
+} from '@nestjs/common';
 import { createDecipheriv, createHash } from 'crypto';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
@@ -116,6 +122,12 @@ export class EnergyRecordsService {
   }
 
   async mockSync(systemId: string, days: number, actorId?: string) {
+    if (process.env.NODE_ENV === 'production' || process.env.ENABLE_ENERGY_MOCK_SYNC !== 'true') {
+      throw new ServiceUnavailableException(
+        'Mock energy sync is disabled. Use a real inverter provider or reviewed manual import.',
+      );
+    }
+
     const system = await this.prisma.solarSystem.findFirst({
       where: { id: systemId, deletedAt: null },
     });
@@ -316,7 +328,7 @@ export class EnergyRecordsService {
     snapshot: SyncMonitorSnapshot,
     dto: SyncRecordOptions,
   ): CreateEnergyRecordDto {
-    const solarGeneratedKwh = Number((snapshot.todayGeneratedKwh || 0).toFixed(2));
+    const solarGeneratedKwh = this.requireGeneratedEnergy(snapshot);
     const gridExportedKwh = Number(
       (dto.gridExportedKwh ?? snapshot.todayGridExportedKwh ?? 0).toFixed(2),
     );
@@ -339,6 +351,22 @@ export class EnergyRecordsService {
       gridImportedKwh,
       gridExportedKwh,
     };
+  }
+
+  private requireGeneratedEnergy(snapshot: SyncMonitorSnapshot) {
+    const value = snapshot.todayGeneratedKwh;
+
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+      throw new BadGatewayException({
+        message:
+          'Nguon du lieu inverter khong tra ve san luong ngay hop le. He thong da bo qua lan dong bo de tranh ghi de du lieu hoa don bang 0.',
+        provider: snapshot.provider,
+        field: 'todayGeneratedKwh',
+        received: value ?? null,
+      });
+    }
+
+    return Number(value.toFixed(2));
   }
 
   private async upsertRecord(dto: CreateEnergyRecordDto) {

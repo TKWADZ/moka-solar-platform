@@ -30,7 +30,8 @@ export class SolarmanCookieSessionProvider implements SolarmanProvider {
       session: {
         mode: 'web',
         token: null,
-        cookieJar: result.cookieJar || null,
+        cookieJar: result.session?.cookieJar || null,
+        expiresAt: result.session?.expiresAt || null,
       },
       stations: result.stations,
       sampleDevices: result.sampleDevices || [],
@@ -87,6 +88,7 @@ export class SolarmanCookieSessionProvider implements SolarmanProvider {
         mode: 'web',
         token: null,
         cookieJar: monthlyHistory.session.cookieJar || null,
+        expiresAt: monthlyHistory.session.expiresAt || null,
       },
       station,
       devices: deviceList.devices,

@@ -249,7 +249,10 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         where: { id },
         data: {
           providerType: provider.providerType,
-          accessToken: null,
+          accessToken:
+            provider.providerType === 'OFFICIAL_OPENAPI'
+              ? result.session?.token || null
+              : null,
           cookieJar: result.session?.cookieJar ? { mode: result.mode, persisted: true } : null,
           cookieJarEncrypted: result.session?.cookieJar
             ? this.encrypt(result.session.cookieJar)
@@ -443,7 +446,10 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         where: { id: connection.id },
         data: {
           providerType: provider.providerType,
-          accessToken: null,
+          accessToken:
+            provider.providerType === 'OFFICIAL_OPENAPI'
+              ? testResult.session?.token || null
+              : null,
           cookieJar: testResult.session?.cookieJar
             ? { mode: testResult.mode, persisted: true }
             : connection.cookieJar,

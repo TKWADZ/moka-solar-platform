@@ -1,4 +1,4 @@
-import { BadGatewayException, GatewayTimeoutException, Injectable } from '@nestjs/common';
+import { BadGatewayException, GatewayTimeoutException, HttpException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 type JsonValue = Record<string, unknown> | unknown[] | string | number | boolean | null;
@@ -100,9 +100,32 @@ export class DeyeApiService {
         }
 
         lastError = error;
+        if (error instanceof HttpException) {
+          const status = error.getStatus();
+          const responsePayload = error.getResponse();
+          const providerStatus =
+            responsePayload && typeof responsePayload === 'object'
+              ? Number((responsePayload as Record<string, unknown>).statusCode)
+              : null;
+          if (
+            providerStatus === 401 ||
+            providerStatus === 403 ||
+            (providerStatus !== null && providerStatus >= 400 && providerStatus < 500) ||
+            status === 401 ||
+            status === 403 ||
+            status < 500
+          ) {
+            throw error;
+          }
+        }
+
         if (attempt < retries) {
           await this.sleep(350 * (attempt + 1));
           continue;
+        }
+
+        if (error instanceof HttpException) {
+          throw error;
         }
       }
     }

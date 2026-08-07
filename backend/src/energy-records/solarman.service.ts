@@ -154,34 +154,18 @@ export class SolarmanService {
       return this.tokenCache.token;
     }
 
+    const passwordHash = this.sha256(config.password);
+    const identity = config.username.trim();
     const payloads = [
       {
-        appId: config.appId,
         appSecret: config.appSecret,
-        email: config.username,
-        password: config.password,
-        timeStamp: now,
+        email: identity,
+        password: passwordHash,
       },
       {
-        appId: config.appId,
         appSecret: config.appSecret,
-        email: config.username,
-        password: this.sha256(config.password),
-        timeStamp: now,
-      },
-      {
-        appId: config.appId,
-        appSecret: config.appSecret,
-        account: config.username,
-        pwd: config.password,
-        timeStamp: now,
-      },
-      {
-        appId: config.appId,
-        appSecret: config.appSecret,
-        account: config.username,
-        pwd: this.sha256(config.password),
-        timeStamp: now,
+        username: identity,
+        password: passwordHash,
       },
     ];
 
@@ -196,17 +180,23 @@ export class SolarmanService {
           null,
           'SOLARMAN login',
         );
+        const data = this.asRecord(response.data);
         const token =
           this.toString(response.access_token) ||
           this.toString(response.token) ||
-          this.toString(this.asRecord(response.data).access_token) ||
-          this.toString(this.asRecord(response.data).token);
+          this.toString(data.access_token) ||
+          this.toString(data.token);
 
         if (token) {
+          const expiresInSeconds = this.toPositiveNumber(
+            response.expires_in ?? response.expiresIn ?? data.expires_in ?? data.expiresIn,
+          );
           this.tokenCache = {
             token,
             fingerprint,
-            expiresAt: Date.now() + 50 * 24 * 60 * 60 * 1000,
+            expiresAt: expiresInSeconds
+              ? Date.now() + Math.max(expiresInSeconds - 600, 60) * 1000
+              : Date.now() + 45 * 24 * 60 * 60 * 1000,
           };
 
           return token;
@@ -298,18 +288,22 @@ export class SolarmanService {
     token: string | null,
     context: string,
   ) {
-    const url = `${config.baseUrl}${path}`;
+    const url = new URL(`${config.baseUrl}${path}`);
+    if (path === '/account/v1.0/token') {
+      url.searchParams.set('appId', config.appId);
+      url.searchParams.set('language', 'en');
+    }
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     let response: Response;
 
     try {
-      response = await fetch(url, {
+      response = await fetch(url.toString(), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           Accept: 'application/json',
-          ...(token ? { Authorization: token } : {}),
+          ...(token ? { Authorization: this.buildAuthorizationHeader(token) } : {}),
         },
         body: JSON.stringify(body),
         signal: controller.signal,
@@ -417,6 +411,15 @@ export class SolarmanService {
       devices[0] ||
       {}
     );
+  }
+
+  private buildAuthorizationHeader(token: string) {
+    return /^bearer\s+/i.test(token) ? token : `bearer ${token}`;
+  }
+
+  private toPositiveNumber(value: unknown) {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
   }
 
   private sha256(value: string) {

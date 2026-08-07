@@ -52,12 +52,14 @@ type SolarmanSession = {
   token: string | null;
   authHeader: string | null;
   cookieJar: string | null;
+  expiresAt?: number | null;
 };
 
 export type SolarmanPersistedSession = {
   mode?: SolarmanMode | null;
   token?: string | null;
   cookieJar?: string | null;
+  expiresAt?: number | null;
 };
 
 type TokenCacheValue = {
@@ -69,6 +71,7 @@ type SolarmanRequestPlan = {
   method: SolarmanRequestMethod;
   endpoint: string;
   payload?: Record<string, unknown>;
+  query?: Record<string, unknown>;
   formUrlEncoded?: boolean;
 };
 
@@ -96,14 +99,20 @@ export class SolarmanClientService {
     const config = this.resolveBaseConfig();
     const cacheKey = this.createCacheKey(credentials, mode, config);
 
+    const token = session.token || null;
     this.tokenCache.set(cacheKey, {
       session: {
         mode,
-        token: session.token || null,
-        authHeader: session.token || null,
+        token,
+        authHeader:
+          mode === 'official' ? this.buildOfficialAuthorization(token) : token,
         cookieJar: session.cookieJar || null,
       },
-      expiresAt: Date.now() + 12 * 60 * 60 * 1000,
+      expiresAt:
+        session.expiresAt && session.expiresAt > Date.now()
+          ? session.expiresAt
+          : Date.now() +
+            (mode === 'official' ? 45 * 24 * 60 * 60 * 1000 : 12 * 60 * 60 * 1000),
     });
   }
 
@@ -137,6 +146,7 @@ export class SolarmanClientService {
       tokenPreview: stationResult.session.token
         ? `${stationResult.session.token.slice(0, 10)}...`
         : null,
+      session: stationResult.session,
       cookieJar: stationResult.session.cookieJar,
       stations: stationResult.stations,
       sampleDevices: deviceResult?.devices || [],
@@ -517,7 +527,7 @@ export class SolarmanClientService {
 
         this.tokenCache.set(cacheKey, {
           session,
-          expiresAt: Date.now() + 45 * 24 * 60 * 60 * 1000,
+          expiresAt: this.resolveSessionExpiry(session),
         });
 
         return session;
@@ -803,6 +813,7 @@ export class SolarmanClientService {
           mode,
           token: options.persistedSession.token || null,
           cookieJar: options.persistedSession.cookieJar || null,
+          expiresAt: options.persistedSession.expiresAt || null,
         },
         mode === 'web' ? 'COOKIE_SESSION' : 'OFFICIAL_OPENAPI',
       );
@@ -856,7 +867,7 @@ export class SolarmanClientService {
 
     this.tokenCache.set(cacheKey, {
       session,
-      expiresAt: Date.now() + 45 * 24 * 60 * 60 * 1000,
+      expiresAt: this.resolveSessionExpiry(session),
     });
 
     return session;
@@ -872,35 +883,18 @@ export class SolarmanClientService {
       );
     }
 
-    const timeStamp = Date.now();
+    const passwordHash = this.sha256(credentials.password);
+    const identity = credentials.usernameOrEmail.trim();
     const payloadCandidates = [
       {
-        appId: config.appId,
         appSecret: config.appSecret,
-        email: credentials.usernameOrEmail,
-        password: credentials.password,
-        timeStamp,
+        email: identity,
+        password: passwordHash,
       },
       {
-        appId: config.appId,
         appSecret: config.appSecret,
-        email: credentials.usernameOrEmail,
-        password: this.sha256(credentials.password),
-        timeStamp,
-      },
-      {
-        appId: config.appId,
-        appSecret: config.appSecret,
-        account: credentials.usernameOrEmail,
-        pwd: credentials.password,
-        timeStamp,
-      },
-      {
-        appId: config.appId,
-        appSecret: config.appSecret,
-        account: credentials.usernameOrEmail,
-        pwd: this.sha256(credentials.password),
-        timeStamp,
+        username: identity,
+        password: passwordHash,
       },
     ];
 
@@ -912,6 +906,10 @@ export class SolarmanClientService {
           {
             method: 'POST',
             endpoint: '/account/v1.0/token',
+            query: {
+              appId: config.appId,
+              language: 'en',
+            },
             payload,
           },
           null,
@@ -919,18 +917,32 @@ export class SolarmanClientService {
           'official',
         );
 
+        const data = asRecord(body.data);
         const token =
           toStringValue(body.access_token) ||
           toStringValue(body.token) ||
-          toStringValue(asRecord(body.data).access_token) ||
-          toStringValue(asRecord(body.data).token);
+          toStringValue(data.access_token) ||
+          toStringValue(data.token);
 
         if (token) {
+          const tokenType =
+            toStringValue(body.token_type) ||
+            toStringValue(body.tokenType) ||
+            toStringValue(data.token_type) ||
+            toStringValue(data.tokenType) ||
+            'bearer';
+          const expiresInSeconds = this.readPositiveNumber(
+            body.expires_in ?? body.expiresIn ?? data.expires_in ?? data.expiresIn,
+          );
+
           return {
             mode: 'official',
             token,
-            authHeader: token,
+            authHeader: this.buildOfficialAuthorization(token, tokenType),
             cookieJar,
+            expiresAt: expiresInSeconds
+              ? Date.now() + Math.max(expiresInSeconds - 600, 60) * 1000
+              : null,
           };
         }
       } catch (error) {
@@ -1082,6 +1094,13 @@ export class SolarmanClientService {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     const url = new URL(this.resolveUrl(plan.endpoint, config.baseUrl));
+
+    for (const [key, value] of Object.entries(plan.query || {})) {
+      if (value === undefined || value === null || value === '') {
+        continue;
+      }
+      url.searchParams.set(key, String(value));
+    }
 
     if (plan.method === 'GET' && plan.payload) {
       for (const [key, value] of Object.entries(plan.payload)) {
@@ -1458,6 +1477,32 @@ export class SolarmanClientService {
     append(incoming);
 
     return merged.size ? Array.from(merged.values()).join('; ') : null;
+  }
+
+  private buildOfficialAuthorization(token: string | null, tokenType = 'bearer') {
+    if (!token) {
+      return null;
+    }
+
+    if (/^bearer\s+/i.test(token)) {
+      return token;
+    }
+
+    const normalizedType = tokenType.trim() || 'bearer';
+    return `${normalizedType} ${token}`;
+  }
+
+  private resolveSessionExpiry(session: SolarmanSession) {
+    if (session.expiresAt && session.expiresAt > Date.now()) {
+      return session.expiresAt;
+    }
+
+    return Date.now() + (session.mode === 'official' ? 45 * 24 : 12) * 60 * 60 * 1000;
+  }
+
+  private readPositiveNumber(value: unknown) {
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
   }
 
   private sha256(value: string) {

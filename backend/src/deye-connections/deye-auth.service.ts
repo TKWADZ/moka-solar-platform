@@ -51,6 +51,9 @@ export class DeyeAuthService {
         appSecret: secrets.appSecret,
         email: connection.email,
         password: sha256Lowercase(secrets.password),
+        ...(this.hasBusinessCompanyId(connection.companyId)
+          ? { companyId: String(connection.companyId) }
+          : {}),
       },
       {
         query: { appId: connection.appId },
@@ -93,7 +96,7 @@ export class DeyeAuthService {
     const accountInfo = await this.fetchAccountInfo(session.connection);
 
     const org = accountInfo.orgInfoList?.[0];
-    const updated = await this.prisma.deyeConnection.update({
+    let updated = await this.prisma.deyeConnection.update({
       where: { id: session.connection.id },
       data: {
         companyId:
@@ -102,6 +105,19 @@ export class DeyeAuthService {
             : null,
         companyName: org?.companyName ? String(org.companyName) : null,
         roleName: org?.roleName ? String(org.roleName) : null,
+        status: 'AUTHORIZED',
+        lastError: null,
+      },
+    });
+
+    if (this.hasBusinessCompanyId(updated.companyId)) {
+      const businessSession = await this.ensureAuthorizedConnection(updated, true);
+      updated = businessSession.connection;
+    }
+
+    updated = await this.prisma.deyeConnection.update({
+      where: { id: updated.id },
+      data: {
         status: 'CONNECTED',
         lastError: null,
       },
@@ -178,6 +194,11 @@ export class DeyeAuthService {
         requestId: payload.requestId || null,
       });
     }
+  }
+
+  private hasBusinessCompanyId(companyId: unknown) {
+    const value = Number(companyId);
+    return Number.isFinite(value) && value > 0;
   }
 
   private buildAuthHeader(accessToken?: string | null, tokenType?: string | null) {
