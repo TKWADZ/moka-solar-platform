@@ -465,15 +465,12 @@ jobs:
               return 0
             }
 
-            print_section "Back up canonical production config"
-            backup_file "$project_dir/docker-compose.prod.yml" || true
-            backup_file "$project_dir/docker-compose.yml" || true
-            backup_file "$project_dir/ecosystem.config.js" || true
-            backup_file "$ecosystem_file" || true
-            for file in $(list_moka_nginx_files || true); do
-              [ -n "$file" ] || continue
-              backup_file "$file" || true
-            done
+            print_section "Canonical deployment inventory"
+            ls -la "$project_dir" || true
+            if [ -f "$ecosystem_file" ]; then
+              ls -la "$ecosystem_file" || true
+            fi
+            list_moka_nginx_files || true
 
             if [ "$stack_mode" = "docker" ]; then
               run_docker_deploy
