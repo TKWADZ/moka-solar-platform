@@ -24,8 +24,9 @@ jobs:
           script_stop: true
           command_timeout: 55m
           script: |
-            set -eu
+            set -Eeu -o pipefail
             umask 077
+            trap 'rc=$?; echo "DEBUG_ERR line=${LINENO} status=${rc}" >&2' ERR
 
             timestamp="$(date +%Y%m%d-%H%M%S)"
             expected_sha="${{ github.sha }}"
