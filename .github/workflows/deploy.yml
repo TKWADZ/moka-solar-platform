@@ -291,11 +291,34 @@ jobs:
             compose_file=""
             ecosystem_file=""
             compose_project_name=""
+            docker_runtime_available=0
+            pm2_runtime_active=0
+
+            docker_probe() {
+              docker "$@"
+            }
 
             if command -v docker >/dev/null 2>&1; then
-              if docker ps -a --format '{{.Names}}' | grep -qx 'moka_solar_backend'; then
-                inspect_dir="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' moka_solar_backend 2>/dev/null || true)"
-                compose_project_name="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' moka_solar_backend 2>/dev/null || true)"
+              if docker version >/dev/null 2>&1; then
+                docker_runtime_available=1
+              elif [ -n "$SUDO" ] && $SUDO docker version >/dev/null 2>&1; then
+                docker_runtime_available=1
+                docker_probe() {
+                  $SUDO docker "$@"
+                }
+              fi
+            fi
+
+            if command -v pm2 >/dev/null 2>&1; then
+              if pm2 describe moka-solar-backend >/dev/null 2>&1 || pm2 describe moka-solar-frontend >/dev/null 2>&1; then
+                pm2_runtime_active=1
+              fi
+            fi
+
+            if [ "$docker_runtime_available" -eq 1 ]; then
+              if docker_probe ps -a --format '{{.Names}}' | grep -qx 'moka_solar_backend'; then
+                inspect_dir="$(docker_probe inspect -f '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' moka_solar_backend 2>/dev/null || true)"
+                compose_project_name="$(docker_probe inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' moka_solar_backend 2>/dev/null || true)"
                 if [ -n "$inspect_dir" ] && [ -d "$inspect_dir" ] && [ -f "$inspect_dir/docker-compose.prod.yml" ]; then
                   stack_mode="docker"
                   project_dir="$inspect_dir"
@@ -304,7 +327,19 @@ jobs:
               fi
             fi
 
-            if [ -z "$stack_mode" ]; then
+            if [ -z "$stack_mode" ] && [ "$pm2_runtime_active" -eq 1 ] && command -v pm2 >/dev/null 2>&1; then
+              ecosystem_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'ecosystem.config.js' ! -path "$HOME/moka-solar-backups/*" 2>/dev/null | grep 'moka-solar-platform' | head -n 1 || true)"
+              if [ -z "$ecosystem_candidate" ]; then
+                ecosystem_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'ecosystem.config.js' ! -path "$HOME/moka-solar-backups/*" 2>/dev/null | head -n 1 || true)"
+              fi
+              if [ -n "$ecosystem_candidate" ]; then
+                stack_mode="pm2"
+                project_dir="$(dirname "$ecosystem_candidate")"
+                ecosystem_file="$ecosystem_candidate"
+              fi
+            fi
+
+            if [ -z "$stack_mode" ] && [ "$docker_runtime_available" -eq 1 ]; then
               compose_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'docker-compose.prod.yml' ! -path "$HOME/moka-solar-backups/*" 2>/dev/null | grep 'moka-solar-platform' | head -n 1 || true)"
               if [ -z "$compose_candidate" ]; then
                 compose_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'docker-compose.prod.yml' ! -path "$HOME/moka-solar-backups/*" 2>/dev/null | head -n 1 || true)"
@@ -345,6 +380,8 @@ jobs:
             if [ -n "$compose_project_name" ]; then
               echo "compose_project_name=$compose_project_name"
             fi
+            echo "docker_runtime_available=$docker_runtime_available"
+            echo "pm2_runtime_active=$pm2_runtime_active"
 
             print_section "Project path checks"
             git -C "$project_dir" status --short --branch || true
