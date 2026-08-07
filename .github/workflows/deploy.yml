@@ -440,13 +440,18 @@ jobs:
             echo "canonical_moka_nginx=${CANONICAL_MOKA_NGINX:-}"
             echo "web_moi_nginx=${WEB_MOI_NGINX:-}"
 
-            set -x
-            if [ "$stack_mode" = "docker" ]; then
-              run_docker_deploy
-            else
-              run_pm2_deploy
-            fi
-            set +x
+            case "$stack_mode" in
+              docker)
+                run_docker_deploy
+                ;;
+              pm2)
+                run_pm2_deploy
+                ;;
+              *)
+                echo "Unsupported stack mode: $stack_mode"
+                exit 1
+                ;;
+            esac
 
             normalize_nginx_file() {
               nginx_file="$1"
