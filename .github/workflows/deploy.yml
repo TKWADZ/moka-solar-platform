@@ -446,10 +446,14 @@ jobs:
                 if [ ! -f "$candidate" ] && [ ! -L "$candidate" ]; then
                   continue
                 fi
-                case " $seen_files " in
-                  *" $candidate "*) continue ;;
-                esac
-                seen_files="$seen_files $candidate"
+                if printf '%s\n' "$seen_files" | grep -Fx -- "$candidate" >/dev/null 2>&1; then
+                  continue
+                fi
+                if [ -n "$seen_files" ]; then
+                  seen_files="${seen_files}"$'\n'"${candidate}"
+                else
+                  seen_files="${candidate}"
+                fi
                 printf '%s\n' "$candidate"
               done
 
