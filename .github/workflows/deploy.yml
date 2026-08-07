@@ -22,7 +22,7 @@ jobs:
           username: ${{ secrets.USERNAME }}
           key: ${{ secrets.SSH_KEY }}
           script_stop: true
-          command_timeout: 45m
+          command_timeout: 55m
           script: |
             set -eu
             umask 077
@@ -39,10 +39,10 @@ jobs:
 
             backup_file() {
               file_path="$1"
-              if [ -f "$file_path" ]; then
+              if [ -f "$file_path" ] || [ -L "$file_path" ]; then
                 dest_dir="$backup_root$(dirname "$file_path")"
                 mkdir -p "$dest_dir"
-                cp "$file_path" "$dest_dir/"
+                cp -a "$file_path" "$dest_dir/"
               fi
             }
 
@@ -51,143 +51,28 @@ jobs:
               SUDO="sudo"
             fi
 
-            print_section "Host diagnostics"
-            date
-            uname -a || true
-            uptime || true
-            df -h || true
-            df -i || true
-            free -m || true
-            swapon --show || true
-            ($SUDO journalctl -k -n 200 --no-pager | grep -iE 'oom|killed process|out of memory' || true)
+            sync_checkout_to_expected() {
+              checkout_dir="$1"
+              checkout_label="$2"
 
-            print_section "Current listeners"
-            (ss -ltnp 2>/dev/null | grep -E ':(3000|4000)\s' || true)
-
-            print_section "Current services"
-            (docker ps -a --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' || true)
-            (pm2 status || true)
-            ($SUDO systemctl status docker --no-pager -l || true)
-            ($SUDO systemctl status nginx --no-pager -l || true)
-
-            print_section "Nginx logs"
-            ($SUDO tail -n 60 /var/log/nginx/error.log | grep -iE 'connect\(|upstream|error|failed' || true)
-            ($SUDO tail -n 20 /var/log/nginx/access.log || true)
-
-            stack_mode=""
-            project_dir=""
-            compose_file=""
-            ecosystem_file=""
-
-            if command -v docker >/dev/null 2>&1; then
-              if docker ps -a --format '{{.Names}}' | grep -qx 'moka_solar_backend'; then
-                inspect_dir="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' moka_solar_backend 2>/dev/null || true)"
-                if [ -n "$inspect_dir" ] && [ -d "$inspect_dir" ] && [ -f "$inspect_dir/docker-compose.prod.yml" ]; then
-                  stack_mode="docker"
-                  project_dir="$inspect_dir"
-                  compose_file="$inspect_dir/docker-compose.prod.yml"
-                fi
-              fi
-            fi
-
-            if [ -z "$stack_mode" ]; then
-              compose_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'docker-compose.prod.yml' ! -path "$HOME/moka-solar-backups/*" 2>/dev/null | grep 'moka-solar-platform' | head -n 1 || true)"
-              if [ -z "$compose_candidate" ]; then
-                compose_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'docker-compose.prod.yml' ! -path "$HOME/moka-solar-backups/*" 2>/dev/null | head -n 1 || true)"
-              fi
-              if [ -n "$compose_candidate" ]; then
-                stack_mode="docker"
-                project_dir="$(dirname "$compose_candidate")"
-                compose_file="$compose_candidate"
-              fi
-            fi
-
-            if [ -z "$stack_mode" ] && command -v pm2 >/dev/null 2>&1; then
-              ecosystem_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'ecosystem.config.js' ! -path "$HOME/moka-solar-backups/*" 2>/dev/null | grep 'moka-solar-platform' | head -n 1 || true)"
-              if [ -z "$ecosystem_candidate" ]; then
-                ecosystem_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'ecosystem.config.js' ! -path "$HOME/moka-solar-backups/*" 2>/dev/null | head -n 1 || true)"
-              fi
-              if [ -n "$ecosystem_candidate" ]; then
-                stack_mode="pm2"
-                project_dir="$(dirname "$ecosystem_candidate")"
-                ecosystem_file="$ecosystem_candidate"
-              fi
-            fi
-
-            if [ -z "$stack_mode" ] || [ -z "$project_dir" ]; then
-              echo "Could not determine the active production stack"
-              exit 1
-            fi
-
-            print_section "Selected production stack"
-            echo "stack_mode=$stack_mode"
-            echo "project_dir=$project_dir"
-            if [ -n "$compose_file" ]; then
-              echo "compose_file=$compose_file"
-            fi
-            if [ -n "$ecosystem_file" ]; then
-              echo "ecosystem_file=$ecosystem_file"
-            fi
-
-            print_section "Project path checks"
-            if [ -d "$project_dir" ]; then
-              echo "project_dir is readable"
-            else
-              echo "WARN: project_dir is missing or not readable"
-            fi
-            if [ -n "$compose_file" ] && [ -f "$compose_file" ]; then
-              echo "compose_file is readable"
-            elif [ -n "$compose_file" ]; then
-              echo "WARN: compose_file is missing or not readable"
-            fi
-            ls -la "$project_dir" || true
-
-            if [ -f "$project_dir/.env" ]; then
-              backup_file "$project_dir/.env"
-            fi
-
-            if [ -z "$ecosystem_file" ] && [ -f "$project_dir/ecosystem.config.js" ]; then
-              ecosystem_file="$project_dir/ecosystem.config.js"
-            fi
-
-            print_section "Back up production config"
-            backup_file "$project_dir/docker-compose.prod.yml"
-            backup_file "$project_dir/docker-compose.yml"
-            backup_file "$project_dir/ecosystem.config.js"
-
-            for file in $($SUDO grep -RIl 'mokasolar.com' /etc/nginx/sites-enabled /etc/nginx/sites-available /etc/nginx/conf.d 2>/dev/null || true); do
-              [ -n "$file" ] || continue
-              backup_file "$file"
-            done
-
-            print_section "Current Nginx upstream config"
-            ($SUDO grep -RIn 'mokasolar.com\|proxy_pass\|frontend:3000\|backend:4000\|127\.0\.0\.1:3000\|127\.0\.0\.1:4000' /etc/nginx/sites-enabled /etc/nginx/sites-available /etc/nginx/conf.d 2>/dev/null || true)
-
-            run_pm2_recovery() {
-              print_section "PM2 production deploy"
-
-              if [ ! -f "$ecosystem_file" ]; then
-                echo "Missing ecosystem file for PM2 deploy"
+              if [ ! -d "$checkout_dir/.git" ]; then
+                echo "Missing git checkout for $checkout_label at $checkout_dir"
                 exit 1
               fi
 
-              if [ ! -d "$project_dir/.git" ]; then
-                echo "PM2 project is not a Git checkout"
+              print_section "Sync checkout: $checkout_label"
+              cd "$checkout_dir"
+
+              status_file="/tmp/${checkout_label}.status"
+              if ! git status --porcelain >"$status_file" 2>"$status_file.err"; then
+                echo "Unable to inspect git status for $checkout_label"
                 exit 1
               fi
 
-              print_section "Sync PM2 checkout"
-              cd "$project_dir"
-
-              if ! git status --porcelain >/tmp/moka-git-status.txt 2>/tmp/moka-git-status.err; then
-                echo "Unable to inspect the production checkout"
-                exit 1
-              fi
-
-              if [ -s /tmp/moka-git-status.txt ]; then
-                git diff > "$backup_root/repo-local.diff"
-                git diff --cached > "$backup_root/repo-staged.diff"
-                git stash push -m "codex-production-recover-$timestamp"
+              if [ -s "$status_file" ]; then
+                git diff > "$backup_root/${checkout_label}.diff" || true
+                git diff --cached > "$backup_root/${checkout_label}.staged.diff" || true
+                git stash push -m "codex-${checkout_label}-${timestamp}" || true
               fi
 
               git fetch --no-tags origin main
@@ -197,9 +82,20 @@ jobs:
 
               deployed_sha="$(git rev-parse HEAD)"
               if [ "$deployed_sha" != "$expected_sha" ]; then
-                echo "Production checkout does not match the triggering commit"
+                echo "Checkout $checkout_label is not on the triggering commit"
                 exit 1
               fi
+            }
+
+            run_pm2_deploy() {
+              print_section "PM2 production deploy"
+
+              if [ ! -f "$ecosystem_file" ]; then
+                echo "Missing PM2 ecosystem file at $ecosystem_file"
+                exit 1
+              fi
+
+              sync_checkout_to_expected "$project_dir" "mokasolar-canonical"
 
               cd "$project_dir/backend"
               npm install
@@ -215,7 +111,7 @@ jobs:
               pm2 startOrReload "$ecosystem_file" --update-env
 
               if ! command -v systemctl >/dev/null 2>&1; then
-                echo "systemd is required to keep PM2 applications online after a reboot"
+                echo "systemd is required to persist PM2 after reboot"
                 exit 1
               fi
 
@@ -229,11 +125,10 @@ jobs:
               $SUDO systemctl enable "$pm2_service"
               $SUDO systemctl is-enabled --quiet "$pm2_service"
               $SUDO systemctl cat "$pm2_service" | grep -F 'pm2 resurrect' >/dev/null
-              pm2 status
 
               backend_ready=0
               for _attempt in $(seq 1 50); do
-                if curl -fsS http://127.0.0.1:4000/api/health >/tmp/moka-api-health.json 2>/dev/null; then
+                if curl -fsS http://127.0.0.1:4000/api/health >/tmp/mokasolar-api-health.json 2>/dev/null; then
                   backend_ready=1
                   break
                 fi
@@ -262,7 +157,7 @@ jobs:
               fi
             }
 
-            if [ "$stack_mode" = "docker" ]; then
+            run_docker_deploy() {
               print_section "Docker compose production deploy"
 
               docker_available=1
@@ -273,104 +168,248 @@ jobs:
               ($SUDO systemctl start docker || $SUDO service docker start || $SUDO snap start docker || true)
 
               if ! docker version >/dev/null 2>&1; then
-                if [ -n "$SUDO" ]; then
-                  if ! $SUDO docker version >/dev/null 2>&1; then
-                    docker_available=0
-                  else
-                    docker_run() {
-                      $SUDO docker "$@"
-                    }
-                  fi
+                if [ -n "$SUDO" ] && $SUDO docker version >/dev/null 2>&1; then
+                  docker_run() {
+                    $SUDO docker "$@"
+                  }
                 else
                   docker_available=0
                 fi
               fi
 
               if [ "$docker_available" -ne 1 ]; then
-                if [ -f "$ecosystem_file" ]; then
-                  print_section "Docker unavailable, falling back to PM2 host mode"
-                  run_pm2_recovery
-                else
-                  echo "Docker CLI/daemon is not accessible for the SSH user"
-                  exit 1
-                fi
-              else
-                docker_run version --format 'Docker server {{.ServerVersion}}'
-
-                if command -v pm2 >/dev/null 2>&1; then
-                  (pm2 describe moka-solar-backend >/dev/null 2>&1 && pm2 stop moka-solar-backend || true)
-                  (pm2 describe moka-solar-frontend >/dev/null 2>&1 && pm2 stop moka-solar-frontend || true)
-                fi
-
-                docker_run compose -f "$compose_file" config --services
-
-                if docker_run ps -a --format '{{.Names}}' | grep -qx 'moka_solar_db'; then
-                  print_section "PostgreSQL backup"
-                  docker_run exec moka_solar_db sh -lc 'export PGPASSWORD="$POSTGRES_PASSWORD"; pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --format=custom' > "$backup_root/moka_solar_db.dump" || true
-                fi
-
-                docker_run compose -f "$compose_file" up -d db
-
-                db_ready=0
-                for _attempt in $(seq 1 40); do
-                  db_status="$(docker_run inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' moka_solar_db 2>/dev/null || echo missing)"
-                  echo "db_status=$db_status"
-                  if [ "$db_status" = "healthy" ] || [ "$db_status" = "running" ]; then
-                    db_ready=1
-                    break
-                  fi
-                  sleep 3
-                done
-
-                if [ "$db_ready" -ne 1 ]; then
-                  docker_run logs --tail 200 moka_solar_db || true
-                  exit 1
-                fi
-
-                docker_run compose -f "$compose_file" build backend frontend
-                docker_run compose -f "$compose_file" up -d backend frontend
-                docker_run compose -f "$compose_file" ps
-
-                docker_run exec moka_solar_backend sh -lc "cd /app && npx prisma migrate deploy"
-
-                backend_ready=0
-                for _attempt in $(seq 1 50); do
-                  if curl -fsS http://127.0.0.1:4000/api/health >/tmp/moka-api-health.json 2>/dev/null; then
-                    backend_ready=1
-                    break
-                  fi
-                  sleep 3
-                done
-
-                if [ "$backend_ready" -ne 1 ]; then
-                  print_section "Backend failure logs"
-                  docker_run logs --tail 200 moka_solar_backend || true
-                  docker_run logs --tail 200 moka_solar_db || true
-                  exit 1
-                fi
-
-                frontend_ready=0
-                for _attempt in $(seq 1 50); do
-                  if curl -fsS http://127.0.0.1:3000/ >/dev/null 2>&1; then
-                    frontend_ready=1
-                    break
-                  fi
-                  sleep 3
-                done
-
-                if [ "$frontend_ready" -ne 1 ]; then
-                  print_section "Frontend failure logs"
-                  docker_run logs --tail 200 moka_solar_frontend || true
-                  exit 1
-                fi
-
-                print_section "Container logs"
-                docker_run logs --tail 80 moka_solar_db || true
-                docker_run logs --tail 80 moka_solar_backend || true
-                docker_run logs --tail 80 moka_solar_frontend || true
+                echo "Docker CLI or daemon is unavailable"
+                exit 1
               fi
+
+              sync_checkout_to_expected "$project_dir" "mokasolar-canonical"
+
+              if command -v pm2 >/dev/null 2>&1; then
+                (pm2 describe moka-solar-backend >/dev/null 2>&1 && pm2 stop moka-solar-backend || true)
+                (pm2 describe moka-solar-frontend >/dev/null 2>&1 && pm2 stop moka-solar-frontend || true)
+              fi
+
+              docker_compose_args="-f $compose_file"
+              if [ -n "${compose_project_name:-}" ]; then
+                docker_compose_args="-p $compose_project_name $docker_compose_args"
+              fi
+
+              docker_run compose $docker_compose_args config --services
+
+              if docker_run ps -a --format '{{.Names}}' | grep -qx 'moka_solar_db'; then
+                print_section "PostgreSQL backup"
+                docker_run exec moka_solar_db sh -lc 'export PGPASSWORD="$POSTGRES_PASSWORD"; pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --no-owner --format=custom' > "$backup_root/moka_solar_db.dump" || true
+              fi
+
+              docker_run compose $docker_compose_args up -d db
+
+              db_ready=0
+              for _attempt in $(seq 1 40); do
+                db_status="$(docker_run inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' moka_solar_db 2>/dev/null || echo missing)"
+                echo "db_status=$db_status"
+                if [ "$db_status" = "healthy" ] || [ "$db_status" = "running" ]; then
+                  db_ready=1
+                  break
+                fi
+                sleep 3
+              done
+
+              if [ "$db_ready" -ne 1 ]; then
+                docker_run logs --tail 200 moka_solar_db || true
+                exit 1
+              fi
+
+              docker_run compose $docker_compose_args build backend frontend
+              docker_run compose $docker_compose_args up -d backend frontend
+              docker_run compose $docker_compose_args ps
+              docker_run exec moka_solar_backend sh -lc "cd /app && npx prisma migrate deploy"
+
+              backend_ready=0
+              for _attempt in $(seq 1 50); do
+                if curl -fsS http://127.0.0.1:4000/api/health >/tmp/mokasolar-api-health.json 2>/dev/null; then
+                  backend_ready=1
+                  break
+                fi
+                sleep 3
+              done
+
+              if [ "$backend_ready" -ne 1 ]; then
+                print_section "Docker backend logs"
+                docker_run logs --tail 200 moka_solar_backend || true
+                docker_run logs --tail 200 moka_solar_db || true
+                exit 1
+              fi
+
+              frontend_ready=0
+              for _attempt in $(seq 1 50); do
+                if curl -fsS http://127.0.0.1:3000/ >/dev/null 2>&1; then
+                  frontend_ready=1
+                  break
+                fi
+                sleep 3
+              done
+
+              if [ "$frontend_ready" -ne 1 ]; then
+                print_section "Docker frontend logs"
+                docker_run logs --tail 200 moka_solar_frontend || true
+                exit 1
+              fi
+            }
+
+            print_section "Host diagnostics"
+            pwd
+            date
+            uname -a || true
+            uptime || true
+            df -h || true
+            df -i || true
+            free -h || true
+            swapon --show || true
+            ($SUDO journalctl -k -n 200 --no-pager | grep -iE 'oom|killed process|out of memory' || true)
+
+            print_section "Current listeners"
+            ($SUDO ss -ltnp || ss -ltnp || true)
+
+            print_section "PM2 state"
+            (pm2 status || true)
+            (pm2 prettylist || true)
+
+            print_section "Service state"
+            ($SUDO systemctl status "pm2-$(id -un)" --no-pager -l || true)
+            ($SUDO systemctl status pm2-root --no-pager -l || true)
+            ($SUDO systemctl status docker --no-pager -l || true)
+            ($SUDO systemctl status nginx --no-pager -l || true)
+            ($SUDO systemctl status postgresql --no-pager -l || true)
+
+            print_section "Nginx logs and config"
+            ($SUDO tail -n 60 /var/log/nginx/error.log || true)
+            ($SUDO tail -n 20 /var/log/nginx/access.log || true)
+            ($SUDO nginx -T || true)
+
+            stack_mode=""
+            project_dir=""
+            compose_file=""
+            ecosystem_file=""
+            compose_project_name=""
+
+            if command -v docker >/dev/null 2>&1; then
+              if docker ps -a --format '{{.Names}}' | grep -qx 'moka_solar_backend'; then
+                inspect_dir="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project.working_dir" }}' moka_solar_backend 2>/dev/null || true)"
+                compose_project_name="$(docker inspect -f '{{ index .Config.Labels "com.docker.compose.project" }}' moka_solar_backend 2>/dev/null || true)"
+                if [ -n "$inspect_dir" ] && [ -d "$inspect_dir" ] && [ -f "$inspect_dir/docker-compose.prod.yml" ]; then
+                  stack_mode="docker"
+                  project_dir="$inspect_dir"
+                  compose_file="$inspect_dir/docker-compose.prod.yml"
+                fi
+              fi
+            fi
+
+            if [ -z "$stack_mode" ]; then
+              compose_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'docker-compose.prod.yml' ! -path "$HOME/moka-solar-backups/*' 2>/dev/null | grep 'moka-solar-platform' | head -n 1 || true)"
+              if [ -z "$compose_candidate" ]; then
+                compose_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'docker-compose.prod.yml' ! -path "$HOME/moka-solar-backups/*' 2>/dev/null | head -n 1 || true)"
+              fi
+              if [ -n "$compose_candidate" ]; then
+                stack_mode="docker"
+                project_dir="$(dirname "$compose_candidate")"
+                compose_file="$compose_candidate"
+              fi
+            fi
+
+            if [ -z "$stack_mode" ] && command -v pm2 >/dev/null 2>&1; then
+              ecosystem_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'ecosystem.config.js' ! -path "$HOME/moka-solar-backups/*' 2>/dev/null | grep 'moka-solar-platform' | head -n 1 || true)"
+              if [ -z "$ecosystem_candidate" ]; then
+                ecosystem_candidate="$(find "$HOME" /opt /srv /var/www -maxdepth 6 -type f -name 'ecosystem.config.js' ! -path "$HOME/moka-solar-backups/*' 2>/dev/null | head -n 1 || true)"
+              fi
+              if [ -n "$ecosystem_candidate" ]; then
+                stack_mode="pm2"
+                project_dir="$(dirname "$ecosystem_candidate")"
+                ecosystem_file="$ecosystem_candidate"
+              fi
+            fi
+
+            if [ -z "$stack_mode" ] || [ -z "$project_dir" ]; then
+              echo "Could not determine the active production stack"
+              exit 1
+            fi
+
+            print_section "Selected production stack"
+            echo "stack_mode=$stack_mode"
+            echo "project_dir=$project_dir"
+            if [ -n "$compose_file" ]; then
+              echo "compose_file=$compose_file"
+            fi
+            if [ -n "$ecosystem_file" ]; then
+              echo "ecosystem_file=$ecosystem_file"
+            fi
+            if [ -n "$compose_project_name" ]; then
+              echo "compose_project_name=$compose_project_name"
+            fi
+
+            print_section "Project path checks"
+            git -C "$project_dir" status --short --branch || true
+            ls -la "$project_dir" || true
+
+            if [ -f "$project_dir/.env" ]; then
+              backup_file "$project_dir/.env"
+            fi
+            if [ -f "$project_dir/backend/.env" ]; then
+              backup_file "$project_dir/backend/.env"
+            fi
+            if [ -f "$project_dir/frontend/.env" ]; then
+              backup_file "$project_dir/frontend/.env"
+            fi
+
+            if [ -d "$project_dir/.git" ]; then
+              sync_checkout_to_expected "$project_dir" "mokasolar-current"
+            fi
+
+            if [ ! -f "$project_dir/deploy/scripts/prepare-multisite-vps.sh" ]; then
+              echo "Missing multisite preparation script in $project_dir"
+              exit 1
+            fi
+
+            print_section "Prepare multi-site VPS layout"
+            bash "$project_dir/deploy/scripts/prepare-multisite-vps.sh" "$project_dir" "$backup_root" "$stack_mode"
+
+            if [ ! -f "$backup_root/multisite-state.env" ]; then
+              echo "Multisite state file was not created"
+              exit 1
+            fi
+
+            # shellcheck disable=SC1090
+            . "$backup_root/multisite-state.env"
+
+            project_dir="$PROJECT_DIR"
+            stack_mode="$STACK_MODE"
+            compose_file="${COMPOSE_FILE:-$project_dir/docker-compose.prod.yml}"
+            ecosystem_file="${ECOSYSTEM_FILE:-$project_dir/ecosystem.config.js}"
+
+            print_section "Canonical deployment state"
+            echo "stack_mode=$stack_mode"
+            echo "project_dir=$project_dir"
+            echo "compose_file=$compose_file"
+            echo "ecosystem_file=$ecosystem_file"
+            echo "legacy_project_dir=${LEGACY_PROJECT_DIR:-}"
+            echo "postgres_mode=${POSTGRES_MODE:-unknown}"
+            echo "active_moka_nginx=${ACTIVE_MOKA_NGINX:-}"
+            echo "canonical_moka_nginx=${CANONICAL_MOKA_NGINX:-}"
+            echo "web_moi_nginx=${WEB_MOI_NGINX:-}"
+
+            print_section "Back up canonical production config"
+            backup_file "$project_dir/docker-compose.prod.yml"
+            backup_file "$project_dir/docker-compose.yml"
+            backup_file "$project_dir/ecosystem.config.js"
+            backup_file "$ecosystem_file"
+            for file in $($SUDO grep -RIl 'mokasolar.com' /etc/nginx/sites-enabled /etc/nginx/sites-available /etc/nginx/conf.d 2>/dev/null || true); do
+              [ -n "$file" ] || continue
+              backup_file "$file"
+            done
+
+            if [ "$stack_mode" = "docker" ]; then
+              run_docker_deploy
             else
-              run_pm2_recovery
+              run_pm2_deploy
             fi
 
             print_section "Normalize Nginx production upstreams"
@@ -386,21 +425,29 @@ jobs:
               $SUDO sed -i 's|set $backend_upstream http://backend:4000;|set $backend_upstream http://127.0.0.1:4000;|g' "$file"
             done
 
-            print_section "Current redirect rules"
-            ($SUDO grep -RIn 'return 301 https://mokasolar.com\$request_uri;' /etc/nginx/sites-enabled /etc/nginx/sites-available /etc/nginx/conf.d 2>/dev/null || true)
-
             print_section "Validate and reload Nginx"
             $SUDO nginx -t
             ($SUDO systemctl reload nginx || $SUDO service nginx reload || $SUDO nginx -s reload)
 
-            print_section "Final host checks"
+            print_section "Final local host checks"
             curl -fsS http://127.0.0.1:4000/api/health
             curl -I -fsS http://127.0.0.1:3000/
             curl -I -fsS -H 'Host: mokasolar.com' http://127.0.0.1/
             curl -fsS -H 'Host: mokasolar.com' http://127.0.0.1/api/health
 
+            print_section "Observe production for 5 minutes"
+            for observation in $(seq 1 10); do
+              sleep 30
+              echo "observation=$observation"
+              curl -fsS http://127.0.0.1:4000/api/health >/tmp/mokasolar-api-health.json
+              curl -fsS http://127.0.0.1:3000/ >/dev/null
+              curl -fsS -H 'Host: mokasolar.com' http://127.0.0.1/api/health >/dev/null
+              (pm2 status || true)
+              (docker ps -a --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' || true)
+            done
+
             print_section "Final service state"
-            (ss -ltnp 2>/dev/null | grep -E ':(3000|4000)\s' || true)
+            ($SUDO ss -ltnp || ss -ltnp || true)
             (docker ps -a --format 'table {{.Names}}\t{{.Status}}\t{{.Ports}}' || true)
             (pm2 status || true)
             ($SUDO tail -n 80 /var/log/nginx/error.log || true)
@@ -410,10 +457,50 @@ jobs:
         run: |
           set -euo pipefail
 
+          root_status="$(curl -s -o /dev/null -w '%{http_code}' https://mokasolar.com/)"
+          [ "$root_status" = "200" ]
+
           curl --fail --silent --show-error \
             --retry 5 --retry-delay 3 --retry-all-errors \
             --connect-timeout 10 --max-time 30 \
-            https://mokasolar.com/ >/dev/null
+            https://mokasolar.com/about >/dev/null
+
+          curl --fail --silent --show-error \
+            --retry 5 --retry-delay 3 --retry-all-errors \
+            --connect-timeout 10 --max-time 30 \
+            https://mokasolar.com/privacy >/dev/null
+
+          curl --fail --silent --show-error \
+            --retry 5 --retry-delay 3 --retry-all-errors \
+            --connect-timeout 10 --max-time 30 \
+            https://mokasolar.com/robots.txt >/dev/null
+
+          homepage="$(
+            curl --fail --silent --show-error \
+              --retry 5 --retry-delay 3 --retry-all-errors \
+              --connect-timeout 10 --max-time 30 \
+              https://mokasolar.com/
+          )"
+
+          asset_path="$(printf '%s' "$homepage" | grep -oE '/_next/[^"'"'"' ]+\.(js|css)' | head -n 1 || true)"
+          if [ -n "$asset_path" ]; then
+            curl --fail --silent --show-error \
+              --retry 5 --retry-delay 3 --retry-all-errors \
+              --connect-timeout 10 --max-time 30 \
+              "https://mokasolar.com$asset_path" >/dev/null
+          fi
+
+          http_status="$(curl -s -o /dev/null -w '%{http_code}' http://mokasolar.com/)"
+          case "$http_status" in
+            301|302|307|308) ;;
+            *)
+              echo "Unexpected HTTP redirect status: $http_status"
+              exit 1
+              ;;
+          esac
+
+          www_headers="$(curl -sI https://www.mokasolar.com/ | tr -d '\r')"
+          printf '%s' "$www_headers" | grep -iq '^location: https://mokasolar.com'
 
           health="$(
             curl --fail --silent --show-error \
