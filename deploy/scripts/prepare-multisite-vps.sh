@@ -52,7 +52,13 @@ backup_file() {
   if [ -f "$file_path" ] || [ -L "$file_path" ]; then
     dest_dir="$backup_root$(dirname "$file_path")"
     ensure_dir "$dest_dir"
-    cp -a "$file_path" "$dest_dir/"
+    if ! cp -a "$file_path" "$dest_dir/" 2>/dev/null; then
+      if [ -n "$SUDO" ]; then
+        $SUDO cp -a "$file_path" "$dest_dir/"
+      else
+        cp -a "$file_path" "$dest_dir/"
+      fi
+    fi
   fi
 }
 
@@ -207,6 +213,30 @@ backup_database() {
         database_url="$(sanitize_database_url_for_pg_dump "$database_url")"
         if [ -n "$database_url" ]; then
           pg_dump "$database_url" --no-owner --format=custom > "$db_backup_path" || true
+        fi
+        if [ ! -s "$db_backup_path" ]; then
+          pg_db="$(trim_wrapping_quotes "$(extract_env_value POSTGRES_DB "$env_source" || true)")"
+          pg_user="$(trim_wrapping_quotes "$(extract_env_value POSTGRES_USER "$env_source" || true)")"
+          pg_pass="$(trim_wrapping_quotes "$(extract_env_value POSTGRES_PASSWORD "$env_source" || true)")"
+          pg_host="$(trim_wrapping_quotes "$(extract_env_value POSTGRES_HOST "$env_source" || true)")"
+          pg_port="$(trim_wrapping_quotes "$(extract_env_value POSTGRES_PORT "$env_source" || true)")"
+
+          if [ -z "$pg_host" ]; then
+            pg_host="127.0.0.1"
+          fi
+          if [ -z "$pg_port" ]; then
+            pg_port="5432"
+          fi
+
+          if [ -n "$pg_db" ] && [ -n "$pg_user" ]; then
+            PGPASSWORD="$pg_pass" pg_dump \
+              -h "$pg_host" \
+              -p "$pg_port" \
+              -U "$pg_user" \
+              -d "$pg_db" \
+              --no-owner \
+              --format=custom > "$db_backup_path" || true
+          fi
         fi
       fi
       ;;
