@@ -115,7 +115,18 @@ jobs:
               npm run build
 
               cd "$project_dir"
-              pm2 startOrReload "$ecosystem_file" --update-env
+              # startOrReload can retain the old cwd for an existing npm wrapper.
+              # Recreate only the two Moka processes so they always use the
+              # canonical source tree without touching other PM2 applications.
+              for app_name in moka-solar-backend moka-solar-frontend; do
+                if pm2 describe "$app_name" >/dev/null 2>&1; then
+                  pm2 delete "$app_name"
+                fi
+              done
+              pm2 start "$ecosystem_file" --update-env
+
+              pm2 describe moka-solar-backend | grep -F "$project_dir/backend" >/dev/null
+              pm2 describe moka-solar-frontend | grep -F "$project_dir/frontend" >/dev/null
 
               if ! command -v systemctl >/dev/null 2>&1; then
                 echo "systemd is required to persist PM2 after reboot"
@@ -162,6 +173,14 @@ jobs:
                 pm2 logs moka-solar-frontend --lines 200 --nostream || true
                 exit 1
               fi
+
+              print_section "Verify canonical frontend routes"
+              for frontend_path in \
+                /portal/nhan-su/quen-mat-khau \
+                /portal/nhan-su/dat-lai-mat-khau \
+                /admin/security; do
+                curl -fsS "http://127.0.0.1:3000$frontend_path" >/dev/null
+              done
             }
 
             run_docker_deploy() {
@@ -519,6 +538,16 @@ jobs:
             --retry 5 --retry-delay 3 --retry-all-errors \
             --connect-timeout 10 --max-time 30 \
             https://mokasolar.com/robots.txt >/dev/null
+
+          for auth_path in \
+            /portal/nhan-su/quen-mat-khau \
+            /portal/nhan-su/dat-lai-mat-khau \
+            /admin/security; do
+            curl --fail --silent --show-error \
+              --retry 5 --retry-delay 3 --retry-all-errors \
+              --connect-timeout 10 --max-time 30 \
+              "https://mokasolar.com$auth_path" >/dev/null
+          done
 
           homepage="$(
             curl --fail --silent --show-error \
