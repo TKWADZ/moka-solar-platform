@@ -440,13 +440,13 @@ jobs:
             echo "web_moi_nginx=${WEB_MOI_NGINX:-}"
 
             print_section "Back up canonical production config"
-            backup_file "$project_dir/docker-compose.prod.yml"
-            backup_file "$project_dir/docker-compose.yml"
-            backup_file "$project_dir/ecosystem.config.js"
-            backup_file "$ecosystem_file"
+            backup_file "$project_dir/docker-compose.prod.yml" || true
+            backup_file "$project_dir/docker-compose.yml" || true
+            backup_file "$project_dir/ecosystem.config.js" || true
+            backup_file "$ecosystem_file" || true
             for file in $($SUDO grep -RIl 'mokasolar.com' /etc/nginx/sites-enabled /etc/nginx/sites-available /etc/nginx/conf.d 2>/dev/null || true); do
               [ -n "$file" ] || continue
-              backup_file "$file"
+              backup_file "$file" || true
             done
 
             if [ "$stack_mode" = "docker" ]; then
@@ -458,7 +458,7 @@ jobs:
             print_section "Normalize Nginx production upstreams"
             for file in $($SUDO grep -RIl 'mokasolar.com' /etc/nginx/sites-enabled /etc/nginx/sites-available /etc/nginx/conf.d 2>/dev/null || true); do
               [ -n "$file" ] || continue
-              backup_file "$file"
+              backup_file "$file" || true
               $SUDO sed -i 's|proxy_pass http://127.0.0.1:4000/;|proxy_pass http://127.0.0.1:4000;|g' "$file"
               $SUDO sed -i 's|proxy_pass http://127.0.0.1:4000/api/;|proxy_pass http://127.0.0.1:4000;|g' "$file"
               $SUDO sed -i 's|proxy_pass http://frontend:3000;|proxy_pass http://127.0.0.1:3000;|g' "$file"
