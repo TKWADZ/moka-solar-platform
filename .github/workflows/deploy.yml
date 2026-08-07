@@ -460,19 +460,19 @@ jobs:
               if [ -z "$seen_files" ]; then
                 $SUDO grep -RIl 'mokasolar.com' /etc/nginx/sites-enabled /etc/nginx/sites-available /etc/nginx/conf.d 2>/dev/null || true
               fi
+
+              return 0
             }
 
             print_section "Back up canonical production config"
-            set +e
-            backup_file "$project_dir/docker-compose.prod.yml"
-            backup_file "$project_dir/docker-compose.yml"
-            backup_file "$project_dir/ecosystem.config.js"
-            backup_file "$ecosystem_file"
-            for file in $(list_moka_nginx_files); do
+            backup_file "$project_dir/docker-compose.prod.yml" || true
+            backup_file "$project_dir/docker-compose.yml" || true
+            backup_file "$project_dir/ecosystem.config.js" || true
+            backup_file "$ecosystem_file" || true
+            for file in $(list_moka_nginx_files || true); do
               [ -n "$file" ] || continue
-              backup_file "$file"
+              backup_file "$file" || true
             done
-            set -e
 
             if [ "$stack_mode" = "docker" ]; then
               run_docker_deploy
@@ -481,7 +481,7 @@ jobs:
             fi
 
             print_section "Normalize Nginx production upstreams"
-            for file in $(list_moka_nginx_files); do
+            for file in $(list_moka_nginx_files || true); do
               [ -n "$file" ] || continue
               backup_file "$file" || true
               $SUDO sed -i 's|proxy_pass http://127.0.0.1:4000/;|proxy_pass http://127.0.0.1:4000;|g' "$file"
