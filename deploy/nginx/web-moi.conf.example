@@ -1,0 +1,17 @@
+# Placeholder Nginx server block for a future independent website.
+# Keep this file disabled until DNS and SSL are ready.
+#
+# Suggested reserved ports:
+# - frontend: 3100
+# - backend: 4100
+
+server {
+    listen 80;
+    server_name _;
+
+    client_max_body_size 20m;
+
+    location / {
+        return 404;
+    }
+}
