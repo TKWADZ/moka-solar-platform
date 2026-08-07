@@ -338,6 +338,7 @@ module.exports = {
       args: 'run start',
       env: {
         NODE_ENV: 'production',
+        HOST: '127.0.0.1',
         PORT: 4000,
       },
       out_file: '$moka_log_dir/backend.out.log',
@@ -352,6 +353,7 @@ module.exports = {
       args: 'run start',
       env: {
         NODE_ENV: 'production',
+        HOST: '127.0.0.1',
         PORT: 3000,
       },
       out_file: '$moka_log_dir/frontend.out.log',
