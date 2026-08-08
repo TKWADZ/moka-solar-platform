@@ -86,14 +86,15 @@ It reads `access_token` and an optional rotated `refresh_token`, refreshes befor
 
 ## Decision status
 
-The code-level refresh contract is verified, but the account-level decision test is still pending:
+The account-level local decision test succeeded without browser cookies:
 
-- Refresh-token presence in the real authorized response: not inspected.
-- Refresh without browser cookies: not proven.
-- Refreshed access token accepted by station search from the backend/VPS: not proven.
+- Refresh response: HTTP 200 with an access token and a rotated refresh token.
+- Station search with the refreshed bearer token: HTTP 200 with four station rows and the expected plant match.
+- The token used by the local probe was treated as consumed and was not retained or committed.
+- VPS egress and station discovery: not yet proven.
 - Selected unattended provider mode: none. `WEB_OAUTH_REFRESH_TOKEN` was not implemented.
 
-Until all three checks pass, the safe outcomes remain Official OpenAPI, manual import, or an explicitly approved human-authorized collector.
+Until the VPS check also passes, the safe production modes remain Official OpenAPI, legacy compatibility, and manual import.
 
 ### Safe decision-test command
 
@@ -106,6 +107,8 @@ npm run solarman:test-refresh-decision
 
 The command asks for the refresh token through a hidden interactive prompt. It never accepts the token as a CLI argument or environment variable, never writes it to disk, never prints it, and sends no Cookie header. It then asks for an optional plant-name marker, performs the verified refresh grant, and performs the verified station-search request. Output is limited to HTTP status, token-presence booleans, station count, plant-match boolean, and the Outcome 1 decision.
 
+On Windows, run the command in Windows Terminal or a standard PowerShell console. Paste into the hidden prompt with Ctrl+Shift+V, right-click paste, or Shift+Insert. Windows PowerShell ISE is unsupported because it does not provide the raw interactive TTY required by the hidden prompt.
+
 Run the same command directly on the VPS to prove the VPS egress path. Do not paste the token into shell history, chat, logs, `.env`, or a GitHub secret. This command is a decision test only; it does not enable a provider mode or save credentials.
 
 ## Still required
@@ -115,6 +118,6 @@ Before changing the existing history mapping or enabling additional Business web
 - Sanitized account/station/device/history response examples for parser regression fixtures.
 - Confirmed timezone semantics for aggregate day/month boundaries.
 - Alarm pagination and provider error schema.
-- A manual, isolated authorization decision test proving whether refresh is independent of browser cookies and accepted from the VPS.
+- An isolated VPS decision test using a newly issued refresh token entered only through hidden TTY.
 
 The integration must not replay browser requests or persist cookies from the interactive browser session. Remote-control and write endpoints are out of scope.

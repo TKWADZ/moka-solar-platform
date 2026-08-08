@@ -1,60 +1,6 @@
-import { createInterface } from 'node:readline/promises';
+import { promptHidden, promptText } from '../common/cli/interactive-prompt';
 
 type JsonRecord = Record<string, unknown>;
-
-function readSecret(prompt: string) {
-  if (!process.stdin.isTTY || typeof process.stdin.setRawMode !== 'function') {
-    throw new Error('This decision test must run in an interactive terminal.');
-  }
-
-  return new Promise<string>((resolve, reject) => {
-    let value = '';
-    const stdin = process.stdin;
-
-    const cleanup = () => {
-      stdin.off('data', onData);
-      stdin.setRawMode(false);
-      stdin.pause();
-    };
-
-    const onData = (chunk: Buffer) => {
-      const text = chunk.toString('utf8');
-      for (const character of text) {
-        if (character === '\u0003') {
-          cleanup();
-          process.stdout.write('\n');
-          reject(new Error('Decision test cancelled.'));
-          return;
-        }
-        if (character === '\r' || character === '\n') {
-          cleanup();
-          process.stdout.write('\n');
-          resolve(value.trim());
-          return;
-        }
-        if (character === '\u007f' || character === '\b') {
-          value = value.slice(0, -1);
-          continue;
-        }
-        value += character;
-      }
-    };
-
-    process.stdout.write(prompt);
-    stdin.setRawMode(true);
-    stdin.resume();
-    stdin.on('data', onData);
-  });
-}
-
-async function readText(prompt: string) {
-  const terminal = createInterface({ input: process.stdin, output: process.stdout });
-  try {
-    return (await terminal.question(prompt)).trim();
-  } finally {
-    terminal.close();
-  }
-}
 
 async function readJson(response: Response): Promise<JsonRecord> {
   const text = await response.text();
@@ -124,11 +70,17 @@ async function main() {
   const locale = (process.env.SOLARMAN_WEB_LOCALE || 'en').trim();
   const clientVersion = (process.env.SOLARMAN_WEB_CLIENT_VERSION || 'web').trim();
 
-  let refreshToken = await readSecret('Paste refresh token (hidden, never stored): ');
+  let refreshToken = await promptHidden('SOLARMAN refresh token', {
+    maxLength: 16_384,
+  });
   if (!refreshToken) {
     throw new Error('Refresh token is required.');
   }
-  const expectedPlantMarker = (await readText('Expected plant name marker (optional): ')).toLowerCase();
+  const expectedPlantMarker = (
+    await promptText('Expected plant name marker (optional)')
+  )
+    .trim()
+    .toLowerCase();
 
   let accessToken = '';
   try {

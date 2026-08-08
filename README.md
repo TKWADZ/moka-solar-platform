@@ -192,7 +192,7 @@ Production-ready MVP for a Tesla-inspired solar energy SaaS tailored to Vietnam.
   - daily billing history: GET `/maintain-s/history/power/{stationId}/stats/month?year=...&month=...`
   - monthly billing history: GET `/maintain-s/history/power/{stationId}/stats/year?year=...`
 - HTTP `412` is treated as `AUTH_REQUIRED`. The backend stops immediately, does not retry password login, does not copy browser authorization artifacts, and does not attempt to bypass Turnstile.
-- The current bundle contains an OAuth refresh-token flow, but cookie-independent refresh and VPS use are not yet proven. `WEB_OAUTH_REFRESH_TOKEN` remains disabled until that decision test passes.
+- The local decision test proved cookie-independent OAuth refresh, refresh-token rotation, and read-only discovery of four stations. VPS use is still pending, so `WEB_OAUTH_REFRESH_TOKEN` remains disabled until the isolated VPS decision test also passes.
 
 ## 2. Database Schema
 

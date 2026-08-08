@@ -5,12 +5,14 @@
 - latest task: Verify whether the current SOLARMAN Business OAuth refresh flow can support unattended read-only sync after manual Turnstile authorization
 - browser/session safety: Existing authorized SOLARMAN tab was preserved; no logout, cookie read, browser-storage read, password read, token read, raw HAR capture, or customer payload commit occurred
 - verified public contract: Refresh grant field names, Bearer usage, station search, device list, realtime day record, daily aggregate, and yearly aggregate routes/request shapes were verified from the current first-party bundle
-- current decision: Refresh support exists in frontend code, but refresh-token presence for the real account, cookie-independent refresh, and VPS station discovery are not yet proven; `WEB_OAUTH_REFRESH_TOKEN` was not implemented
+- current decision: Local Outcome 1 is proven without browser cookies (`refresh=200`, rotated refresh token returned, station search `200`, four stations, expected plant matched); VPS proof is still pending and `WEB_OAUTH_REFRESH_TOKEN` remains unimplemented
 - local safety patch: Legacy web password login and retry-on-412 were removed from the normal path; Business web 401/403/412 now stops as `AUTH_REQUIRED`; Official OpenAPI retains a single safe auth retry
 - data mapping: Verified aggregate fields now map `generationValue`, `useValue`, `buyValue`, `gridValue`, `chargeValue`, and `dischargeValue`; rows missing PV production are discarded instead of stored as zero
 - token safety: SOLARMAN token previews were removed from frontend APIs/UI; configurable Authorization/Cookie/CSRF/Turnstile headers are rejected
 - decision-test tool: `cd backend && npm run solarman:test-refresh-decision`; secret input is hidden, memory-only, and never accepted through CLI args/env/files
-- unit test status: Passed 55/55 backend unit/regression tests
+- hidden prompt safety: Configurable limit with a 16,384-character default; SOLARMAN explicitly uses 16,384 and accepts multi-character paste chunks without silent truncation
+- Windows terminal support: Windows Terminal/standard PowerShell paste is documented; PowerShell ISE is unsupported for raw hidden input
+- unit test status: Passed 67/67 backend unit/regression tests, including 12 hidden-prompt cases and an exact 903-character fake token
 - typecheck status: Passed backend `npm run typecheck`
 - Prisma status: Schema valid and Prisma Client generated with a process-only validation URL; no migration was created or applied
 - build status: Passed backend build and frontend production build (51 routes)
@@ -18,7 +20,7 @@
 - approved or not: No
 - deployed or not: No
 - production changed: No
-- remaining manual input: Run the isolated manual-login decision test locally and then on VPS without pasting the refresh token into chat/history; report only the sanitized result lines
+- remaining manual input: Run the same probe from an isolated VPS worktree using a newly issued refresh token entered only through hidden TTY; the token consumed by the local probe must never be reused
 - rollback target if needed: `f09b96ee2b85e81f59f08132f62d25a37b96905b`
 
 ## Current provider integration candidate
