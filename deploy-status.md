@@ -1,5 +1,22 @@
 # Deploy Status
 
+## Current provider integration candidate
+
+- latest task: Preserve working Deye/LuxPower integrations, repair current SOLARMAN defaults, and add read-only GoodWe SEMS+ discovery to the unified Systems import workflow
+- local test status: Passed 48/48 backend unit/regression tests; staff-auth e2e was discovered but skipped because this clean workspace has no `TEST_DATABASE_URL`
+- build status: Passed backend typecheck/build and frontend production build (51 routes)
+- Prisma status: Schema valid and Prisma Client generated with a process-only validation URL; no migration was created or applied
+- provider safety: Deye and LuxPower request implementations are unchanged; failed/missing provider production remains null and cannot overwrite the latest valid value with zero
+- SEMS+ scope: Current login/profile/station-list/station-detail contract is enabled read-only; device, realtime, history, and alarm requests remain disabled until sanitized request/response captures verify payloads and units
+- SOLARMAN scope: Existing official OpenAPI remains preferred; only the current Business web origin and verified device-list fallback path were updated
+- security review: Changed-file secret/PII scan passed; no raw HAR, cookie, token, password, customer address, personal email, or phone was added
+- dependency warning: Existing backend production dependency tree reports 17 advisories (9 moderate, 7 high, 1 critical); automatic force-upgrades were not applied because they include breaking NestJS changes and are outside this provider patch
+- approval requested or not: No
+- approved or not: No
+- deployed or not: No
+- production changed: No
+- rollback target if needed: `4eda4d41f2bfa5f5c3c030309351dd16bb25ebde`
+
 ## Current release candidate
 
 - latest task: Redesign Admin Systems from manual-first to provider-discovery-first

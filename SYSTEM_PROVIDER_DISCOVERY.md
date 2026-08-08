@@ -1,5 +1,11 @@
 # Provider-first system import
 
+Current provider capability details and verified endpoint boundaries are documented in:
+
+- `docs/integrations/provider-capability-matrix.md`
+- `docs/integrations/sems-plus-network-map.md`
+- `docs/integrations/solarman-network-map.md`
+
 ## Why this changed
 
 The old Admin Systems flow required a customer and a manually created `SolarSystem` before an inverter account could be queried. The new flow starts from a saved provider connection, discovers plants, imports them idempotently, and leaves unknown ownership unassigned.
