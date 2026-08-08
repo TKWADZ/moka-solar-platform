@@ -204,6 +204,7 @@ function serviceWith(plants: DiscoveredPlant[], prisma = new MemoryPrisma()) {
   const registry = {
     resolve: () => adapter,
     listCapabilities: () => [adapter.capability],
+    listConnections: async () => [],
   };
   const audit = {
     log: async (entry: any) => {

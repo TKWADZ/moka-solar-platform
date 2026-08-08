@@ -1,0 +1,10 @@
+{
+  "code": "00000",
+  "data": {
+    "status": "RUNNING",
+    "productionToday": 18.4,
+    "productionTotal": 8200.5,
+    "pSystem": 4.8,
+    "timeZone": "UTC+07:00"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "code": "00000",
+  "data": {
+    "roleKey": "PLANT_OWNER",
+    "userIdentity": "Owner",
+    "orgId": "",
+    "permissions": [],
+    "permissionList": [],
+    "dataAuthorization": true,
+    "timezone": "UTC+07:00"
+  }
+}

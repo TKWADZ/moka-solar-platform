@@ -1,0 +1,13 @@
+{
+  "success": true,
+  "stationList": [
+    {
+      "id": "station-fixture-1",
+      "name": "Fixture SOLARMAN Station",
+      "installedCapacity": 8.8,
+      "generationMonth": 420.5,
+      "generationTotal": 5400.2,
+      "timezone": "Asia/Ho_Chi_Minh"
+    }
+  ]
+}

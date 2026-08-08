@@ -1,0 +1,26 @@
+{
+  "code": "00000",
+  "data": {
+    "total": 2,
+    "dataList": [
+      {
+        "id": "plant-fixture-online",
+        "name": "Fixture Online Plant",
+        "status": "RUNNING",
+        "installedPower": 12.5,
+        "productionToday": 18.4,
+        "productionTotal": 8200.5,
+        "pSystem": 4.8,
+        "timeZone": "UTC+07:00"
+      },
+      {
+        "id": "plant-fixture-offline",
+        "name": "Fixture Offline Plant",
+        "status": "OFFLINE",
+        "installedPower": 6.2,
+        "productionTotal": 3100,
+        "timeZone": "UTC+07:00"
+      }
+    ]
+  }
+}
