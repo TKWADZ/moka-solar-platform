@@ -1,5 +1,16 @@
 type SolarmanRecord = Record<string, unknown>;
 
+const PV_GENERATION_KEYS = [
+  'generationValue',
+  'generation',
+  'pvGeneration',
+  'powerGeneration',
+  'electricity',
+  'yield',
+  'generationMonth',
+  'generationTotal',
+];
+
 export type ParsedSolarmanStation = {
   stationId: string;
   stationName: string | null;
@@ -209,17 +220,9 @@ function buildRecordDate(
 function parseAggregateMetrics(row: SolarmanRecord): ParsedSolarmanAggregateMetrics {
   return {
     pvGenerationKwh:
-      pickFirstNumber(row, [
-        'generationValue',
-        'generation',
-        'pvGeneration',
-        'powerGeneration',
-        'electricity',
-        'yield',
-        'generationMonth',
-        'generationTotal',
-      ]) || 0,
+      pickFirstNumber(row, PV_GENERATION_KEYS) ?? 0,
     loadConsumedKwh: pickFirstNumber(row, [
+      'useValue',
       'consumptionValue',
       'consumption',
       'loadConsumption',
@@ -228,6 +231,7 @@ function parseAggregateMetrics(row: SolarmanRecord): ParsedSolarmanAggregateMetr
       'usePower',
     ]),
     gridImportedKwh: pickFirstNumber(row, [
+      'buyValue',
       'gridImport',
       'buyPower',
       'gridPurchased',
@@ -235,6 +239,7 @@ function parseAggregateMetrics(row: SolarmanRecord): ParsedSolarmanAggregateMetr
       'fromGrid',
     ]),
     gridExportedKwh: pickFirstNumber(row, [
+      'gridValue',
       'gridExport',
       'sellPower',
       'feedIn',
@@ -242,12 +247,14 @@ function parseAggregateMetrics(row: SolarmanRecord): ParsedSolarmanAggregateMetr
       'toGrid',
     ]),
     batteryChargeKwh: pickFirstNumber(row, [
+      'chargeValue',
       'batteryCharge',
       'chargePower',
       'chargeEnergy',
       'batteryChargeEnergy',
     ]),
     batteryDischargeKwh: pickFirstNumber(row, [
+      'dischargeValue',
       'batteryDischarge',
       'dischargePower',
       'dischargeEnergy',
@@ -350,6 +357,9 @@ export function parseMonthlyGeneration(data: SolarmanRecord): ParsedSolarmanMont
   const records = rawRecords
     .map((item) => {
       const row = asRecord(item);
+      if (pickFirstNumber(row, PV_GENERATION_KEYS) === null) {
+        return null;
+      }
       const recordDate = buildRecordDate(row);
       const month = pickFirstNumber(row, ['month']) ?? (recordDate ? recordDate.getUTCMonth() + 1 : null);
       const rowYear =
@@ -427,6 +437,9 @@ export function parseDailyGeneration(data: SolarmanRecord): ParsedSolarmanDailyH
   const records = rawRecords
     .map((item) => {
       const row = asRecord(item);
+      if (pickFirstNumber(row, PV_GENERATION_KEYS) === null) {
+        return null;
+      }
       const recordDate = buildRecordDate(row, defaultYear, defaultMonth);
       if (!recordDate) {
         return null;

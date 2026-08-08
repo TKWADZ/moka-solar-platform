@@ -26,7 +26,6 @@ export class SolarmanOfficialOpenApiProvider implements SolarmanProvider {
     return {
       providerType: this.providerType,
       mode: result.mode,
-      tokenPreview: result.tokenPreview,
       session: {
         mode: 'official',
         token: result.session?.token || null,

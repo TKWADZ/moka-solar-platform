@@ -1993,13 +1993,12 @@ export async function createSolarmanConnectionRequest(payload: {
         defaultVatRate: payload.defaultVatRate || null,
         defaultTaxAmount: payload.defaultTaxAmount || null,
         defaultDiscountAmount: payload.defaultDiscountAmount || null,
-        status: payload.status || 'ACTIVE',
+        status: payload.status || 'CONFIGURED',
         lastSyncTime: null,
         lastSuccessfulSyncAt: null,
         lastErrorCode: null,
         lastErrorMessage: null,
         notes: payload.notes || null,
-        accessTokenPreview: null,
         hasStoredPassword: true,
         hasPersistedCookieSession: false,
         createdAt: new Date().toISOString(),
@@ -2098,7 +2097,7 @@ export async function testSolarmanConnectionRequest(id: string) {
       return {
         connection: {
           ...connection,
-          accessTokenPreview: 'demo-token...',
+          status: 'VERIFIED',
           hasPersistedCookieSession: true,
           updatedAt: new Date().toISOString(),
         },

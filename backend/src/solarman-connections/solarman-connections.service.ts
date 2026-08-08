@@ -131,7 +131,7 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         defaultTaxAmount: dto.defaultTaxAmount ?? null,
         defaultVatRate: deriveVatRateFromAmounts(100, dto.defaultTaxAmount, NaN) ?? null,
         defaultDiscountAmount: dto.defaultDiscountAmount ?? null,
-        status: dto.status?.trim() || 'ACTIVE',
+        status: dto.status?.trim() || 'CONFIGURED',
         notes: dto.notes?.trim() || null,
       },
       include: this.includeRelations(),
@@ -257,7 +257,7 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
           cookieJarEncrypted: result.session?.cookieJar
             ? this.encrypt(result.session.cookieJar)
             : connection.cookieJarEncrypted,
-          status: 'ACTIVE',
+          status: 'VERIFIED',
           lastAuthAt: new Date(),
           lastErrorCode: null,
           lastErrorMessage: null,
@@ -319,7 +319,7 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
       await this.prisma.solarmanConnection.update({
         where: { id },
         data: {
-          status: 'ERROR',
+          status: this.resolveConnectionStatusForError(error),
           lastErrorCode: this.resolveErrorCode(error),
           lastErrorMessage: this.formatErrorMessage(error, 'Test connection that bai.'),
           lastErrorDetails: this.toErrorPayload(error) as any,
@@ -363,7 +363,9 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
       const connections = await this.prisma.solarmanConnection.findMany({
         where: {
           deletedAt: null,
-          status: 'ACTIVE',
+          status: {
+            in: ['ACTIVE', 'VERIFIED'],
+          },
         },
         include: this.includeRelations(),
       });
@@ -466,7 +468,7 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
           cookieJarEncrypted: testResult.session?.cookieJar
             ? this.encrypt(testResult.session.cookieJar)
             : connection.cookieJarEncrypted,
-          status: 'ACTIVE',
+          status: 'VERIFIED',
           lastSyncTime: new Date(),
           lastSuccessfulSyncAt: new Date(),
           lastErrorCode: null,
@@ -517,7 +519,7 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
       await this.prisma.solarmanConnection.update({
         where: { id: connection.id },
         data: {
-          status: 'ERROR',
+          status: this.resolveConnectionStatusForError(error),
           lastErrorCode: this.resolveErrorCode(error),
           lastErrorMessage: this.formatErrorMessage(error, 'SOLARMAN sync that bai.'),
           lastErrorDetails: this.toErrorPayload(error) as any,
@@ -1288,14 +1290,13 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
     connection: SolarmanConnectionWithRelations,
     canViewSecrets = false,
   ) {
-    const {
-      passwordEncrypted,
-      accessToken,
-      refreshToken,
-      cookieJar,
-      cookieJarEncrypted,
-      ...safeConnection
-    } = connection;
+    const passwordEncrypted = connection.passwordEncrypted;
+    const safeConnection = { ...connection };
+    delete safeConnection.passwordEncrypted;
+    delete safeConnection.accessToken;
+    delete safeConnection.refreshToken;
+    delete safeConnection.cookieJar;
+    delete safeConnection.cookieJarEncrypted;
 
     return {
       ...safeConnection,
@@ -1308,11 +1309,8 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
       lastSuccessfulSyncAt: connection.lastSuccessfulSyncAt?.toISOString?.() || null,
       lastErrorCode: connection.lastErrorCode || null,
       lastErrorMessage: connection.lastErrorMessage || null,
-      accessTokenPreview: canViewSecrets && accessToken
-        ? `${String(accessToken).slice(0, 10)}...`
-        : null,
       hasStoredPassword: Boolean(passwordEncrypted),
-      hasPersistedCookieSession: Boolean(cookieJarEncrypted),
+      hasPersistedCookieSession: Boolean(connection.cookieJarEncrypted),
       statusSummary: this.buildStatusSummary(connection, Boolean(passwordEncrypted)),
       debugSnapshots:
         connection.debugSnapshots?.map((snapshot: any) => ({
@@ -1381,6 +1379,8 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
       lastFailureMessage: lastFailure?.message || null,
       providerType: this.normalizeProviderType(connection.providerType),
       authBridgeReady: Boolean(connection.cookieJarEncrypted),
+      authStatus:
+        connection.status === 'ACTIVE' ? 'CONFIGURED' : connection.status || 'CONFIGURED',
       lastErrorCode: connection.lastErrorCode || null,
       lastErrorMessage: connection.lastErrorMessage || null,
       realtimeAvailable: false,
@@ -1436,6 +1436,10 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
     }
 
     return 'UNKNOWN_ERROR';
+  }
+
+  private resolveConnectionStatusForError(error: unknown) {
+    return this.resolveErrorCode(error) === 'AUTH_REQUIRED' ? 'AUTH_REQUIRED' : 'ERROR';
   }
 
   private toErrorPayload(error: unknown) {

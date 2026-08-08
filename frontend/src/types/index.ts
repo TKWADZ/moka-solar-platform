@@ -1720,7 +1720,7 @@ export type SolarmanDebugSnapshotRecord = {
 export type SolarmanConnectionRecord = {
   id: string;
   accountName: string;
-  providerType?: 'OFFICIAL_OPENAPI' | 'MANUAL_IMPORT' | string;
+  providerType?: 'OFFICIAL_OPENAPI' | 'COOKIE_SESSION' | 'MANUAL_IMPORT' | string;
   usernameOrEmail: string | null;
   customerId?: string | null;
   defaultUnitPrice?: number | null;
@@ -1733,7 +1733,6 @@ export type SolarmanConnectionRecord = {
   lastErrorCode?: string | null;
   lastErrorMessage?: string | null;
   notes?: string | null;
-  accessTokenPreview?: string | null;
   hasStoredPassword?: boolean;
   hasPersistedCookieSession?: boolean;
   manualImportSummary?: {
@@ -1768,6 +1767,7 @@ export type SolarmanConnectionRecord = {
     lastFailureMessage?: string | null;
     providerType?: string | null;
     authBridgeReady?: boolean;
+    authStatus?: string | null;
     manualImportReady?: boolean;
     manualImportMessage?: string | null;
     lastErrorCode?: string | null;

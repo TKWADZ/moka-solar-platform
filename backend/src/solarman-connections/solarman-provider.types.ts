@@ -22,7 +22,6 @@ export type SolarmanProviderRequestOptions = {
 export type SolarmanProviderTestResult = {
   providerType: SolarmanProviderType;
   mode: string;
-  tokenPreview?: string | null;
   session?: SolarmanPersistedSession | null;
   stations: ParsedSolarmanStation[];
   sampleDevices: ParsedSolarmanDevice[];

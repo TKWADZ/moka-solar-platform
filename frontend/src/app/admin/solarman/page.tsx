@@ -47,16 +47,20 @@ type ConnectionFormState = {
 type FieldErrors = Partial<Record<keyof ConnectionFormState, string>>;
 
 const connectionStatusOptions = [
-  { value: 'ACTIVE', label: 'Đang hoạt động' },
-  { value: 'PAUSED', label: 'Tạm dừng' },
-  { value: 'ERROR', label: 'Đang lỗi' },
+  { value: 'CONFIGURED', label: 'Đã cấu hình', disabled: false },
+  { value: 'PAUSED', label: 'Tạm dừng', disabled: false },
+  { value: 'VERIFIED', label: 'Đã xác thực (hệ thống)', disabled: true },
+  { value: 'AUTH_REQUIRED', label: 'Cần xác thực lại (hệ thống)', disabled: true },
+  { value: 'ERROR', label: 'Đang lỗi (hệ thống)', disabled: true },
+  { value: 'ACTIVE', label: 'Legacy - cần kiểm tra lại', disabled: true },
 ];
 
 const providerTypeOptions = [
   {
     value: 'COOKIE_SESSION',
     label: 'CookieSessionProvider',
-    description: 'Cau noi tam qua cookie session, doc plant/device/history cho billing.',
+    description:
+      'Chỉ dùng session web đã có. Backend không tự đăng nhập lại khi SOLARMAN yêu cầu Turnstile.',
   },
   {
     value: 'OFFICIAL_OPENAPI',
@@ -80,7 +84,7 @@ function emptyForm(): ConnectionFormState {
     defaultUnitPrice: '',
     defaultTaxAmount: '',
     defaultDiscountAmount: '',
-    status: 'ACTIVE',
+    status: 'CONFIGURED',
     notes: '',
   };
 }
@@ -109,7 +113,7 @@ function buildForm(connection: SolarmanConnectionRecord | null): ConnectionFormS
       connection.defaultDiscountAmount !== undefined
         ? String(connection.defaultDiscountAmount)
         : '',
-    status: connection.status || 'ACTIVE',
+    status: connection.status || 'CONFIGURED',
     notes: connection.notes || '',
   };
 }
@@ -147,14 +151,17 @@ function validateForm(form: ConnectionFormState, mode: 'create' | 'edit') {
 function statusBadge(status: string) {
   switch (status) {
     case 'SUCCESS':
-    case 'ACTIVE':
+    case 'VERIFIED':
       return 'border-emerald-300/20 bg-emerald-400/10 text-emerald-100';
     case 'RUNNING':
+    case 'CONFIGURED':
+    case 'ACTIVE':
       return 'border-sky-300/20 bg-sky-400/10 text-sky-100';
     case 'WARNING':
     case 'PAUSED':
       return 'border-amber-300/20 bg-amber-400/10 text-amber-100';
     case 'ERROR':
+    case 'AUTH_REQUIRED':
       return 'border-rose-300/20 bg-rose-400/10 text-rose-100';
     default:
       return 'border-white/10 bg-white/5 text-slate-200';
@@ -214,9 +221,9 @@ export default function AdminSolarmanPage() {
       (sum, connection) => sum + (connection.systems?.length || 0),
       0,
     );
-    const activeConnections = connections.filter((item) => item.status === 'ACTIVE').length;
+    const verifiedConnections = connections.filter((item) => item.status === 'VERIFIED').length;
 
-    return { totalConnections, totalSystems, activeConnections };
+    return { totalConnections, totalSystems, verifiedConnections };
   }, [connections]);
 
   async function loadData(nextSelectedId?: string) {
@@ -516,9 +523,9 @@ export default function AdminSolarmanPage() {
           </p>
         </div>
         <div className="portal-card min-w-0 p-5">
-          <p className="text-sm text-slate-400">Connection đang hoạt động</p>
+          <p className="text-sm text-slate-400">Connection đã xác thực</p>
           <p className="mt-3 text-3xl font-semibold text-white">
-            {formatNumber(stats.activeConnections)}
+            {formatNumber(stats.verifiedConnections)}
           </p>
         </div>
       </div>
@@ -843,7 +850,7 @@ export default function AdminSolarmanPage() {
                   onChange={(event) => updateField('status', event.target.value)}
                 >
                   {connectionStatusOptions.map((option) => (
-                    <option key={option.value} value={option.value}>
+                    <option key={option.value} value={option.value} disabled={option.disabled}>
                       {option.label}
                     </option>
                   ))}
@@ -869,16 +876,16 @@ export default function AdminSolarmanPage() {
                 className="portal-field min-h-[110px]"
                 value={form.notes}
                 onChange={(event) => updateField('notes', event.target.value)}
-                placeholder="Ví dụ: account của VP 11 đường số 2, dùng để sync PV tháng cho khách doanh nghiệp..."
+                placeholder="Ví dụ: tài khoản dùng để đồng bộ dữ liệu PV tháng cho khách hàng..."
               />
             </label>
 
             {selectedConnection && mode === 'edit' ? (
               <div className="grid gap-3 md:grid-cols-4">
                 <div className="portal-card-soft p-4">
-                  <p className="text-sm text-slate-400">Token lưu gần nhất</p>
+                  <p className="text-sm text-slate-400">Token truy cập</p>
                   <p className="mt-2 break-words text-lg font-semibold text-white">
-                    {selectedConnection.accessTokenPreview || 'Chưa có'}
+                    Không hiển thị trên trình duyệt
                   </p>
                 </div>
                 <div className="portal-card-soft p-4">
@@ -905,8 +912,8 @@ export default function AdminSolarmanPage() {
                     <p>
                       Session bridge:{' '}
                       {selectedConnection.hasPersistedCookieSession
-                        ? 'Da luu cookie session'
-                        : 'Chua co persisted session'}
+                        ? 'Có session web cũ, không đồng nghĩa đã xác thực'
+                        : 'Chưa có session web'}
                     </p>
                     <p>
                       Last successful sync:{' '}

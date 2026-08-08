@@ -26,7 +26,6 @@ export class SolarmanCookieSessionProvider implements SolarmanProvider {
     return {
       providerType: this.providerType,
       mode: result.mode,
-      tokenPreview: result.tokenPreview,
       session: {
         mode: 'web',
         token: null,

@@ -143,9 +143,6 @@ export class SolarmanClientService {
       connected: true,
       mode: stationResult.session.mode,
       stationCount: stationResult.stations.length,
-      tokenPreview: stationResult.session.token
-        ? `${stationResult.session.token.slice(0, 10)}...`
-        : null,
       session: stationResult.session,
       cookieJar: stationResult.session.cookieJar,
       stations: stationResult.stations,
@@ -210,6 +207,9 @@ export class SolarmanClientService {
 
         lastError = new Error(`SOLARMAN station list returned no stations in ${mode} mode.`);
       } catch (error) {
+        if (this.isAuthRequired(error)) {
+          throw error;
+        }
         lastError = error;
       }
     }
@@ -264,6 +264,9 @@ export class SolarmanClientService {
               };
             }
           } catch (error) {
+            if (this.isAuthRequired(error)) {
+              throw error;
+            }
             lastError = error;
           }
         }
@@ -356,6 +359,9 @@ export class SolarmanClientService {
               };
             }
           } catch (error) {
+            if (this.isAuthRequired(error)) {
+              throw error;
+            }
             lastError = error;
           }
         }
@@ -388,6 +394,9 @@ export class SolarmanClientService {
               };
             }
           } catch (error) {
+            if (this.isAuthRequired(error)) {
+              throw error;
+            }
             lastError = error;
           }
         }
@@ -438,6 +447,9 @@ export class SolarmanClientService {
               };
             }
           } catch (error) {
+            if (this.isAuthRequired(error)) {
+              throw error;
+            }
             lastError = error;
           }
         }
@@ -520,10 +532,13 @@ export class SolarmanClientService {
       }
 
       try {
-        const session =
-          mode === 'web'
-            ? await this.loginWithWeb(credentials, config)
-            : await this.loginWithOfficial(credentials, config);
+        if (mode === 'web') {
+          throw this.webAuthRequired(
+            'SOLARMAN web session is not available. Manual browser authorization is required.',
+          );
+        }
+
+        const session = await this.loginWithOfficial(credentials, config);
 
         this.tokenCache.set(cacheKey, {
           session,
@@ -532,6 +547,9 @@ export class SolarmanClientService {
 
         return session;
       } catch (error) {
+        if (this.isAuthRequired(error)) {
+          throw error;
+        }
         lastError = error;
       }
     }
@@ -604,10 +622,7 @@ export class SolarmanClientService {
     const webDailyUrls = (
       this.configService.get<string>('SOLARMAN_WEB_DAILY_ENDPOINTS') ||
       this.configService.get<string>('SOLARMAN_WEB_DAILY_URL') ||
-      [
-        `${defaultWebOrigin}/maintain-s/history/power/{stationId}/record`,
-        `${defaultWebOrigin}/maintain-s/history/power/{stationId}/stats/day`,
-      ].join(',')
+      `${defaultWebOrigin}/maintain-s/history/power/{stationId}/stats/{type}`
     )
       .split(',')
       .map((item) => item.trim())
@@ -615,10 +630,7 @@ export class SolarmanClientService {
     const webMonthlyUrls = (
       this.configService.get<string>('SOLARMAN_WEB_MONTHLY_ENDPOINTS') ||
       this.configService.get<string>('SOLARMAN_WEB_MONTHLY_URL') ||
-      [
-        `${defaultWebOrigin}/maintain-s/history/power/{stationId}/record`,
-        `${defaultWebOrigin}/maintain-s/history/power/{stationId}/stats/{type}`,
-      ].join(',')
+      `${defaultWebOrigin}/maintain-s/history/power/{stationId}/stats/{type}`
     )
       .split(',')
       .map((item) => item.trim())
@@ -643,12 +655,31 @@ export class SolarmanClientService {
     let webExtraHeaders: Record<string, string> = {};
     try {
       const parsed = JSON.parse(rawExtraHeaders) as Record<string, unknown>;
+      const forbiddenHeaderNames = new Set([
+        'authorization',
+        'cookie',
+        'set-cookie',
+        'cf-turnstile-response',
+        'x-csrf-token',
+        'x-xsrf-token',
+      ]);
+      const forbiddenHeader = Object.keys(parsed).find((key) =>
+        forbiddenHeaderNames.has(key.trim().toLowerCase()),
+      );
+      if (forbiddenHeader) {
+        throw new BadRequestException(
+          `SOLARMAN_WEB_EXTRA_HEADERS cannot contain authentication header ${forbiddenHeader}.`,
+        );
+      }
       webExtraHeaders = Object.fromEntries(
         Object.entries(parsed).flatMap(([key, value]) =>
           typeof value === 'string' && value.trim() ? [[key, value.trim()]] : [],
         ),
       );
-    } catch {
+    } catch (error) {
+      if (error instanceof BadRequestException) {
+        throw error;
+      }
       throw new BadRequestException(
         'SOLARMAN_WEB_EXTRA_HEADERS phai la JSON hop le neu ban co cau hinh them header.',
       );
@@ -708,54 +739,30 @@ export class SolarmanClientService {
     config: SolarmanBaseConfig,
     options: SolarmanRequestOptions = {},
   ) {
-    const payloadCandidates = [
-      { page: 1, size: 200 },
-      { pageNum: 1, pageSize: 200 },
-      { current: 1, size: 200 },
-      { pageNo: 1, pageSize: 200 },
-      {},
-    ];
+    const response = await this.requestWithAuth(
+      credentials,
+      {
+        method: 'POST',
+        endpoint: config.webStationListUrl!,
+        payload: {},
+        query: {
+          'order.direction': 'DESC',
+          'order.property': 'id',
+          page: 1,
+          size: 200,
+        },
+      },
+      'SOLARMAN web station list',
+      'web',
+      options,
+    );
 
-    let lastError: unknown = null;
-
-    for (const payload of payloadCandidates) {
-      try {
-        const response = await this.requestWithAuth(
-          credentials,
-          {
-            method: 'POST',
-            endpoint: config.webStationListUrl!,
-            payload,
-          },
-          'SOLARMAN web station list',
-          'web',
-          options,
-        );
-
-        const stations = parseStationList(response.body);
-        if (stations.length) {
-          return {
-            stations,
-            raw: response.body,
-            session: response.session,
-          };
-        }
-      } catch (error) {
-        lastError = error;
-      }
-    }
-
-    if (lastError) {
-      throw lastError;
-    }
+    const stations = parseStationList(response.body);
 
     return {
-      stations: [] as ParsedSolarmanStation[],
-      raw: {},
-      session: await this.login(credentials, {
-        ...options,
-        mode: 'web',
-      }),
+      stations,
+      raw: response.body,
+      session: response.session,
     };
   }
 
@@ -764,32 +771,17 @@ export class SolarmanClientService {
     stationId: string,
     year: number,
   ): SolarmanRequestPlan[] {
-    const queryCandidates = [
-      { year },
-      { year, dateType: 'month' },
-      { year, type: 'month' },
-      { year, statsType: 'month' },
-      { year, timeType: 'month' },
-      { year, dimension: 'month' },
-    ];
-    const statsTypes = ['month', 'monthly', '2', '3'];
-
-    return config.webMonthlyUrls.flatMap((template) => {
-      const templateWithStation = template
+    return config.webMonthlyUrls.map((template) => {
+      const endpoint = template
         .replace(/\{stationId\}/g, stationId)
-        .replace(/\{year\}/g, String(year));
+        .replace(/\{year\}/g, String(year))
+        .replace(/\{type\}/g, 'year');
 
-      const expanded = templateWithStation.includes('{type}')
-        ? statsTypes.map((type) => templateWithStation.replace(/\{type\}/g, type))
-        : [templateWithStation];
-
-      return expanded.flatMap((endpoint) =>
-        queryCandidates.map((payload) => ({
-          method: 'GET' as const,
-          endpoint,
-          payload,
-        })),
-      );
+      return {
+        method: 'GET' as const,
+        endpoint,
+        payload: { year },
+      };
     });
   }
 
@@ -828,6 +820,14 @@ export class SolarmanClientService {
         },
       };
     } catch (error) {
+      if (mode === 'web' && (this.isAuthFailure(error) || this.isAuthRequired(error))) {
+        this.tokenCache.delete(cacheKey);
+        throw this.webAuthRequired(
+          `${context} requires a new manual browser authorization.`,
+          this.readProviderStatusCode(error),
+        );
+      }
+
       if (!this.isAuthFailure(error)) {
         throw error;
       }
@@ -857,10 +857,13 @@ export class SolarmanClientService {
       return cached.session;
     }
 
-    const session =
-      mode === 'web'
-        ? await this.loginWithWeb(credentials, config)
-        : await this.loginWithOfficial(credentials, config);
+    if (mode === 'web') {
+      throw this.webAuthRequired(
+        'SOLARMAN web session is not available. Manual browser authorization is required.',
+      );
+    }
+
+    const session = await this.loginWithOfficial(credentials, config);
 
     this.tokenCache.set(cacheKey, {
       session,
@@ -957,130 +960,6 @@ export class SolarmanClientService {
     });
   }
 
-  private async loginWithWeb(
-    credentials: SolarmanCredentialConfig,
-    config: SolarmanBaseConfig,
-  ): Promise<SolarmanSession> {
-    if (!config.webAvailable || !config.webLoginUrl) {
-      throw new BadRequestException(
-        'Chua co du bo SOLARMAN_WEB_LOGIN_URL, SOLARMAN_WEB_STATION_LIST_URL va SOLARMAN_WEB_MONTHLY_URL.',
-      );
-    }
-
-    const loginIdentityType = this.inferIdentityType(credentials.usernameOrEmail);
-    const preflightCookieJar = await this.bootstrapWebSession(config);
-
-    const payloadCandidates = [
-      {
-        grant_type: 'mdc_password',
-        username: credentials.usernameOrEmail,
-        clear_text_pwd: credentials.password,
-        password: this.md5(credentials.password),
-        identity_type: loginIdentityType,
-        client_id: 'test',
-        system: config.webSystemCode,
-        area: config.webDefaultArea,
-      },
-      {
-        grant_type: 'mdc_password',
-        username: credentials.usernameOrEmail,
-        password: this.md5(credentials.password),
-        identity_type: loginIdentityType,
-        client_id: 'test',
-        system: config.webSystemCode,
-        area: config.webDefaultArea,
-      },
-      {
-        grant_type: 'password',
-        username: credentials.usernameOrEmail,
-        password: this.md5(credentials.password),
-        identity_type: loginIdentityType,
-        client_id: 'test',
-        system: config.webSystemCode,
-        area: config.webDefaultArea,
-      },
-    ];
-
-    let lastError: unknown = null;
-
-    for (const payload of payloadCandidates) {
-      try {
-        const { body, cookieJar } = await this.requestJson(
-          {
-            method: 'POST',
-            endpoint: config.webLoginUrl,
-            payload,
-            formUrlEncoded: true,
-          },
-          {
-            mode: 'web',
-            token: null,
-            authHeader: null,
-            cookieJar: preflightCookieJar,
-          },
-          'SOLARMAN web login',
-          'web',
-        );
-
-        const token =
-          toStringValue(body.access_token) ||
-          toStringValue(body.token) ||
-          toStringValue(body.accessToken) ||
-          toStringValue(asRecord(body.data).access_token) ||
-          toStringValue(asRecord(body.data).token) ||
-          toStringValue(asRecord(body.data).accessToken);
-
-        if (cookieJar || token) {
-          return {
-            mode: 'web',
-            token,
-            authHeader: token,
-            cookieJar: this.mergeCookieJar(preflightCookieJar, cookieJar),
-          };
-        }
-      } catch (error) {
-        lastError = error;
-      }
-    }
-
-    throw new BadGatewayException({
-      message:
-        lastError instanceof Error && lastError.message
-          ? lastError.message
-          : 'Dang nhap SOLARMAN web session that bai.',
-      provider: 'SOLARMAN',
-      detail: lastError instanceof Error ? lastError.message : 'Unknown web login error',
-    });
-  }
-
-  private async bootstrapWebSession(config: SolarmanBaseConfig) {
-    const target = config.webReferer || `${config.webOrigin}/login`;
-    if (!target) {
-      return null;
-    }
-
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
-
-    try {
-      const response = await fetch(target, {
-        method: 'GET',
-        headers: {
-          Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-          'User-Agent': 'Mozilla/5.0',
-        },
-        redirect: 'follow',
-        signal: controller.signal,
-      });
-
-      return this.extractCookieJar(response, null);
-    } catch {
-      return null;
-    } finally {
-      clearTimeout(timeout);
-    }
-  }
-
   private async requestJson(
     plan: SolarmanRequestPlan,
     session: SolarmanSession | null,
@@ -1148,7 +1027,7 @@ export class SolarmanClientService {
           parsedBody = JSON.parse(text) as Record<string, unknown>;
         } catch {
           if (!response.ok) {
-            this.throwHttpError(response.status, context, text, undefined);
+            this.throwHttpError(response.status, context, mode, text, undefined);
           }
 
           throw new BadGatewayException({
@@ -1161,7 +1040,7 @@ export class SolarmanClientService {
       }
 
       if (!response.ok) {
-        this.throwHttpError(response.status, context, text, parsedBody);
+        this.throwHttpError(response.status, context, mode, text, parsedBody);
       }
 
       if (parsedBody.success === false) {
@@ -1209,17 +1088,15 @@ export class SolarmanClientService {
   private throwHttpError(
     statusCode: number,
     context: string,
+    mode: SolarmanMode,
     rawText: string,
     parsedBody?: Record<string, unknown>,
   ): never {
-    if (statusCode === 412) {
-      throw new BadGatewayException({
-        message:
-          'SOLARMAN web dang yeu cau session/captcha hoac headers XHR day du hon. Can bo sung request XHR tu browser neu customer account dang bat xac minh truot.',
-        provider: 'SOLARMAN',
+    if (mode === 'web' && statusCode === 412) {
+      throw this.webAuthRequired(
+        `${context} was rejected at the SOLARMAN manual authorization boundary.`,
         statusCode,
-        response: parsedBody || rawText.slice(0, 500),
-      });
+      );
     }
 
     throw new BadGatewayException({
@@ -1288,21 +1165,15 @@ export class SolarmanClientService {
   }
 
   private buildWebDeviceRequests(config: SolarmanBaseConfig, stationId: string): SolarmanRequestPlan[] {
-    const payloadCandidates = [
-      { stationId, page: 1, size: 100 },
-      { systemId: stationId, page: 1, size: 100 },
-      { stationId: Number(stationId), page: 1, size: 100 },
-      { systemId: Number(stationId), page: 1, size: 100 },
-      { stationId },
-    ];
-
-    return config.webDeviceListUrls.flatMap((endpoint) =>
-      payloadCandidates.map((payload) => ({
-        method: 'POST' as const,
-        endpoint,
-        payload,
-      })),
-    );
+    return config.webDeviceListUrls.map((endpoint) => ({
+      method: 'POST' as const,
+      endpoint,
+      payload: {
+        'order.direction': 'ASC',
+        'order.property': 'device_id',
+        stationId,
+      },
+    }));
   }
 
   private buildWebDailyRequests(
@@ -1315,23 +1186,15 @@ export class SolarmanClientService {
     for (const template of config.webDailyUrls) {
       const endpoint = template
         .replace(/\{stationId\}/g, stationId)
-        .replace(/\{year\}/g, String(year));
+        .replace(/\{year\}/g, String(year))
+        .replace(/\{type\}/g, 'month');
 
       for (let month = 1; month <= 12; month += 1) {
-        const startDate = `${year}-${String(month).padStart(2, '0')}-01`;
-        const endDate = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
-        requests.push(
-          {
-            method: 'GET',
-            endpoint,
-            payload: { year, month, dateType: 'day' },
-          },
-          {
-            method: 'GET',
-            endpoint,
-            payload: { startDate, endDate, type: 'day' },
-          },
-        );
+        requests.push({
+          method: 'GET',
+          endpoint,
+          payload: { year, month },
+        });
       }
     }
 
@@ -1384,18 +1247,6 @@ export class SolarmanClientService {
     return `${baseUrl}${pathOrUrl.startsWith('/') ? pathOrUrl : `/${pathOrUrl}`}`;
   }
 
-  private inferIdentityType(usernameOrEmail: string) {
-    if (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(usernameOrEmail.trim())) {
-      return 2;
-    }
-
-    if (/^[+\d][\d-]{4,}$/.test(usernameOrEmail.trim())) {
-      return 1;
-    }
-
-    return 3;
-  }
-
   private isAuthFailure(error: unknown) {
     if (!(error instanceof BadGatewayException)) {
       return false;
@@ -1419,12 +1270,48 @@ export class SolarmanClientService {
     return (
       statusCode === 401 ||
       statusCode === 403 ||
-      statusCode === 412 ||
-      message.includes('token') ||
-      message.includes('auth') ||
-      message.includes('session') ||
-      message.includes('login')
+      message.includes('token expired') ||
+      message.includes('invalid token') ||
+      message.includes('unauthorized')
     );
+  }
+
+  private isAuthRequired(error: unknown) {
+    if (!(error instanceof BadGatewayException)) {
+      return false;
+    }
+
+    const response = error.getResponse();
+    return Boolean(
+      response &&
+        typeof response === 'object' &&
+        (response as Record<string, unknown>).code === 'AUTH_REQUIRED',
+    );
+  }
+
+  private readProviderStatusCode(error: unknown) {
+    if (!(error instanceof BadGatewayException)) {
+      return 401;
+    }
+
+    const response = error.getResponse();
+    if (!response || typeof response !== 'object') {
+      return 401;
+    }
+
+    const statusCode = Number((response as Record<string, unknown>).statusCode || 0);
+    return statusCode > 0 ? statusCode : 401;
+  }
+
+  private webAuthRequired(detail: string, statusCode = 401) {
+    return new BadGatewayException({
+      code: 'AUTH_REQUIRED',
+      provider: 'SOLARMAN',
+      statusCode,
+      message:
+        'SOLARMAN can xac thuc lai thu cong trong trinh duyet. Backend da dung va khong thu dang nhap lai bang mat khau.',
+      detail,
+    });
   }
 
   private extractCookieJar(response: Response, fallback: string | null) {
@@ -1506,7 +1393,4 @@ export class SolarmanClientService {
     return createHash('sha256').update(value, 'utf8').digest('hex');
   }
 
-  private md5(value: string) {
-    return createHash('md5').update(value, 'utf8').digest('hex');
-  }
 }
