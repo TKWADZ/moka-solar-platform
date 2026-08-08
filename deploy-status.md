@@ -1,6 +1,6 @@
 # Deploy Status
 
-## SEMS+ shared environment persistence guard (approved for deployment)
+## SEMS+ shared environment persistence guard (deployed)
 
 - latest task: Prevent future deploys from silently replacing a newer canonical backend environment with an older shared environment
 - root cause: An atomic environment update replaced the canonical `backend/.env` symlink with a regular file; the next multi-site deploy relinked the older shared file and discarded the divergent configuration
@@ -11,7 +11,9 @@
 - database change: None; no migration
 - approval requested or not: Yes
 - approved or not: Yes
-- deployed or not: Pending this environment-safety release
+- deployed or not: Yes, commit `615549c97a0897e3b377c188862ec14958424f9f` via GitHub Actions run `31261267028`
+- production verification: Workflow passed SSH deploy, 5-minute stability observation, and public endpoint checks; after that deploy Admin Systems still reported `CONFIGURED` and discovered all 8 plants in about 11.3 seconds
+- production import status: Not started; total Moka systems remained 16 before and after preview
 - rollback target if needed: `dc54e344c0d3157a5e4c805761632e627553591f`
 
 ## SEMS+ provider discovery timeout hotfix (deployed)
