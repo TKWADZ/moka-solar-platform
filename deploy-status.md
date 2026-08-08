@@ -15,7 +15,7 @@
 - implementation commit: `5a7ba0917c338c182fa57b26cefcfcc2c1bd74fc`
 - database change: None; no migration
 - approval requested or not: Yes
-- approved or not: No
+- approved or not: Yes
 - deployed or not: No
 - rollback target if needed: `51ab749fe0bc238c53363b1c89fa503d82e3f5a2`
 
