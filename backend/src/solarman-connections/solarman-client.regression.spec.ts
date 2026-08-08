@@ -3,7 +3,11 @@ import { BadGatewayException } from '@nestjs/common';
 import { describe, it } from 'node:test';
 import { SolarmanClientService } from './solarman-client.service';
 import { SolarmanConnectionsService } from './solarman-connections.service';
-import { parseDailyGeneration, parseMonthlyGeneration } from './solarman.parser';
+import {
+  parseDailyGeneration,
+  parseMonthlyGeneration,
+  parseStationList,
+} from './solarman.parser';
 
 function config(values: Record<string, string> = {}) {
   return { get: (key: string) => values[key] } as any;
@@ -160,6 +164,73 @@ describe('SOLARMAN provider regression', () => {
     assert.equal(daily?.records.length, 1);
     assert.equal(daily?.records[0].pvGenerationKwh, 4.5);
     assert.equal(daily?.records[0].loadConsumedKwh, 5.6);
+  });
+
+  it('normalizes SOLARMAN epoch timestamps and realtime watts before persistence', () => {
+    const [station] = parseStationList({
+      data: [
+        {
+          id: 65249141,
+          name: 'Fixture station',
+          generationPower: 1226,
+          lastUpdateTime: 1786171604,
+        },
+      ],
+    });
+
+    assert.equal(station.generationPowerKw, 1.226);
+    assert.equal(station.lastUpdateTime, '2026-08-08T06:46:44.000Z');
+  });
+
+  it('never passes an invalid SOLARMAN timestamp to Prisma system creation', async () => {
+    let createData: Record<string, unknown> | undefined;
+    const prisma = {
+      solarSystem: {
+        findFirst: async () => null,
+        create: async ({ data }: { data: Record<string, unknown> }) => {
+          createData = data;
+          return { id: 'fixture-system', ...data };
+        },
+      },
+    };
+    const service = new SolarmanConnectionsService(
+      prisma as any,
+      config(),
+      {} as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+
+    await (service as any).resolveSystemForStation(
+      {
+        id: 'fixture-connection',
+        customerId: null,
+        defaultUnitPrice: 0,
+        defaultTaxAmount: 0,
+        defaultDiscountAmount: 0,
+      },
+      {
+        stationId: 'fixture-station',
+        stationName: 'Fixture station',
+        sourceSystem: 'SOLARMAN',
+        installedCapacityKw: 12,
+        generationMonthKwh: 196,
+        generationYearKwh: 3121,
+        generationTotalKwh: 3157,
+        generationPowerKw: 1.226,
+        hasBattery: null,
+        powerType: 'PV',
+        powerMode: null,
+        timezone: null,
+        lastUpdateTime: 'not-a-provider-date',
+        raw: {},
+      },
+      true,
+    );
+
+    assert.equal(createData?.latestMonitorAt, null);
+    assert.equal(createData?.currentGenerationPowerKw, 1.226);
   });
 
   it('re-authenticates official OpenAPI once after an auth failure', async () => {

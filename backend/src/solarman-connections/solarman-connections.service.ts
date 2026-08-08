@@ -28,6 +28,7 @@ import {
   ParsedSolarmanMonthlyHistory,
   ParsedSolarmanMonthlyRecord,
   ParsedSolarmanStation,
+  toDateTimeValue,
 } from './solarman.parser';
 import {
   SolarmanPersistedSession,
@@ -43,6 +44,11 @@ import {
 
 type SolarmanConnectionWithRelations = any;
 type SolarSystemRecord = any;
+
+function parseSolarmanDate(value: unknown): Date | null {
+  const normalized = toDateTimeValue(value);
+  return normalized ? new Date(normalized) : null;
+}
 
 @Injectable()
 export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy {
@@ -894,9 +900,8 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         totalGenerationKwh: selectedStation.generationTotalKwh ?? system.totalGenerationKwh,
         currentGenerationPowerKw:
           selectedStation.generationPowerKw ?? system.currentGenerationPowerKw,
-        latestMonitorAt: selectedStation.lastUpdateTime
-          ? new Date(selectedStation.lastUpdateTime)
-          : system.latestMonitorAt,
+        latestMonitorAt:
+          parseSolarmanDate(selectedStation.lastUpdateTime) ?? system.latestMonitorAt,
       },
     });
 
@@ -933,7 +938,7 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
     });
 
     const nextCapacity = station.installedCapacityKw ?? 0;
-    const latestMonitorAt = station.lastUpdateTime ? new Date(station.lastUpdateTime) : null;
+    const latestMonitorAt = parseSolarmanDate(station.lastUpdateTime);
 
     if (existing) {
       return this.prisma.solarSystem.update({

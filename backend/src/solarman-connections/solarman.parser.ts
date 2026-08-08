@@ -115,6 +115,31 @@ export function toNumberValue(value: unknown) {
   return null;
 }
 
+export function toDateTimeValue(value: unknown): string | null {
+  if (value === null || value === undefined || value === '') {
+    return null;
+  }
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : value.toISOString();
+  }
+
+  const normalized = typeof value === 'string' ? value.trim() : value;
+  if (normalized === '') {
+    return null;
+  }
+
+  const numeric = typeof normalized === 'number' ? normalized : Number(normalized);
+  if (Number.isFinite(numeric)) {
+    const milliseconds = Math.abs(numeric) >= 1e12 ? numeric : numeric * 1000;
+    const date = new Date(milliseconds);
+    return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  }
+
+  const date = new Date(String(normalized));
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
 export function findFirstList(data: SolarmanRecord) {
   const record = asRecord(data.data);
   const candidates = [
@@ -156,6 +181,17 @@ function pickFirstNumber(source: SolarmanRecord, keys: string[]) {
   for (const key of keys) {
     const value = toNumberValue(source[key]);
     if (value !== null) {
+      return value;
+    }
+  }
+
+  return null;
+}
+
+function pickFirstDateTime(source: SolarmanRecord, keys: string[]) {
+  for (const key of keys) {
+    const value = toDateTimeValue(source[key]);
+    if (value) {
       return value;
     }
   }
@@ -277,6 +313,12 @@ export function parseStationList(data: SolarmanRecord): ParsedSolarmanStation[] 
         return null;
       }
 
+      const explicitGenerationPowerKw = pickFirstNumber(item, [
+        'generationPowerKw',
+        'currentPowerKw',
+      ]);
+      const generationPowerW = pickFirstNumber(item, ['generationPower', 'currentPower']);
+
       return {
         stationId,
         stationName: pickFirstString(item, ['name', 'stationName']),
@@ -285,7 +327,9 @@ export function parseStationList(data: SolarmanRecord): ParsedSolarmanStation[] 
         generationMonthKwh: pickFirstNumber(item, ['generationMonth', 'todayPowerGeneration']),
         generationYearKwh: pickFirstNumber(item, ['generationYear', 'yearPowerGeneration']),
         generationTotalKwh: pickFirstNumber(item, ['generationTotal', 'totalPowerGeneration']),
-        generationPowerKw: pickFirstNumber(item, ['generationPower', 'currentPower']),
+        generationPowerKw:
+          explicitGenerationPowerKw ??
+          (generationPowerW === null ? null : generationPowerW / 1000),
         hasBattery:
           item.hasBattery === undefined || item.hasBattery === null
             ? null
@@ -293,7 +337,7 @@ export function parseStationList(data: SolarmanRecord): ParsedSolarmanStation[] 
         powerType: pickFirstString(item, ['powerType']),
         powerMode: pickFirstString(item, ['powerMode']),
         timezone: pickFirstString(item, ['timezone', 'timeZone']),
-        lastUpdateTime: pickFirstString(item, ['lastUpdateTime', 'updateTime']),
+        lastUpdateTime: pickFirstDateTime(item, ['lastUpdateTime', 'updateTime']),
         raw: item,
       };
     })

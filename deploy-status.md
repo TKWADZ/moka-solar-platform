@@ -1,5 +1,21 @@
 # Deploy Status
 
+## SOLARMAN station timestamp/power hotfix (local only)
+
+- latest task: Fix `AUTHORIZE_WEB_OAUTH` system creation failure caused by a Unix-seconds `lastUpdateTime`
+- root cause: Station parsing converted the numeric epoch to a plain string, then `new Date('1786171604')` produced an invalid `Date` that Prisma rejected
+- local fix: Normalize provider timestamps from epoch seconds, epoch milliseconds, ISO strings, or `Date`; invalid values now become `null` and never reach Prisma as `Invalid Date`
+- power correction: Verified SOLARMAN `generationPower`/`currentPower` values are converted from W to kW; explicit `generationPowerKw`/`currentPowerKw` values remain unchanged
+- focused test status: Passed 21/21 SOLARMAN provider/OAuth tests
+- full test status: Passed 79/79 backend unit/regression tests
+- typecheck/build status: Backend typecheck and production build passed; frontend production build passed with 51 routes
+- secret scan status: Passed changed-tree scan; no token, authorization value, cookie, password, address, phone, or private key added
+- database change: None; no migration required
+- approval requested or not: Yes
+- approved or not: No
+- deployed or not: No
+- rollback target if needed: `bff1760d2146e05ca36ed5f6f1bf51b0710122af`
+
 ## SOLARMAN advisory-lock hotfix (deployed)
 
 - latest task: Fix Prisma runtime failure when PostgreSQL `pg_advisory_xact_lock` returns the unsupported `void` type
