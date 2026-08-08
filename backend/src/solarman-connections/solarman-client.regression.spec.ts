@@ -115,22 +115,25 @@ describe('SOLARMAN provider regression', () => {
   });
 
   it('maps verified SOLARMAN history fields and drops rows without PV production', () => {
-    const monthly = parseMonthlyGeneration({
-      statistics: { systemId: 'fixture-station', year: 2026 },
-      records: [
-        {
-          year: 2026,
-          month: 1,
-          generationValue: 123.4,
-          useValue: 234.5,
-          buyValue: 45.6,
-          gridValue: 34.5,
-          chargeValue: 12.3,
-          dischargeValue: 11.2,
-        },
-        { year: 2026, month: 2, useValue: 999 },
-      ],
-    });
+    const monthly = parseMonthlyGeneration(
+      {
+        statistics: { systemId: 'fixture-station', year: 2026 },
+        records: [
+          {
+            year: 2026,
+            month: 1,
+            generationValue: 123.4,
+            useValue: 234.5,
+            buyValue: 45.6,
+            gridValue: 34.5,
+            chargeValue: 12.3,
+            dischargeValue: 11.2,
+          },
+          { year: 2026, month: 2, useValue: 999 },
+        ],
+      },
+      { expectedStationId: 'fixture-station', expectedYear: 2026 },
+    );
     const daily = parseDailyGeneration({
       statistics: { systemId: 'fixture-station', year: 2026, month: 1 },
       records: [

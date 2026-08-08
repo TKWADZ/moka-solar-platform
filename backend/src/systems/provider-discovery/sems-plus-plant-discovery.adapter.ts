@@ -28,6 +28,9 @@ export class SemsPlusPlantDiscoveryAdapter implements ProviderPlantDiscoveryAdap
       message: available
         ? 'Discovery uses the current read-only GoodWe SEMS+ plant list and detail contract.'
         : 'Configure SEMS+ credentials on the backend to enable account discovery.',
+      historicalDataCapability: 'UNVERIFIED' as const,
+      monthlyHistoryAvailable: false,
+      historyMessage: 'SEMS+ chưa có dữ liệu lịch sử tháng được xác minh.',
       ...(available ? {} : { missingRequirements: MISSING_CONFIGURATION }),
     };
   }

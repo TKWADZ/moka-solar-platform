@@ -252,6 +252,11 @@ export function ProviderSystemImportCenter({ onChanged, onStartManual }: ImportC
                       Cần bổ sung: {capability.missingRequirements.join(' • ')}
                     </p>
                   ) : null}
+                  {capability.historicalDataCapability === 'UNVERIFIED' ? (
+                    <div className="mt-3 rounded-[14px] border border-amber-200/20 bg-amber-100/8 px-3 py-2 text-xs text-amber-50">
+                      {capability.historyMessage || 'Lịch sử tháng của provider này chưa được xác minh.'}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
 

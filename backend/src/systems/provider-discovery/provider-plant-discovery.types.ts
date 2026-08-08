@@ -13,6 +13,9 @@ export type ProviderDiscoveryCapability = {
   import: 'AVAILABLE' | 'MANUAL_BINDING_ONLY' | 'UNAVAILABLE';
   message: string;
   missingRequirements?: string[];
+  historicalDataCapability?: 'VERIFIED' | 'UNVERIFIED' | 'UNAVAILABLE';
+  monthlyHistoryAvailable?: boolean;
+  historyMessage?: string;
 };
 
 export type ProviderDiscoveryConnection = {

@@ -88,6 +88,7 @@ type SolarmanRequestOptions = {
   mode?: SolarmanMode;
   persistedSession?: SolarmanPersistedSession | null;
   forceRelogin?: boolean;
+  timezone?: string | null;
 };
 
 @Injectable()
@@ -367,8 +368,12 @@ export class SolarmanClientService {
               options,
             );
 
-            const parsed = parseMonthlyGeneration(response.body);
-            if (parsed && parsed.records.length) {
+            const parsed = parseMonthlyGeneration(response.body, {
+              expectedStationId: stationId,
+              expectedYear: year,
+              timezone: options.timezone,
+            });
+            if (parsed.records.length) {
               return {
                 mode,
                 session: response.session,
@@ -376,6 +381,12 @@ export class SolarmanClientService {
                 raw: response.body,
               };
             }
+            lastError = new BadGatewayException({
+              message: 'SOLARMAN monthly history did not contain a verified period.',
+              code: parsed.dataQualityStatus,
+              rejectedRecordCount: parsed.rejectedRecordCount,
+              rejectionReasons: parsed.rejectionReasons,
+            });
           } catch (error) {
             if (this.isAuthRequired(error)) {
               throw error;
@@ -402,8 +413,12 @@ export class SolarmanClientService {
               options,
             );
 
-            const parsed = parseMonthlyGeneration(response.body);
-            if (parsed && parsed.records.length) {
+            const parsed = parseMonthlyGeneration(response.body, {
+              expectedStationId: stationId,
+              expectedYear: year,
+              timezone: options.timezone,
+            });
+            if (parsed.records.length) {
               return {
                 mode,
                 session: response.session,
@@ -411,6 +426,12 @@ export class SolarmanClientService {
                 raw: response.body,
               };
             }
+            lastError = new BadGatewayException({
+              message: 'SOLARMAN monthly history did not contain a verified period.',
+              code: parsed.dataQualityStatus,
+              rejectedRecordCount: parsed.rejectedRecordCount,
+              rejectionReasons: parsed.rejectionReasons,
+            });
           } catch (error) {
             if (this.isAuthRequired(error)) {
               throw error;

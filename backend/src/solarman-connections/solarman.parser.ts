@@ -58,7 +58,36 @@ export type ParsedSolarmanMonthlyHistory = {
   year: number;
   totalGenerationKwh: number;
   records: ParsedSolarmanMonthlyRecord[];
+  rejectedRecordCount: number;
+  rejectionReasons: Array<{
+    reason: SolarmanHistoryRejectionReason;
+    count: number;
+  }>;
+  dataQualityStatus: SolarmanHistoryDataQualityStatus;
   raw: SolarmanRecord;
+};
+
+export type SolarmanHistoryRejectionReason =
+  | 'INVALID_MONTH'
+  | 'INVALID_YEAR'
+  | 'YEAR_MISMATCH'
+  | 'MISSING_PV_VALUE'
+  | 'INVALID_PV_VALUE'
+  | 'STATION_MISMATCH'
+  | 'UNRECOGNIZED_PERIOD';
+
+export type SolarmanHistoryDataQualityStatus =
+  | 'VERIFIED_HISTORY'
+  | 'REQUIRES_REVIEW'
+  | 'INVALID_HISTORY_PERIOD'
+  | 'SCHEMA_CHANGED';
+
+export type SolarmanMonthlyParseContext = {
+  expectedStationId: string;
+  expectedYear: number;
+  timezone?: string | null;
+  minYear?: number;
+  maxYear?: number;
 };
 
 export type ParsedSolarmanDailyRecord = ParsedSolarmanAggregateMetrics & {
@@ -129,15 +158,8 @@ export function toDateTimeValue(value: unknown): string | null {
     return null;
   }
 
-  const numeric = typeof normalized === 'number' ? normalized : Number(normalized);
-  if (Number.isFinite(numeric)) {
-    const milliseconds = Math.abs(numeric) >= 1e12 ? numeric : numeric * 1000;
-    const date = new Date(milliseconds);
-    return Number.isNaN(date.getTime()) ? null : date.toISOString();
-  }
-
-  const date = new Date(String(normalized));
-  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+  const date = parseStrictDateValue(normalized, true);
+  return !date || Number.isNaN(date.getTime()) ? null : date.toISOString();
 }
 
 export function findFirstList(data: SolarmanRecord) {
@@ -199,8 +221,41 @@ function pickFirstDateTime(source: SolarmanRecord, keys: string[]) {
   return null;
 }
 
-function tryParseIsoDate(value: string | null) {
-  if (!value) {
+function buildUtcDate(year: number, month: number, day: number) {
+  if (
+    !Number.isInteger(year) ||
+    !Number.isInteger(month) ||
+    !Number.isInteger(day) ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31
+  ) {
+    return null;
+  }
+
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year &&
+    date.getUTCMonth() + 1 === month &&
+    date.getUTCDate() === day
+    ? date
+    : null;
+}
+
+function parseStrictDateValue(value: unknown, allowDayFirst = false): Date | null {
+  if (typeof value === 'number') {
+    if (!Number.isInteger(value)) {
+      return null;
+    }
+    const digits = String(Math.abs(value)).length;
+    if (digits !== 10 && digits !== 13) {
+      return null;
+    }
+    const date = new Date(digits === 10 ? value * 1000 : value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  if (typeof value !== 'string') {
     return null;
   }
 
@@ -209,25 +264,35 @@ function tryParseIsoDate(value: string | null) {
     return null;
   }
 
-  const direct = new Date(normalized);
-  if (!Number.isNaN(direct.getTime())) {
-    return direct;
+  if (/^\d{10}$/.test(normalized) || /^\d{13}$/.test(normalized)) {
+    const numeric = Number(normalized);
+    const date = new Date(normalized.length === 10 ? numeric * 1000 : numeric);
+    return Number.isNaN(date.getTime()) ? null : date;
   }
 
-  const slashMatch = normalized.match(/^(\d{1,4})[/-](\d{1,2})[/-](\d{1,4})$/);
-  if (!slashMatch) {
-    return null;
+  const dateOnly = normalized.match(/^(\d{4})[-/](\d{2})[-/](\d{2})$/);
+  if (dateOnly) {
+    return buildUtcDate(Number(dateOnly[1]), Number(dateOnly[2]), Number(dateOnly[3]));
   }
 
-  const left = Number(slashMatch[1]);
-  const middle = Number(slashMatch[2]);
-  const right = Number(slashMatch[3]);
-
-  if (slashMatch[1].length === 4) {
-    return new Date(Date.UTC(left, middle - 1, right));
+  if (allowDayFirst) {
+    const dayFirst = normalized.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (dayFirst) {
+      return buildUtcDate(Number(dayFirst[3]), Number(dayFirst[2]), Number(dayFirst[1]));
+    }
   }
 
-  return new Date(Date.UTC(right, middle - 1, left));
+  // Date.parse is only used after the input has matched an explicit ISO datetime shape.
+  if (
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,9})?)?(?:Z|[+-]\d{2}:\d{2})?$/.test(
+      normalized,
+    )
+  ) {
+    const timestamp = Date.parse(normalized);
+    return Number.isNaN(timestamp) ? null : new Date(timestamp);
+  }
+
+  return null;
 }
 
 function buildRecordDate(
@@ -235,8 +300,9 @@ function buildRecordDate(
   fallbackYear?: number | null,
   fallbackMonth?: number | null,
 ) {
-  const directDate = tryParseIsoDate(
+  const directDate = parseStrictDateValue(
     pickFirstString(source, ['recordDate', 'date', 'time', 'collectTime', 'ts', 'day']),
+    true,
   );
   if (directDate) {
     return directDate;
@@ -250,13 +316,15 @@ function buildRecordDate(
     return null;
   }
 
-  return new Date(Date.UTC(year, month - 1, day));
+  return buildUtcDate(year, month, day);
 }
 
-function parseAggregateMetrics(row: SolarmanRecord): ParsedSolarmanAggregateMetrics {
+function parseAggregateMetrics(
+  row: SolarmanRecord,
+  pvGenerationKwh: number,
+): ParsedSolarmanAggregateMetrics {
   return {
-    pvGenerationKwh:
-      pickFirstNumber(row, PV_GENERATION_KEYS) ?? 0,
+    pvGenerationKwh,
     loadConsumedKwh: pickFirstNumber(row, [
       'useValue',
       'consumptionValue',
@@ -372,7 +440,194 @@ export function parseDeviceList(data: SolarmanRecord): ParsedSolarmanDevice[] {
     .filter((item): item is ParsedSolarmanDevice => Boolean(item));
 }
 
-export function parseMonthlyGeneration(data: SolarmanRecord): ParsedSolarmanMonthlyHistory | null {
+function parseIntegerValue(value: unknown) {
+  if (typeof value === 'number') {
+    return Number.isInteger(value) ? value : null;
+  }
+
+  if (typeof value === 'string' && /^\d+$/.test(value.trim())) {
+    const parsed = Number(value.trim());
+    return Number.isSafeInteger(parsed) ? parsed : null;
+  }
+
+  return null;
+}
+
+function pickFirstPresent(source: SolarmanRecord, keys: string[]) {
+  for (const key of keys) {
+    if (Object.prototype.hasOwnProperty.call(source, key)) {
+      const value = source[key];
+      if (value !== null && value !== undefined && value !== '') {
+        return value;
+      }
+    }
+  }
+  return null;
+}
+
+function readPvGeneration(row: SolarmanRecord):
+  | { value: number; reason: null }
+  | { value: null; reason: 'MISSING_PV_VALUE' | 'INVALID_PV_VALUE' } {
+  const rawValue = pickFirstPresent(row, PV_GENERATION_KEYS);
+  if (rawValue === null) {
+    return { value: null, reason: 'MISSING_PV_VALUE' };
+  }
+
+  const value = toNumberValue(rawValue);
+  if (value === null || !Number.isFinite(value) || value < 0) {
+    return { value: null, reason: 'INVALID_PV_VALUE' };
+  }
+
+  return { value, reason: null };
+}
+
+function resolveMonthlyPeriod(
+  row: SolarmanRecord,
+  context: Required<Pick<SolarmanMonthlyParseContext, 'expectedYear' | 'minYear' | 'maxYear'>> & {
+    timezone?: string | null;
+  },
+): { year: number; month: number; reason: null } | { year: null; month: null; reason: SolarmanHistoryRejectionReason } {
+  const rawYear = pickFirstPresent(row, ['year']);
+  const explicitYear = rawYear === null ? null : parseIntegerValue(rawYear);
+  if (rawYear !== null && explicitYear === null) {
+    return { year: null, month: null, reason: 'INVALID_YEAR' };
+  }
+  if (
+    explicitYear !== null &&
+    (explicitYear < context.minYear || explicitYear > context.maxYear)
+  ) {
+    return { year: null, month: null, reason: 'INVALID_YEAR' };
+  }
+  if (explicitYear !== null && explicitYear !== context.expectedYear) {
+    return { year: null, month: null, reason: 'YEAR_MISMATCH' };
+  }
+
+  const rawMonth = pickFirstPresent(row, ['month']);
+  const explicitMonth = rawMonth === null ? null : parseIntegerValue(rawMonth);
+  if (rawMonth !== null && (explicitMonth === null || explicitMonth < 1 || explicitMonth > 12)) {
+    return { year: null, month: null, reason: 'INVALID_MONTH' };
+  }
+
+  if (explicitYear !== null && explicitMonth !== null) {
+    return { year: explicitYear, month: explicitMonth, reason: null };
+  }
+
+  const periodValue = pickFirstPresent(row, [
+    'period',
+    'monthLabel',
+    'time',
+    'recordDate',
+    'date',
+    'collectTime',
+    'ts',
+  ]);
+  const periodText =
+    typeof periodValue === 'string' || typeof periodValue === 'number'
+      ? String(periodValue).trim()
+      : '';
+
+  const yearMonth = periodText.match(/^(\d{4})[-/](\d{1,2})$/);
+  if (yearMonth) {
+    const year = Number(yearMonth[1]);
+    const month = Number(yearMonth[2]);
+    if (year < context.minYear || year > context.maxYear) {
+      return { year: null, month: null, reason: 'INVALID_YEAR' };
+    }
+    if (year !== context.expectedYear) {
+      return { year: null, month: null, reason: 'YEAR_MISMATCH' };
+    }
+    if (!Number.isInteger(month) || month < 1 || month > 12) {
+      return { year: null, month: null, reason: 'INVALID_MONTH' };
+    }
+    return { year, month, reason: null };
+  }
+
+  const numericMonth = explicitMonth ?? parseIntegerValue(periodValue);
+  if (numericMonth !== null && numericMonth >= 1 && numericMonth <= 12) {
+    return { year: context.expectedYear, month: numericMonth, reason: null };
+  }
+
+  const explicitDateOnly = periodText.match(/^(\d{4})[-/](\d{2})[-/](\d{2})$/);
+  if (explicitDateOnly) {
+    const year = Number(explicitDateOnly[1]);
+    const month = Number(explicitDateOnly[2]);
+    if (year < context.minYear || year > context.maxYear) {
+      return { year: null, month: null, reason: 'INVALID_YEAR' };
+    }
+    if (year !== context.expectedYear) {
+      return { year: null, month: null, reason: 'YEAR_MISMATCH' };
+    }
+    if (month < 1 || month > 12) {
+      return { year: null, month: null, reason: 'INVALID_MONTH' };
+    }
+    if (!parseStrictDateValue(periodValue, true)) {
+      return { year: null, month: null, reason: 'UNRECOGNIZED_PERIOD' };
+    }
+    return { year, month, reason: null };
+  }
+
+  const fullDate = parseStrictDateValue(periodValue, true);
+  if (fullDate) {
+    let year = fullDate.getUTCFullYear();
+    let month = fullDate.getUTCMonth() + 1;
+    if (context.timezone) {
+      try {
+        const parts = new Intl.DateTimeFormat('en-CA', {
+          timeZone: context.timezone,
+          year: 'numeric',
+          month: '2-digit',
+        }).formatToParts(fullDate);
+        year = Number(parts.find((part) => part.type === 'year')?.value || year);
+        month = Number(parts.find((part) => part.type === 'month')?.value || month);
+      } catch {
+        return { year: null, month: null, reason: 'UNRECOGNIZED_PERIOD' };
+      }
+    }
+    if (year < context.minYear || year > context.maxYear) {
+      return { year: null, month: null, reason: 'INVALID_YEAR' };
+    }
+    if (year !== context.expectedYear) {
+      return { year: null, month: null, reason: 'YEAR_MISMATCH' };
+    }
+    return { year, month, reason: null };
+  }
+
+  if (numericMonth !== null) {
+    return { year: null, month: null, reason: 'INVALID_MONTH' };
+  }
+
+  return { year: null, month: null, reason: 'UNRECOGNIZED_PERIOD' };
+}
+
+function summarizeRejections(reasons: SolarmanHistoryRejectionReason[]) {
+  const counts = new Map<SolarmanHistoryRejectionReason, number>();
+  for (const reason of reasons) {
+    counts.set(reason, (counts.get(reason) || 0) + 1);
+  }
+  return Array.from(counts, ([reason, count]) => ({ reason, count }));
+}
+
+function resolveMonthlyDataQuality(
+  validCount: number,
+  reasons: SolarmanHistoryRejectionReason[],
+): SolarmanHistoryDataQualityStatus {
+  if (validCount > 0 && reasons.length === 0) {
+    return 'VERIFIED_HISTORY';
+  }
+  if (validCount > 0) {
+    return 'REQUIRES_REVIEW';
+  }
+  return reasons.some((reason) =>
+    ['INVALID_MONTH', 'INVALID_YEAR', 'YEAR_MISMATCH', 'UNRECOGNIZED_PERIOD'].includes(reason),
+  )
+    ? 'INVALID_HISTORY_PERIOD'
+    : 'SCHEMA_CHANGED';
+}
+
+export function parseMonthlyGeneration(
+  data: SolarmanRecord,
+  context: SolarmanMonthlyParseContext,
+): ParsedSolarmanMonthlyHistory {
   const root = asRecord(data);
   const dataRecord = asRecord(root.data);
   const statistics = asRecord(root.statistics);
@@ -384,64 +639,83 @@ export function parseMonthlyGeneration(data: SolarmanRecord): ParsedSolarmanMont
       ? dataRecord.records
       : findFirstList(root);
 
-  const systemId =
+  const payloadSystemId =
     pickFirstString(monthlyStats, ['systemId', 'stationId']) ||
     pickFirstString(dataRecord, ['systemId', 'stationId']) ||
     pickFirstString(root, ['systemId', 'stationId']);
+  const minYear = context.minYear ?? 2000;
+  const maxYear = context.maxYear ?? new Date().getUTCFullYear() + 1;
+  const reasons: SolarmanHistoryRejectionReason[] = [];
+  const records: ParsedSolarmanMonthlyRecord[] = [];
+  const rootYear =
+    pickFirstPresent(monthlyStats, ['year']) ??
+    pickFirstPresent(dataRecord, ['year']) ??
+    pickFirstPresent(root, ['year']);
+  const parsedRootYear = rootYear === null ? null : parseIntegerValue(rootYear);
+  const rootYearReason =
+    rootYear !== null && parsedRootYear === null
+      ? 'INVALID_YEAR'
+      : parsedRootYear !== null && (parsedRootYear < minYear || parsedRootYear > maxYear)
+        ? 'INVALID_YEAR'
+        : parsedRootYear !== null && parsedRootYear !== context.expectedYear
+          ? 'YEAR_MISMATCH'
+          : null;
+  const rootStationMismatch = Boolean(
+    payloadSystemId && payloadSystemId !== context.expectedStationId,
+  );
 
-  const defaultYear =
-    pickFirstNumber(monthlyStats, ['year']) ??
-    pickFirstNumber(dataRecord, ['year']) ??
-    pickFirstNumber(root, ['year']);
+  for (const item of rawRecords) {
+    const row = asRecord(item);
+    const rowStationId = pickFirstString(row, ['systemId', 'stationId']);
+    if (rootStationMismatch || (rowStationId && rowStationId !== context.expectedStationId)) {
+      reasons.push('STATION_MISMATCH');
+      continue;
+    }
+    if (rootYearReason) {
+      reasons.push(rootYearReason);
+      continue;
+    }
 
-  if (!systemId) {
-    return null;
+    const pv = readPvGeneration(row);
+    if (pv.reason || pv.value === null) {
+      reasons.push(pv.reason || 'INVALID_PV_VALUE');
+      continue;
+    }
+
+    const period = resolveMonthlyPeriod(row, {
+      expectedYear: context.expectedYear,
+      minYear,
+      maxYear,
+      timezone: context.timezone,
+    });
+    if (period.reason || period.year === null || period.month === null) {
+      reasons.push(period.reason || 'UNRECOGNIZED_PERIOD');
+      continue;
+    }
+
+    records.push({
+      systemId: context.expectedStationId,
+      year: period.year,
+      month: period.month,
+      ...parseAggregateMetrics(row, pv.value),
+      raw: row,
+    });
   }
 
-  const records = rawRecords
-    .map((item) => {
-      const row = asRecord(item);
-      if (pickFirstNumber(row, PV_GENERATION_KEYS) === null) {
-        return null;
-      }
-      const recordDate = buildRecordDate(row);
-      const month = pickFirstNumber(row, ['month']) ?? (recordDate ? recordDate.getUTCMonth() + 1 : null);
-      const rowYear =
-        pickFirstNumber(row, ['year']) ??
-        (recordDate ? recordDate.getUTCFullYear() : null) ??
-        defaultYear;
-
-      if (!month || !rowYear) {
-        return null;
-      }
-
-      return {
-        systemId:
-          pickFirstString(row, ['systemId', 'stationId']) || systemId,
-        year: rowYear,
-        month,
-        ...parseAggregateMetrics(row),
-        raw: row,
-      };
-    })
-    .filter((item): item is ParsedSolarmanMonthlyRecord => Boolean(item))
-    .sort((left, right) => left.month - right.month);
-
-  const year = defaultYear ?? records[0]?.year ?? null;
-  if (!year || !records.length) {
-    return null;
-  }
-
-  const totalGenerationKwh =
-    pickFirstNumber(monthlyStats, ['generationValue', 'generationTotal']) ??
-    pickFirstNumber(dataRecord, ['generationValue', 'generationTotal']) ??
-    records.reduce((sum, record) => sum + record.pvGenerationKwh, 0);
+  records.sort((left, right) => left.month - right.month);
+  const totalGenerationKwh = records.reduce(
+    (sum, record) => sum + record.pvGenerationKwh,
+    0,
+  );
 
   return {
-    systemId,
-    year,
+    systemId: context.expectedStationId,
+    year: context.expectedYear,
     totalGenerationKwh,
     records,
+    rejectedRecordCount: reasons.length,
+    rejectionReasons: summarizeRejections(reasons),
+    dataQualityStatus: resolveMonthlyDataQuality(records.length, reasons),
     raw: root,
   };
 }
@@ -481,7 +755,8 @@ export function parseDailyGeneration(data: SolarmanRecord): ParsedSolarmanDailyH
   const records = rawRecords
     .map((item) => {
       const row = asRecord(item);
-      if (pickFirstNumber(row, PV_GENERATION_KEYS) === null) {
+      const pv = readPvGeneration(row);
+      if (pv.value === null) {
         return null;
       }
       const recordDate = buildRecordDate(row, defaultYear, defaultMonth);
@@ -496,7 +771,7 @@ export function parseDailyGeneration(data: SolarmanRecord): ParsedSolarmanDailyH
         month: recordDate.getUTCMonth() + 1,
         day: recordDate.getUTCDate(),
         recordDate: recordDate.toISOString().slice(0, 10),
-        ...parseAggregateMetrics(row),
+        ...parseAggregateMetrics(row, pv.value),
         raw: row,
       };
     })

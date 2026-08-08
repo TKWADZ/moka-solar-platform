@@ -77,6 +77,7 @@ export class SolarmanOfficialOpenApiProvider implements SolarmanProvider {
         ...options,
         mode: 'official',
         persistedSession: dailyHistory.session,
+        timezone: station.timezone,
       },
     );
 

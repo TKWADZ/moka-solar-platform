@@ -4,6 +4,7 @@ import { DeyePlantDiscoveryAdapter } from './deye-plant-discovery.adapter';
 import { MonthlyPvBillingsService } from '../../monthly-pv-billings/monthly-pv-billings.service';
 import { ProviderPlantDiscoveryService } from './provider-plant-discovery.service';
 import { DiscoveredPlant } from './provider-plant-discovery.types';
+import { SemsPlusPlantDiscoveryAdapter } from './sems-plus-plant-discovery.adapter';
 import { SystemsService } from '../systems.service';
 
 function plant(id: string, overrides: Partial<DiscoveredPlant> = {}): DiscoveredPlant {
@@ -485,6 +486,66 @@ describe('provider plant discovery/import', () => {
     );
   });
 
+  it('blocks unverified provider history before monthly billing touches the database', async () => {
+    let databaseTouched = false;
+    const billingService = new MonthlyPvBillingsService(
+      {
+        solarSystem: {
+          findFirst: async () => {
+            databaseTouched = true;
+            return null;
+          },
+        },
+      } as any,
+      {} as any,
+      {} as any,
+    );
+
+    await assert.rejects(
+      () =>
+        billingService.sync('system-1', {
+          month: 8,
+          year: 2026,
+          pvGenerationKwh: 100,
+          source: 'SOLARMAN_MONTHLY',
+        }),
+      (error: any) => {
+        assert.equal(error?.response?.code, 'PROVIDER_HISTORY_BILLING_BLOCKED');
+        assert.deepEqual(error?.response?.reasons, ['HISTORY_CONTRACT_UNVERIFIED']);
+        return true;
+      },
+    );
+    assert.equal(databaseTouched, false);
+  });
+
+  it('reports SEMS+ monthly history as unverified without creating history rows', () => {
+    const adapter = new SemsPlusPlantDiscoveryAdapter({
+      hasConfiguredCredentials: () => true,
+    } as any);
+
+    assert.equal(adapter.capability.historicalDataCapability, 'UNVERIFIED');
+    assert.equal(adapter.capability.monthlyHistoryAvailable, false);
+    assert.equal(
+      adapter.capability.historyMessage,
+      'SEMS+ chưa có dữ liệu lịch sử tháng được xác minh.',
+    );
+  });
+
+  it('does not classify unverified SEMS+ history as stable auto-billing data', () => {
+    const billingService = new MonthlyPvBillingsService(
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+
+    assert.equal(
+      (billingService as any).isStableAutoBillingProvider('SEMS_PORTAL'),
+      false,
+    );
+    assert.equal((billingService as any).isStableAutoBillingProvider('DEYE'), true);
+    assert.equal((billingService as any).isStableAutoBillingProvider('LUXPOWER'), true);
+  });
+
   it('returns connection summaries without credential fields', async () => {
     const { service } = serviceWith([]);
     const result = await service.listConnections();
@@ -527,12 +588,24 @@ describe('provider plant discovery/import', () => {
           externalPayload: { cookie: 'must-not-leak' },
         },
       ],
+      monthlyEnergyRecords: [
+        {
+          id: 'monthly-1',
+          source: 'SOLARMAN_DAILY_AGGREGATE',
+          year: 2000,
+          month: 12,
+          rawPayload: { time: '12', privateProviderField: 'must-not-leak' },
+          pvGenerationKwh: 1,
+        },
+      ],
     });
 
     assert.equal('externalPayload' in serialized, false);
     assert.equal('externalPayload' in serialized.devices[0], false);
     assert.equal('passwordHash' in serialized.customer.user, false);
     assert.equal('refreshToken' in serialized.customer.user, false);
+    assert.equal('rawPayload' in serialized.monthlyEnergyRecords[0], false);
+    assert.equal(serialized.monthlyEnergyRecords[0].dataQualityStatus, 'INVALID_PERIOD');
   });
 
   it('keeps provider-owned identity and installed capacity unchanged during Moka edits', async () => {

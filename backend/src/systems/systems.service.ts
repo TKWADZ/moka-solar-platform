@@ -6,6 +6,7 @@ import { ReportSystemDashboardPresenceDto } from './dto/report-system-dashboard-
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { generateCode } from '../common/helpers/domain.helper';
 import { normalizePercentRate } from '../common/helpers/billing.helper';
+import { describeMonthlyEnergyDataQuality } from '../common/config/provider-history-billing';
 import { DeyeHistorySyncService } from '../deye-connections/deye-history-sync.service';
 import { DeyeStationSyncService } from '../deye-connections/deye-station-sync.service';
 import { DeyeTelemetrySyncService } from '../deye-connections/deye-telemetry-sync.service';
@@ -587,6 +588,10 @@ export class SystemsService {
     const binding = this.buildMonitorBinding(system);
     const publicSystem = { ...system };
     delete publicSystem.externalPayload;
+    const historyProvider = String(
+      system.sourceSystem || system.monitoringProvider || '',
+    ).trim().toUpperCase();
+    const semsHistoryUnverified = historyProvider === 'SEMS_PORTAL' || historyProvider === 'SEMS_PLUS';
 
     const customer = system.customer
       ? {
@@ -612,6 +617,12 @@ export class SystemsService {
     return {
       ...publicSystem,
       customer,
+      historicalDataCapability: semsHistoryUnverified ? 'UNVERIFIED' : 'VERIFIED',
+      monthlyHistoryAvailable:
+        !semsHistoryUnverified && Boolean(system.monthlyEnergyRecords?.length),
+      historyCapabilityMessage: semsHistoryUnverified
+        ? 'SEMS+ chưa có dữ liệu lịch sử tháng được xác minh.'
+        : null,
       capacityKwp: Number(system.capacityKwp || 0),
       installedCapacityKwp:
         system.installedCapacityKwp !== null && system.installedCapacityKwp !== undefined
@@ -684,17 +695,22 @@ export class SystemsService {
               : null,
           latestTelemetryAt: system.lastRealtimeSyncAt || system.latestMonitorAt || null,
         }) || system.status,
-          monthlyEnergyRecords:
-            system.monthlyEnergyRecords?.map((record: any) => ({
-          ...record,
-          pvGenerationKwh: Number(record.pvGenerationKwh || 0),
-          unitPrice: Number(record.unitPrice || 0),
-          vatRate: Number(record.vatRate || 0),
-          subtotalAmount: Number(record.subtotalAmount || 0),
-          taxAmount: Number(record.taxAmount || 0),
-          discountAmount: Number(record.discountAmount || 0),
-          totalAmount: Number(record.totalAmount || 0),
-        })) || [],
+      monthlyEnergyRecords:
+        system.monthlyEnergyRecords?.map((record: any) => {
+          const publicRecord = { ...record };
+          delete publicRecord.rawPayload;
+          return {
+            ...publicRecord,
+            ...describeMonthlyEnergyDataQuality(record),
+            pvGenerationKwh: Number(record.pvGenerationKwh || 0),
+            unitPrice: Number(record.unitPrice || 0),
+            vatRate: Number(record.vatRate || 0),
+            subtotalAmount: Number(record.subtotalAmount || 0),
+            taxAmount: Number(record.taxAmount || 0),
+            discountAmount: Number(record.discountAmount || 0),
+            totalAmount: Number(record.totalAmount || 0),
+          };
+        }) || [],
       energyRecords:
         system.energyRecords?.map((record: any) => ({
           ...record,

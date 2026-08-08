@@ -1,5 +1,30 @@
 # Deploy Status
 
+## Provider monthly-history integrity repair (local only, awaiting review)
+
+- latest task: Prevent malformed SOLARMAN month labels from creating false historical energy/billing periods and prepare a reversible quarantine workflow
+- branch / base HEAD: `fix/sems-plus-live-discovery` / `cceef75c28873e05d87609476a4ed9b5b54954eb`
+- confirmed root cause: Bare month labels were passed to implementation-dependent JavaScript date parsing; strict parsing now uses caller-supplied station, expected year and timezone context
+- production UI read-only audit: The target system currently shows 5 authoritative `CSV_IMPORT` periods (`12/2025` through `04/2026`) and 12 suspicious `SOLARMAN_DAILY_AGGREGATE` periods (`12/2000` through `11/2001`)
+- installation boundary confirmed by operator: affected projects were installed from 2025; repair candidates must also predate each system's own install/start/create year, without a global hard-coded installation year
+- related billing UI audit: 9 suspicious provider periods have billing estimates, all still show the `Xuat hoa don` action, and no linked invoice was observed for those suspicious periods
+- manual-data safety: CSV/manual/admin-sync/manual-override sources are locked against provider overwrite; the five reviewed CSV periods are outside automatic repair actions
+- billing safety: `SOLARMAN_HISTORY_BILLING_ENABLED=false` and `SEMS_PLUS_HISTORY_BILLING_ENABLED=false` by default; unverified SEMS+ is no longer considered a stable auto-billing provider
+- repair safety: CLI defaults to dry-run, requires exact system/station scope, a recognized PostgreSQL backup, Super Admin actor and confirmation phrase for apply; financially locked invoices are review-only
+- local dry-run: Passed against isolated local `moka_solar_local`; 0 candidates and 0 writes because this local database does not contain the production defect
+- production CLI dry-run: Not executed because unattended SSH authentication is unavailable; SSH failed before login, and no VPS command ran
+- backup status: Existing local April backup is malformed and correctly rejected by the new backup guard; no production backup was created or modified
+- Prisma status: Schema valid and client generated; no schema migration was created
+- unit/regression status: Passed 111/111, including Deye/LuxPower regression, parser boundaries, per-system history start boundaries, manual locks, dry-run no-write, backup validation, SEMS+ empty-history behavior and access safety
+- build status: Backend typecheck/build passed; frontend production build passed with 51 routes
+- integration status: Staff-auth e2e discovered but skipped because this isolated worktree has no `TEST_DATABASE_URL`; no database was substituted
+- secret/PII scan: Passed 25 changed/untracked files; no private key, JWT, long opaque token, personal email, phone, HAR, cookie jar or session-state artifact found
+- approval requested or not: Yes, code deployment requested after local verification; production data cleanup remains a separate approval gate
+- approved or not: Yes, user explicitly approved code deployment
+- deployed or not: In progress
+- production cleanup applied: No
+- rollback target if needed: `cceef75c28873e05d87609476a4ed9b5b54954eb`; production data cleanup is not part of this deployment
+
 ## SEMS+ shared environment persistence guard (deployed)
 
 - latest task: Prevent future deploys from silently replacing a newer canonical backend environment with an older shared environment

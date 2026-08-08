@@ -16,6 +16,10 @@ import {
   MOKA_DEFAULT_VAT_RATE,
 } from '../common/config/moka-billing-policy';
 import {
+  ProviderHistoryBillingInput,
+  assessProviderHistoryBillingEligibility,
+} from '../common/config/provider-history-billing';
+import {
   calculateVatAmount,
   deriveVatRateFromAmounts,
   normalizePercentRate,
@@ -68,7 +72,6 @@ const MUTABLE_INVOICE_STATUSES = new Set<InvoiceStatus>([
 
 const BILLING_TIMEZONE = process.env.BILLING_TIMEZONE || 'Asia/Ho_Chi_Minh';
 const STABLE_AUTO_BILLING_PROVIDERS = new Set([
-  'SEMS_PORTAL',
   'DEYE',
   'LUXPOWER',
 ]);
@@ -142,7 +145,26 @@ export class MonthlyPvBillingsService {
     return this.attachPeriodMetrics(await this.repairHistoricalLifecycleIfNeeded(items));
   }
 
-  async sync(systemId: string, dto: SyncMonthlyPvBillingDto, actorId?: string) {
+  async sync(
+    systemId: string,
+    dto: SyncMonthlyPvBillingDto,
+    actorId?: string,
+    providerHistoryContext?: ProviderHistoryBillingInput,
+  ) {
+    const requestedSource = String(dto.source || '').trim().toUpperCase();
+    if (requestedSource.startsWith('SOLARMAN') || requestedSource.startsWith('SEMS')) {
+      const eligibility = providerHistoryContext
+        ? assessProviderHistoryBillingEligibility(providerHistoryContext)
+        : { eligible: false, reasons: ['HISTORY_CONTRACT_UNVERIFIED'] };
+      if (!eligibility.eligible) {
+        throw new BadRequestException({
+          message: 'Provider history is not eligible for monthly billing.',
+          code: 'PROVIDER_HISTORY_BILLING_BLOCKED',
+          reasons: eligibility.reasons,
+        });
+      }
+    }
+
     const system = await this.prisma.solarSystem.findFirst({
       where: {
         id: systemId,

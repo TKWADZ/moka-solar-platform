@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { ReceiptText, RefreshCw, Trash2 } from 'lucide-react';
+import { AlertTriangle, ReceiptText, RefreshCw, SearchCheck, Trash2 } from 'lucide-react';
 import { MonthlyPvBillingTable } from '@/components/monthly-pv-billing-table';
 import {
   ProviderSystemBindingActions,
@@ -29,6 +29,7 @@ import {
   updateMonthlyPvBillingRequest,
   updateSystemRequest,
 } from '@/lib/api';
+import { getSession } from '@/lib/auth';
 import {
   cn,
   formatCurrency,
@@ -343,6 +344,31 @@ function toOptionalNumber(value: string) {
   return trimmed ? Number(trimmed) : undefined;
 }
 
+function historyQualityLabel(status?: string | null) {
+  switch (status) {
+    case 'MANUAL_VERIFIED':
+      return 'MANUAL_VERIFIED';
+    case 'PROVIDER_VERIFIED':
+      return 'PROVIDER_VERIFIED';
+    case 'INVALID_PERIOD':
+      return 'INVALID_PERIOD';
+    case 'REQUIRES_REVIEW':
+      return 'REQUIRES_REVIEW';
+    default:
+      return 'UNVERIFIED';
+  }
+}
+
+function historyQualityClass(status?: string | null) {
+  if (status === 'MANUAL_VERIFIED' || status === 'PROVIDER_VERIFIED') {
+    return 'border-emerald-300/20 bg-emerald-300/10 text-emerald-100';
+  }
+  if (status === 'INVALID_PERIOD') {
+    return 'border-rose-300/30 bg-rose-300/10 text-rose-100';
+  }
+  return 'border-amber-300/20 bg-amber-300/10 text-amber-100';
+}
+
 export default function AdminSystemsPage() {
   const [systems, setSystems] = useState<AdminSystemRecord[]>([]);
   const [customers, setCustomers] = useState<CustomerRecord[]>([]);
@@ -382,12 +408,22 @@ export default function AdminSystemsPage() {
   const [error, setError] = useState('');
   const [monthlyMessage, setMonthlyMessage] = useState('');
   const [monthlyError, setMonthlyError] = useState('');
+  const [canViewDataRepair, setCanViewDataRepair] = useState(false);
+  const [showSuspectDetails, setShowSuspectDetails] = useState(false);
+
+  useEffect(() => {
+    setCanViewDataRepair(getSession()?.user.role === 'SUPER_ADMIN');
+  }, []);
 
   useSystemDashboardPresence(selectedId ? [selectedId] : [], 'admin-systems');
 
   const selectedSystem = useMemo(
     () => systems.find((item) => item.id === selectedId) || null,
     [systems, selectedId],
+  );
+  const suspectHistoryRecords = useMemo(
+    () => selectedSystem?.monthlyEnergyRecords?.filter((record) => record.requiresReview) || [],
+    [selectedSystem],
   );
 
   const selectedDeyeStation = useMemo(
@@ -1831,17 +1867,50 @@ export default function AdminSystemsPage() {
                 <div>
                   <p className="text-sm text-slate-400">Lịch sử PV tháng đã lưu</p>
                   <p className="mt-1 text-sm text-slate-300">
-                    Dữ liệu raw theo tháng lưu trong database trước khi phát hành billing
+                    Dữ liệu tháng đã lưu trước khi phát hành billing
                   </p>
                 </div>
-                <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-200">
-                  {formatNumber(selectedSystem.monthlyEnergyRecords?.length || 0)} bản ghi
-                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-slate-200">
+                    {formatNumber(selectedSystem.monthlyEnergyRecords?.length || 0)} bản ghi
+                  </span>
+                  {canViewDataRepair && suspectHistoryRecords.length ? (
+                    <button
+                      type="button"
+                      className="inline-flex min-h-10 items-center gap-2 rounded-full border border-amber-300/25 bg-amber-300/10 px-3 py-2 text-xs font-semibold text-amber-100"
+                      onClick={() => setShowSuspectDetails((current) => !current)}
+                    >
+                      <SearchCheck className="h-4 w-4" />
+                      Xem và xử lý dữ liệu nghi ngờ
+                    </button>
+                  ) : null}
+                </div>
               </div>
+
+              {suspectHistoryRecords.length ? (
+                <div className="mt-4 rounded-[18px] border border-amber-300/25 bg-amber-300/8 px-4 py-3 text-sm leading-6 text-amber-50">
+                  <div className="flex gap-3">
+                    <AlertTriangle className="mt-1 h-5 w-5 shrink-0" />
+                    <div>
+                      <p className="font-semibold">
+                        Có {formatNumber(suspectHistoryRecords.length)} bản ghi provider cần kiểm tra
+                      </p>
+                      <p className="mt-1 text-amber-100/80">
+                        Dữ liệu thủ công/CSV vẫn được giữ nguyên. Hệ thống không cung cấp thao tác xóa nhanh khi chưa kiểm tra ảnh hưởng đến billing và hóa đơn.
+                      </p>
+                      {showSuspectDetails && canViewDataRepair ? (
+                        <p className="mt-2 rounded-[14px] border border-white/10 bg-black/10 px-3 py-2 text-xs">
+                          Super Admin cần chạy báo cáo repair ở chế độ dry-run, sao lưu PostgreSQL và duyệt danh sách hóa đơn liên quan trước khi áp dụng.
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                </div>
+              ) : null}
 
               {selectedSystem.monthlyEnergyRecords?.length ? (
                 <div className="mt-4 overflow-x-auto">
-                  <table className="min-w-[680px] w-full text-left text-sm text-slate-300">
+                  <table className="min-w-[820px] w-full text-left text-sm text-slate-300">
                     <thead>
                       <tr className="border-b border-white/8 text-[11px] uppercase tracking-[0.18em] text-slate-500">
                         <th className="pb-3 pr-4 font-medium">Kỳ</th>
@@ -1850,18 +1919,35 @@ export default function AdminSystemsPage() {
                         <th className="pb-3 pr-4 font-medium">Tạm tính</th>
                         <th className="pb-3 pr-4 font-medium">Tổng cộng</th>
                         <th className="pb-3 pr-4 font-medium">Nguồn</th>
+                        <th className="pb-3 pr-4 font-medium">Chất lượng</th>
                         <th className="pb-3 font-medium">Đồng bộ</th>
                       </tr>
                     </thead>
                     <tbody>
                       {selectedSystem.monthlyEnergyRecords.map((record) => (
-                        <tr key={record.id} className="border-b border-white/6 align-top last:border-none">
+                        <tr
+                          key={record.id}
+                          className={cn(
+                            'border-b border-white/6 align-top last:border-none',
+                            record.requiresReview && 'bg-rose-300/[0.04]',
+                          )}
+                        >
                           <td className="py-4 pr-4 font-medium text-white">{formatMonthPeriod(record.month, record.year)}</td>
                           <td className="py-4 pr-4">{formatNumber(record.pvGenerationKwh, 'kWh')}</td>
                           <td className="py-4 pr-4">{formatCurrency(record.unitPrice)}</td>
                           <td className="py-4 pr-4">{formatCurrency(record.subtotalAmount)}</td>
                           <td className="py-4 pr-4 font-semibold text-white">{formatCurrency(record.totalAmount)}</td>
-                          <td className="py-4 pr-4">{record.source}</td>
+                          <td className="py-4 pr-4">{record.sourceLabel || record.source}</td>
+                          <td className="py-4 pr-4">
+                            <span
+                              className={cn(
+                                'inline-flex rounded-full border px-2.5 py-1 text-[10px] font-semibold tracking-[0.08em]',
+                                historyQualityClass(record.dataQualityStatus),
+                              )}
+                            >
+                              {historyQualityLabel(record.dataQualityStatus)}
+                            </span>
+                          </td>
                           <td className="py-4">{formatDateTime(record.syncTime)}</td>
                         </tr>
                       ))}
@@ -1870,7 +1956,8 @@ export default function AdminSystemsPage() {
                 </div>
               ) : (
                 <div className="mt-4 rounded-[20px] border border-white/10 bg-white/[0.03] px-4 py-4 text-sm text-slate-300">
-                  Chưa có monthly history raw cho hệ thống này. Với Deye, hãy vào kết nối Deye và chạy sync monthly history để lấy generationValue theo tháng.
+                  {selectedSystem.historyCapabilityMessage ||
+                    'Chưa có lịch sử tháng cho hệ thống này. Hãy chạy đồng bộ từ provider đã được xác minh hoặc nhập dữ liệu thủ công.'}
                 </div>
               )}
             </div>

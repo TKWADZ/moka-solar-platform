@@ -1192,6 +1192,9 @@ export type AdminSystemRecord = {
   nextHistorySyncAt?: string | null;
   monitorBindingReady?: boolean;
   monitorBindingMessage?: string | null;
+  historicalDataCapability?: 'VERIFIED' | 'UNVERIFIED' | 'UNAVAILABLE';
+  monthlyHistoryAvailable?: boolean;
+  historyCapabilityMessage?: string | null;
   location?: string | null;
   installDate?: string | null;
   panelBrand?: string | null;
@@ -1223,6 +1226,9 @@ export type ProviderDiscoveryCapability = {
   import: 'AVAILABLE' | 'MANUAL_BINDING_ONLY' | 'UNAVAILABLE';
   message: string;
   missingRequirements?: string[];
+  historicalDataCapability?: 'VERIFIED' | 'UNVERIFIED' | 'UNAVAILABLE';
+  monthlyHistoryAvailable?: boolean;
+  historyMessage?: string;
 };
 
 export type ProviderConnectionSummary = {
@@ -1620,6 +1626,13 @@ export type MonthlyEnergyRecordRecord = {
   source: string;
   sourceLabel?: string | null;
   sourceKind?: string | null;
+  dataQualityStatus?:
+    | 'MANUAL_VERIFIED'
+    | 'PROVIDER_VERIFIED'
+    | 'UNVERIFIED'
+    | 'INVALID_PERIOD'
+    | 'REQUIRES_REVIEW';
+  requiresReview?: boolean;
   syncTime: string;
   note?: string | null;
   dataFreshness?: {

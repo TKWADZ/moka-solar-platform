@@ -11,6 +11,10 @@ import { ConfigService } from '@nestjs/config';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { hasPermission } from '../common/auth/permissions';
 import {
+  assessProviderHistoryBillingEligibility,
+  isAuthoritativeManualSource,
+} from '../common/config/provider-history-billing';
+import {
   calculateVatAmount,
   deriveVatRateFromAmounts,
   normalizePercentRate,
@@ -875,6 +879,7 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
 
     let syncedMonths = 0;
     let syncedBillings = 0;
+    const billingBlockedReasons = new Set<string>();
 
     if (monthlyHistory) {
       for (const monthlyRecord of monthlyHistory.records) {
@@ -883,10 +888,15 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
           system,
           station: selectedStation,
           monthlyRecord,
+          expectedYear: year,
+          historyDataQualityStatus: monthlyHistory.dataQualityStatus,
           actorId,
         });
-        syncedMonths += 1;
+        syncedMonths += importResult.recordPersisted ? 1 : 0;
         syncedBillings += importResult.billingSynced ? 1 : 0;
+        for (const reason of importResult.billingSkipReasons) {
+          billingBlockedReasons.add(reason);
+        }
       }
     }
 
@@ -919,6 +929,11 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         bundle.dailyHistory?.records.length || 0,
       monthlyCoverage:
         monthlyHistory?.records.length || 0,
+      monthlyHistoryDataQuality:
+        monthlyHistory?.dataQualityStatus || 'UNVERIFIED',
+      rejectedMonthlyRecords:
+        monthlyHistory?.rejectedRecordCount || 0,
+      billingBlockedReasons: Array.from(billingBlockedReasons),
     };
   }
 
@@ -1034,23 +1049,76 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
     system: SolarSystemRecord;
     station: ParsedSolarmanStation;
     monthlyRecord: ParsedSolarmanMonthlyRecord;
+    expectedYear: number;
+    historyDataQualityStatus: ParsedSolarmanMonthlyHistory['dataQualityStatus'];
     actorId?: string;
   }) {
-    const { connection, system, station, monthlyRecord, actorId } = params;
+    const {
+      connection,
+      system,
+      station,
+      monthlyRecord,
+      expectedYear,
+      historyDataQualityStatus,
+      actorId,
+    } = params;
+    const [existingEnergyRecord, existingBilling] = await Promise.all([
+      this.prisma.monthlyEnergyRecord.findUnique({
+        where: {
+          solarSystemId_year_month: {
+            solarSystemId: system.id,
+            year: monthlyRecord.year,
+            month: monthlyRecord.month,
+          },
+        },
+      }),
+      this.prisma.monthlyPvBilling.findUnique({
+        where: {
+          solarSystemId_month_year: {
+            solarSystemId: system.id,
+            year: monthlyRecord.year,
+            month: monthlyRecord.month,
+          },
+        },
+      }),
+    ]);
+    const manuallyLocked = Boolean(
+      isAuthoritativeManualSource(existingEnergyRecord?.source) ||
+        isAuthoritativeManualSource(existingBilling?.source) ||
+        existingBilling?.manualOverrideKwh !== null &&
+          existingBilling?.manualOverrideKwh !== undefined,
+    );
+
+    if (manuallyLocked) {
+      return {
+        monthlyEnergyRecord: existingEnergyRecord,
+        billingSynced: false,
+        recordPersisted: false,
+        billingSkipReasons: ['MANUAL_DATA_LOCKED'],
+      };
+    }
+
     const pricing = await this.resolvePricingDefaults(connection, system, monthlyRecord);
     const source =
       monthlyRecord.raw?.source === 'AGGREGATED_DAILY'
         ? 'SOLARMAN_DAILY_AGGREGATE'
         : 'SOLARMAN_MONTHLY';
+    const normalizedRawPayload = {
+      ...monthlyRecord.raw,
+      _mokaHistory: {
+        dataQualityStatus: historyDataQualityStatus,
+        expectedYear,
+        stationVerified: monthlyRecord.systemId === station.stationId,
+      },
+    };
     const subtotalAmount = this.roundAmount(monthlyRecord.pvGenerationKwh * pricing.unitPrice);
     const taxAmount = calculateVatAmount(subtotalAmount, pricing.vatRate);
     const totalAmount = this.roundAmount(subtotalAmount + taxAmount - pricing.discountAmount);
 
     const monthlyEnergyRecord = await this.prisma.monthlyEnergyRecord.upsert({
       where: {
-        source_stationId_year_month: {
-          source,
-          stationId: station.stationId,
+        solarSystemId_year_month: {
+          solarSystemId: system.id,
           year: monthlyRecord.year,
           month: monthlyRecord.month,
         },
@@ -1070,7 +1138,7 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         totalAmount,
         source,
         syncTime: new Date(),
-        rawPayload: monthlyRecord.raw as any,
+        rawPayload: normalizedRawPayload as any,
         note: pricing.note,
         deletedAt: null,
       },
@@ -1091,10 +1159,34 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         totalAmount,
         source,
         syncTime: new Date(),
-        rawPayload: monthlyRecord.raw as any,
+        rawPayload: normalizedRawPayload as any,
         note: pricing.note,
       },
     });
+
+    const eligibility = assessProviderHistoryBillingEligibility({
+      provider: 'SOLARMAN',
+      historyContractVerified: historyDataQualityStatus === 'VERIFIED_HISTORY',
+      stationVerified: monthlyRecord.systemId === station.stationId,
+      periodValid:
+        Number.isInteger(monthlyRecord.month) &&
+        monthlyRecord.month >= 1 &&
+        monthlyRecord.month <= 12,
+      expectedYearMatches: monthlyRecord.year === expectedYear,
+      dataQualityStatus: historyDataQualityStatus,
+      pvGenerationKwh: monthlyRecord.pvGenerationKwh,
+      customerAssigned: Boolean(system.customerId),
+      manuallyLocked: false,
+    });
+
+    if (!eligibility.eligible) {
+      return {
+        monthlyEnergyRecord,
+        billingSynced: false,
+        recordPersisted: true,
+        billingSkipReasons: eligibility.reasons,
+      };
+    }
 
     let billingSynced = false;
     try {
@@ -1111,6 +1203,20 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
           note: pricing.note,
         },
         actorId,
+        {
+          provider: 'SOLARMAN',
+          historyContractVerified: historyDataQualityStatus === 'VERIFIED_HISTORY',
+          stationVerified: monthlyRecord.systemId === station.stationId,
+          periodValid:
+            Number.isInteger(monthlyRecord.month) &&
+            monthlyRecord.month >= 1 &&
+            monthlyRecord.month <= 12,
+          expectedYearMatches: monthlyRecord.year === expectedYear,
+          dataQualityStatus: historyDataQualityStatus,
+          pvGenerationKwh: monthlyRecord.pvGenerationKwh,
+          customerAssigned: Boolean(system.customerId),
+          manuallyLocked: false,
+        },
       );
       billingSynced = true;
     } catch (error) {
@@ -1137,6 +1243,8 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
     return {
       monthlyEnergyRecord,
       billingSynced,
+      recordPersisted: true,
+      billingSkipReasons: [] as string[],
     };
   }
 
@@ -1384,6 +1492,9 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         records.reduce((sum, record) => sum + record.pvGenerationKwh, 0),
       ),
       records,
+      rejectedRecordCount: 0,
+      rejectionReasons: [],
+      dataQualityStatus: 'VERIFIED_HISTORY',
       raw: {
         source: 'DAILY_AGGREGATION',
         recordCount: dailyHistory.records.length,

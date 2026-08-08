@@ -18,6 +18,7 @@ export type SolarmanProviderCredentials = {
 export type SolarmanProviderRequestOptions = {
   persistedSession?: SolarmanPersistedSession | null;
   forceRelogin?: boolean;
+  timezone?: string | null;
 };
 
 export type SolarmanProviderTestResult = {

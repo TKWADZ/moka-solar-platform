@@ -83,6 +83,7 @@ export class SolarmanWebOAuthProvider implements SolarmanProvider {
         {
           mode: 'web',
           persistedSession: this.withoutCookies(dailyHistory.session),
+          timezone: station.timezone,
         },
       );
 

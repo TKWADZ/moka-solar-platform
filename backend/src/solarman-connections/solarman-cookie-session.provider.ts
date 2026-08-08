@@ -77,6 +77,7 @@ export class SolarmanCookieSessionProvider implements SolarmanProvider {
         ...options,
         mode: 'web',
         persistedSession: dailyHistory.session,
+        timezone: station.timezone,
       },
     );
 
