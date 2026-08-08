@@ -1,6 +1,6 @@
 # Deploy Status
 
-## SOLARMAN station timestamp/power hotfix (local only)
+## SOLARMAN station timestamp/power hotfix (deployed)
 
 - latest task: Fix `AUTHORIZE_WEB_OAUTH` system creation failure caused by a Unix-seconds `lastUpdateTime`
 - root cause: Station parsing converted the numeric epoch to a plain string, then `new Date('1786171604')` produced an invalid `Date` that Prisma rejected
@@ -12,8 +12,10 @@
 - secret scan status: Passed changed-tree scan; no token, authorization value, cookie, password, address, phone, or private key added
 - database change: None; no migration required
 - approval requested or not: Yes
-- approved or not: No
-- deployed or not: No
+- approved or not: Yes
+- deployed or not: Yes, commit `5ddce2cbd2e9622cb1a871d3d41e352399f2ffaa` via GitHub Actions run `31254836379`
+- production verification: Homepage `200`, `/admin/solarman` `200`, `/api/health` status `ok`, database `up`, and public workflow verification passed
+- production changed: Yes, SOLARMAN timestamp/power normalization only; no schema migration or production data change
 - rollback target if needed: `bff1760d2146e05ca36ed5f6f1bf51b0710122af`
 
 ## SOLARMAN advisory-lock hotfix (deployed)
