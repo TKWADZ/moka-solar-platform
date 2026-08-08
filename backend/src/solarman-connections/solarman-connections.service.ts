@@ -8,7 +8,6 @@ import {
   OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto';
 import { AuditLogsService } from '../audit-logs/audit-logs.service';
 import { hasPermission } from '../common/auth/permissions';
 import {
@@ -35,6 +34,12 @@ import {
   SolarmanProviderType,
 } from './solarman-client.service';
 import { SolarmanProviderRegistry } from './solarman-provider.registry';
+import { SolarmanProviderCredentials } from './solarman-provider.types';
+import { SolarmanWebOAuthTokenService } from './solarman-web-oauth-token.service';
+import {
+  decryptSolarmanSecret,
+  encryptSolarmanSecret,
+} from './solarman-secret.crypto';
 
 type SolarmanConnectionWithRelations = any;
 type SolarSystemRecord = any;
@@ -51,6 +56,7 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
     private readonly auditLogsService: AuditLogsService,
     private readonly solarmanProviderRegistry: SolarmanProviderRegistry,
     private readonly monthlyPvBillingsService: MonthlyPvBillingsService,
+    private readonly solarmanWebOAuthTokenService: SolarmanWebOAuthTokenService,
   ) {}
 
   async onModuleInit() {
@@ -119,19 +125,31 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
 
   async create(dto: CreateSolarmanConnectionDto, actorId?: string) {
     await this.ensureCustomerExists(dto.customerId);
+    const providerType = this.normalizeProviderType(dto.providerType);
+    if (providerType !== 'WEB_OAUTH_REFRESH_TOKEN' && !dto.password?.trim()) {
+      throw new BadRequestException('Password is required for this SOLARMAN provider mode.');
+    }
 
     const connection = await this.prisma.solarmanConnection.create({
       data: {
         accountName: dto.accountName.trim(),
-        providerType: this.normalizeProviderType(dto.providerType),
+        providerType,
         usernameOrEmail: dto.usernameOrEmail.trim(),
-        passwordEncrypted: this.encrypt(dto.password),
+        passwordEncrypted:
+          providerType !== 'WEB_OAUTH_REFRESH_TOKEN' && dto.password?.trim()
+            ? this.encrypt(dto.password.trim())
+            : null,
         customerId: dto.customerId || null,
         defaultUnitPrice: dto.defaultUnitPrice ?? null,
         defaultTaxAmount: dto.defaultTaxAmount ?? null,
         defaultVatRate: deriveVatRateFromAmounts(100, dto.defaultTaxAmount, NaN) ?? null,
         defaultDiscountAmount: dto.defaultDiscountAmount ?? null,
-        status: dto.status?.trim() || 'CONFIGURED',
+        status:
+          providerType === 'WEB_OAUTH_REFRESH_TOKEN'
+            ? dto.status?.trim() === 'PAUSED'
+              ? 'PAUSED'
+              : 'CONFIGURED'
+            : dto.status?.trim() || 'CONFIGURED',
         notes: dto.notes?.trim() || null,
       },
       include: this.includeRelations(),
@@ -158,10 +176,21 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
       dto.providerType === undefined
         ? existing.providerType
         : this.normalizeProviderType(dto.providerType);
+    const passwordChanged =
+      providerType !== 'WEB_OAUTH_REFRESH_TOKEN' && Boolean(dto.password?.trim());
     const resetSession =
-      Boolean(dto.password) ||
+      passwordChanged ||
       Boolean(dto.usernameOrEmail && dto.usernameOrEmail.trim() !== existing.usernameOrEmail) ||
       providerType !== existing.providerType;
+    const requestedStatus = dto.status?.trim();
+    const nextStatus =
+      providerType === 'WEB_OAUTH_REFRESH_TOKEN'
+        ? resetSession
+          ? 'CONFIGURED'
+          : requestedStatus === 'PAUSED' || requestedStatus === 'CONFIGURED'
+            ? requestedStatus
+            : existing.status
+        : requestedStatus ?? (resetSession ? 'CONFIGURED' : existing.status);
 
     const updated = await this.prisma.solarmanConnection.update({
       where: { id },
@@ -169,8 +198,21 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         accountName: dto.accountName?.trim() ?? existing.accountName,
         providerType,
         usernameOrEmail: dto.usernameOrEmail?.trim() ?? existing.usernameOrEmail,
-        passwordEncrypted: dto.password ? this.encrypt(dto.password) : existing.passwordEncrypted,
+        passwordEncrypted:
+          providerType === 'WEB_OAUTH_REFRESH_TOKEN'
+            ? null
+            : passwordChanged
+              ? this.encrypt(dto.password!.trim())
+              : existing.passwordEncrypted,
         accessToken: resetSession ? null : existing.accessToken,
+        refreshToken: resetSession ? null : existing.refreshToken,
+        accessTokenEncrypted: resetSession ? null : existing.accessTokenEncrypted,
+        refreshTokenEncrypted: resetSession ? null : existing.refreshTokenEncrypted,
+        accessTokenExpiresAt: resetSession ? null : existing.accessTokenExpiresAt,
+        lastSuccessfulRefreshAt: resetSession ? null : existing.lastSuccessfulRefreshAt,
+        lastRefreshErrorCode: resetSession ? null : existing.lastRefreshErrorCode,
+        lastRefreshErrorMessage: resetSession ? null : existing.lastRefreshErrorMessage,
+        reauthorizationRequiredAt: resetSession ? null : existing.reauthorizationRequiredAt,
         cookieJar: resetSession ? null : existing.cookieJar,
         cookieJarEncrypted: resetSession ? null : existing.cookieJarEncrypted,
         customerId:
@@ -191,21 +233,136 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
           dto.defaultDiscountAmount === undefined
             ? existing.defaultDiscountAmount
             : dto.defaultDiscountAmount,
-        status: dto.status?.trim() ?? existing.status,
+        status: nextStatus,
         notes: dto.notes === undefined ? existing.notes : dto.notes?.trim() || null,
       },
       include: this.includeRelations(),
     });
+
+    if (resetSession) {
+      this.solarmanWebOAuthTokenService.invalidate(id);
+    }
 
     await this.auditLogsService.log({
       userId: actorId,
       action: 'SOLARMAN_CONNECTION_UPDATED',
       entityType: 'SolarmanConnection',
       entityId: id,
-      payload: dto as Record<string, unknown>,
+      payload: {
+        accountName: dto.accountName,
+        providerType: dto.providerType,
+        usernameOrEmail: dto.usernameOrEmail,
+        customerId: dto.customerId,
+        defaultUnitPrice: dto.defaultUnitPrice,
+        defaultTaxAmount: dto.defaultTaxAmount,
+        defaultDiscountAmount: dto.defaultDiscountAmount,
+        status: dto.status,
+        notes: dto.notes,
+        passwordChanged,
+      },
     });
 
     return this.serializeConnection(updated);
+  }
+
+  async authorizeWebOAuth(id: string, refreshToken: string, actorId?: string) {
+    const connection = await this.getConnectionOrThrow(id);
+    if (this.normalizeProviderType(connection.providerType) !== 'WEB_OAUTH_REFRESH_TOKEN') {
+      throw new BadRequestException(
+        'Set provider mode to WEB_OAUTH_REFRESH_TOKEN and save before authorization.',
+      );
+    }
+
+    const log = await this.createLog(id, {
+      action: 'AUTHORIZE_WEB_OAUTH',
+      status: 'RUNNING',
+      providerType: 'WEB_OAUTH_REFRESH_TOKEN',
+      message: 'Dang xac thuc SOLARMAN bang refresh token mot lan.',
+    });
+
+    try {
+      await this.solarmanWebOAuthTokenService.authorize(id, refreshToken);
+      const provider = this.solarmanProviderRegistry.resolve('WEB_OAUTH_REFRESH_TOKEN');
+      const result = await provider.testConnection(this.toCredentials(connection));
+      const stationSyncAt = new Date();
+
+      for (const station of result.stations) {
+        await this.resolveSystemForStation(connection, station, true);
+      }
+
+      await this.prisma.solarmanConnection.update({
+        where: { id },
+        data: {
+          providerType: 'WEB_OAUTH_REFRESH_TOKEN',
+          accessToken: null,
+          refreshToken: null,
+          cookieJar: null,
+          cookieJarEncrypted: null,
+          status: 'VERIFIED',
+          lastAuthAt: stationSyncAt,
+          lastSuccessfulStationSyncAt: stationSyncAt,
+          lastDiscoveredStationCount: result.stations.length,
+          lastErrorCode: null,
+          lastErrorMessage: null,
+          lastErrorDetails: null,
+          providerMetadata: {
+            mode: 'web_oauth_refresh_token',
+            lastTestStationCount: result.stations.length,
+          } as any,
+        },
+      });
+
+      await this.captureDebugSnapshot(id, {
+        snapshotType: 'PLANT_LIST',
+        providerType: 'WEB_OAUTH_REFRESH_TOKEN',
+        capturedAt: stationSyncAt,
+        payload: result.rawResponses.plantList || null,
+        note: 'Plant list returned after one-time SOLARMAN authorization.',
+      });
+      await this.finishLog(log.id, {
+        status: 'SUCCESS',
+        providerType: 'WEB_OAUTH_REFRESH_TOKEN',
+        message: `Xac thuc thanh cong va phat hien ${result.stations.length} station.`,
+        syncedStations: result.stations.length,
+        context: {
+          stationCount: result.stations.length,
+          deviceCount: result.sampleDevices.length,
+        },
+      });
+      await this.auditLogsService.log({
+        userId: actorId,
+        action: 'SOLARMAN_WEB_OAUTH_AUTHORIZED',
+        entityType: 'SolarmanConnection',
+        entityId: id,
+        payload: {
+          providerType: 'WEB_OAUTH_REFRESH_TOKEN',
+          stationCount: result.stations.length,
+        },
+      });
+
+      return {
+        connection: await this.findOne(id),
+        stations: result.stations,
+        sampleDevices: result.sampleDevices,
+      };
+    } catch (error) {
+      await this.prisma.solarmanConnection.update({
+        where: { id },
+        data: {
+          status: this.resolveConnectionStatusForError(error),
+          lastErrorCode: this.resolveErrorCode(error),
+          lastErrorMessage: this.formatErrorMessage(error, 'SOLARMAN authorization failed.'),
+          lastErrorDetails: this.toErrorPayload(error) as any,
+        },
+      });
+      await this.finishLog(log.id, {
+        status: 'ERROR',
+        providerType: 'WEB_OAUTH_REFRESH_TOKEN',
+        errorCode: this.resolveErrorCode(error),
+        message: this.formatErrorMessage(error, 'SOLARMAN authorization failed.'),
+      });
+      throw error;
+    }
   }
 
   async remove(id: string, actorId?: string) {
@@ -218,6 +375,7 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         status: 'ARCHIVED',
       },
     });
+    this.solarmanWebOAuthTokenService.invalidate(id);
 
     await this.auditLogsService.log({
       userId: actorId,
@@ -249,16 +407,34 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         where: { id },
         data: {
           providerType: provider.providerType,
-          accessToken:
-            provider.providerType === 'OFFICIAL_OPENAPI'
-              ? result.session?.token || null
+          accessToken: null,
+          refreshToken: null,
+          accessTokenEncrypted:
+            provider.providerType === 'OFFICIAL_OPENAPI' && result.session?.token
+              ? this.encrypt(result.session.token)
+              : provider.providerType === 'WEB_OAUTH_REFRESH_TOKEN'
+                ? undefined
+                : null,
+          accessTokenExpiresAt:
+            provider.providerType === 'OFFICIAL_OPENAPI' && result.session?.expiresAt
+              ? new Date(result.session.expiresAt)
+              : provider.providerType === 'WEB_OAUTH_REFRESH_TOKEN'
+                ? undefined
+                : null,
+          refreshTokenEncrypted:
+            provider.providerType === 'WEB_OAUTH_REFRESH_TOKEN' ? undefined : null,
+          cookieJar:
+            provider.providerType === 'COOKIE_SESSION' && result.session?.cookieJar
+              ? { mode: result.mode, persisted: true }
               : null,
-          cookieJar: result.session?.cookieJar ? { mode: result.mode, persisted: true } : null,
-          cookieJarEncrypted: result.session?.cookieJar
-            ? this.encrypt(result.session.cookieJar)
-            : connection.cookieJarEncrypted,
+          cookieJarEncrypted:
+            provider.providerType === 'COOKIE_SESSION' && result.session?.cookieJar
+              ? this.encrypt(result.session.cookieJar)
+              : null,
           status: 'VERIFIED',
           lastAuthAt: new Date(),
+          lastSuccessfulStationSyncAt: new Date(),
+          lastDiscoveredStationCount: result.stations.length,
           lastErrorCode: null,
           lastErrorMessage: null,
           lastErrorDetails: null,
@@ -352,6 +528,51 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
     return this.syncSingleConnection(connection, dto, actorId, 'MANUAL_SYNC');
   }
 
+  async syncRealtimeSystem(connectionId: string, systemId: string) {
+    const connection = await this.getConnectionOrThrow(connectionId);
+    const system = connection.systems.find((item: any) => item.id === systemId);
+    if (!system) {
+      throw new NotFoundException('SOLARMAN system is not linked to this connection.');
+    }
+
+    const provider = this.solarmanProviderRegistry.resolve(connection.providerType);
+    const result = await provider.testConnection(this.toCredentials(connection), {
+      persistedSession: this.restorePersistedSession(connection),
+    });
+    const stationId = system.stationId || system.monitoringPlantId;
+    const station = result.stations.find((item) => item.stationId === stationId);
+    if (!station) {
+      throw new NotFoundException('SOLARMAN station was not returned by the provider.');
+    }
+
+    await this.resolveSystemForStation(connection, station, false);
+    const syncedAt = new Date();
+    await this.prisma.solarmanConnection.update({
+      where: { id: connectionId },
+      data: {
+        status: 'VERIFIED',
+        lastSuccessfulStationSyncAt: syncedAt,
+        lastDiscoveredStationCount: result.stations.length,
+        lastErrorCode: null,
+        lastErrorMessage: null,
+        lastErrorDetails: null,
+      },
+    });
+
+    return {
+      provider: 'SOLARMAN',
+      plantId: station.stationId,
+      plantName: station.stationName,
+      currentPvKw: station.generationPowerKw,
+      batterySocPct: null,
+      loadPowerKw: null,
+      gridPowerKw: null,
+      batteryPowerKw: null,
+      inverterStatus: null,
+      fetchedAt: station.lastUpdateTime || syncedAt.toISOString(),
+    };
+  }
+
   private async syncActiveConnections() {
     if (this.syncInFlight) {
       return;
@@ -363,9 +584,10 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
       const connections = await this.prisma.solarmanConnection.findMany({
         where: {
           deletedAt: null,
-          status: {
-            in: ['ACTIVE', 'VERIFIED'],
-          },
+          OR: [
+            { status: { in: ['ACTIVE', 'VERIFIED'] } },
+            { providerType: 'WEB_OAUTH_REFRESH_TOKEN', status: 'ERROR' },
+          ],
         },
         include: this.includeRelations(),
       });
@@ -458,19 +680,35 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         where: { id: connection.id },
         data: {
           providerType: provider.providerType,
-          accessToken:
-            provider.providerType === 'OFFICIAL_OPENAPI'
-              ? testResult.session?.token || null
+          accessToken: null,
+          refreshToken: null,
+          accessTokenEncrypted:
+            provider.providerType === 'OFFICIAL_OPENAPI' && testResult.session?.token
+              ? this.encrypt(testResult.session.token)
+              : provider.providerType === 'WEB_OAUTH_REFRESH_TOKEN'
+                ? undefined
+                : null,
+          accessTokenExpiresAt:
+            provider.providerType === 'OFFICIAL_OPENAPI' && testResult.session?.expiresAt
+              ? new Date(testResult.session.expiresAt)
+              : provider.providerType === 'WEB_OAUTH_REFRESH_TOKEN'
+                ? undefined
+                : null,
+          refreshTokenEncrypted:
+            provider.providerType === 'WEB_OAUTH_REFRESH_TOKEN' ? undefined : null,
+          cookieJar:
+            provider.providerType === 'COOKIE_SESSION' && testResult.session?.cookieJar
+              ? { mode: testResult.mode, persisted: true }
               : null,
-          cookieJar: testResult.session?.cookieJar
-            ? { mode: testResult.mode, persisted: true }
-            : connection.cookieJar,
-          cookieJarEncrypted: testResult.session?.cookieJar
-            ? this.encrypt(testResult.session.cookieJar)
-            : connection.cookieJarEncrypted,
+          cookieJarEncrypted:
+            provider.providerType === 'COOKIE_SESSION' && testResult.session?.cookieJar
+              ? this.encrypt(testResult.session.cookieJar)
+              : null,
           status: 'VERIFIED',
           lastSyncTime: new Date(),
           lastSuccessfulSyncAt: new Date(),
+          lastSuccessfulStationSyncAt: new Date(),
+          lastDiscoveredStationCount: stations.length,
           lastErrorCode: null,
           lastErrorMessage: null,
           lastErrorDetails: null,
@@ -542,7 +780,7 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
 
   private async syncStation(params: {
     connection: SolarmanConnectionWithRelations;
-    credentials: { usernameOrEmail: string; password: string };
+    credentials: SolarmanProviderCredentials;
     providerType: SolarmanProviderType;
     persistedSession?: SolarmanPersistedSession | null;
     station: ParsedSolarmanStation;
@@ -1272,7 +1510,15 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
   }
 
   private toCredentials(connection: SolarmanConnectionWithRelations) {
+    const providerType = this.normalizeProviderType(connection.providerType);
     const password = this.decrypt(connection.passwordEncrypted);
+
+    if (providerType === 'WEB_OAUTH_REFRESH_TOKEN') {
+      return {
+        connectionId: connection.id,
+        usernameOrEmail: connection.usernameOrEmail,
+      };
+    }
 
     if (!password) {
       throw new BadRequestException(
@@ -1281,6 +1527,7 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
     }
 
     return {
+      connectionId: connection.id,
       usernameOrEmail: connection.usernameOrEmail,
       password,
     };
@@ -1295,6 +1542,8 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
     delete safeConnection.passwordEncrypted;
     delete safeConnection.accessToken;
     delete safeConnection.refreshToken;
+    delete safeConnection.accessTokenEncrypted;
+    delete safeConnection.refreshTokenEncrypted;
     delete safeConnection.cookieJar;
     delete safeConnection.cookieJarEncrypted;
 
@@ -1307,9 +1556,20 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
       defaultDiscountAmount: toNumber(connection.defaultDiscountAmount),
       providerType: this.normalizeProviderType(connection.providerType),
       lastSuccessfulSyncAt: connection.lastSuccessfulSyncAt?.toISOString?.() || null,
+      accessTokenExpiresAt: connection.accessTokenExpiresAt?.toISOString?.() || null,
+      lastSuccessfulRefreshAt:
+        connection.lastSuccessfulRefreshAt?.toISOString?.() || null,
+      lastSuccessfulStationSyncAt:
+        connection.lastSuccessfulStationSyncAt?.toISOString?.() || null,
+      lastDiscoveredStationCount: connection.lastDiscoveredStationCount ?? null,
+      lastRefreshErrorCode: connection.lastRefreshErrorCode || null,
+      lastRefreshErrorMessage: connection.lastRefreshErrorMessage || null,
+      reauthorizationRequiredAt:
+        connection.reauthorizationRequiredAt?.toISOString?.() || null,
       lastErrorCode: connection.lastErrorCode || null,
       lastErrorMessage: connection.lastErrorMessage || null,
       hasStoredPassword: Boolean(passwordEncrypted),
+      hasStoredRefreshToken: Boolean(connection.refreshTokenEncrypted),
       hasPersistedCookieSession: Boolean(connection.cookieJarEncrypted),
       statusSummary: this.buildStatusSummary(connection, Boolean(passwordEncrypted)),
       debugSnapshots:
@@ -1359,9 +1619,16 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         .map((system: any) => system.stationId || system.monitoringPlantId || null)
         .filter(Boolean),
     );
+    const providerType = this.normalizeProviderType(connection.providerType);
+    const authorizationReady =
+      providerType === 'WEB_OAUTH_REFRESH_TOKEN'
+        ? Boolean(connection.refreshTokenEncrypted)
+        : providerType === 'COOKIE_SESSION'
+          ? Boolean(connection.cookieJarEncrypted)
+          : hasStoredPassword;
 
     return {
-      configured: Boolean(connection.usernameOrEmail && hasStoredPassword),
+      configured: Boolean(connection.usernameOrEmail && authorizationReady),
       customerLinked: Boolean(connection.customerId),
       mappedSystems: systems.length,
       mappedStations: stationIds.size,
@@ -1377,8 +1644,19 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         null,
       lastSuccessfulSyncAt: connection.lastSuccessfulSyncAt?.toISOString?.() || null,
       lastFailureMessage: lastFailure?.message || null,
-      providerType: this.normalizeProviderType(connection.providerType),
-      authBridgeReady: Boolean(connection.cookieJarEncrypted),
+      providerType,
+      authBridgeReady: authorizationReady,
+      authorizationReady,
+      accessTokenExpiresAt: connection.accessTokenExpiresAt?.toISOString?.() || null,
+      lastSuccessfulRefreshAt:
+        connection.lastSuccessfulRefreshAt?.toISOString?.() || null,
+      lastSuccessfulStationSyncAt:
+        connection.lastSuccessfulStationSyncAt?.toISOString?.() || null,
+      lastDiscoveredStationCount: connection.lastDiscoveredStationCount ?? null,
+      lastRefreshErrorCode: connection.lastRefreshErrorCode || null,
+      lastRefreshErrorMessage: connection.lastRefreshErrorMessage || null,
+      reauthorizationRequiredAt:
+        connection.reauthorizationRequiredAt?.toISOString?.() || null,
       authStatus:
         connection.status === 'ACTIVE' ? 'CONFIGURED' : connection.status || 'CONFIGURED',
       lastErrorCode: connection.lastErrorCode || null,
@@ -1390,18 +1668,28 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
   }
 
   private restorePersistedSession(connection: SolarmanConnectionWithRelations): SolarmanPersistedSession | null {
+    const providerType = this.normalizeProviderType(connection.providerType);
+    if (providerType === 'WEB_OAUTH_REFRESH_TOKEN') {
+      return null;
+    }
+
     const cookieJar = connection.cookieJarEncrypted
       ? this.decrypt(connection.cookieJarEncrypted)
       : null;
+    const accessToken =
+      this.decrypt(connection.accessTokenEncrypted) || connection.accessToken || null;
 
-    if (!cookieJar && !connection.accessToken) {
+    if (!cookieJar && !accessToken) {
       return null;
     }
 
     return {
-      mode: this.normalizeProviderType(connection.providerType) === 'OFFICIAL_OPENAPI' ? 'official' : 'web',
-      token: connection.accessToken || null,
+      mode: providerType === 'OFFICIAL_OPENAPI' ? 'official' : 'web',
+      token: accessToken,
       cookieJar,
+      expiresAt: connection.accessTokenExpiresAt?.getTime?.() || null,
+      authorizationScheme: providerType === 'OFFICIAL_OPENAPI' ? 'bearer' : 'raw',
+      allowCookies: providerType === 'COOKIE_SESSION',
     };
   }
 
@@ -1409,6 +1697,9 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
     const normalized = (providerType || 'COOKIE_SESSION').trim().toUpperCase();
     if (normalized === 'OFFICIAL_OPENAPI') {
       return 'OFFICIAL_OPENAPI';
+    }
+    if (normalized === 'WEB_OAUTH_REFRESH_TOKEN') {
+      return 'WEB_OAUTH_REFRESH_TOKEN';
     }
     if (normalized === 'MANUAL_IMPORT') {
       return 'MANUAL_IMPORT';
@@ -1507,48 +1798,11 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
   }
 
   private encrypt(value: string) {
-    const iv = randomBytes(12);
-    const cipher = createCipheriv('aes-256-gcm', this.getEncryptionKey(), iv);
-    const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
-    const authTag = cipher.getAuthTag();
-
-    return `${iv.toString('base64')}:${authTag.toString('base64')}:${encrypted.toString('base64')}`;
+    return encryptSolarmanSecret(value, this.configService);
   }
 
-  private decrypt(value: string) {
-    try {
-      const [ivBase64, authTagBase64, payloadBase64] = value.split(':');
-
-      if (!ivBase64 || !authTagBase64 || !payloadBase64) {
-        return null;
-      }
-
-      const decipher = createDecipheriv(
-        'aes-256-gcm',
-        this.getEncryptionKey(),
-        Buffer.from(ivBase64, 'base64'),
-      );
-      decipher.setAuthTag(Buffer.from(authTagBase64, 'base64'));
-
-      const decrypted = Buffer.concat([
-        decipher.update(Buffer.from(payloadBase64, 'base64')),
-        decipher.final(),
-      ]);
-
-      return decrypted.toString('utf8');
-    } catch {
-      return null;
-    }
-  }
-
-  private getEncryptionKey() {
-    const secret =
-      this.configService.get<string>('SOLARMAN_SETTINGS_SECRET') ||
-      this.configService.get<string>('AI_SETTINGS_SECRET') ||
-      this.configService.get<string>('JWT_SECRET') ||
-      'moka-solar-solarman-settings';
-
-    return createHash('sha256').update(secret).digest();
+  private decrypt(value: string | null | undefined) {
+    return decryptSolarmanSecret(value, this.configService);
   }
 
   private roundAmount(value: number) {

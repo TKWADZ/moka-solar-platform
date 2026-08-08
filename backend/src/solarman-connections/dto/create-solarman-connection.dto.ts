@@ -12,8 +12,9 @@ export class CreateSolarmanConnectionDto {
   @IsString()
   usernameOrEmail: string;
 
+  @IsOptional()
   @IsString()
-  password: string;
+  password?: string;
 
   @IsOptional()
   @IsString()

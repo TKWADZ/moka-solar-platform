@@ -14,12 +14,17 @@ import {
   toStringValue,
 } from './solarman.parser';
 
-type SolarmanCredentialConfig = {
+export type SolarmanCredentialConfig = {
   usernameOrEmail: string;
-  password: string;
+  password?: string;
+  connectionId?: string;
 };
 
-export type SolarmanProviderType = 'OFFICIAL_OPENAPI' | 'COOKIE_SESSION' | 'MANUAL_IMPORT';
+export type SolarmanProviderType =
+  | 'OFFICIAL_OPENAPI'
+  | 'WEB_OAUTH_REFRESH_TOKEN'
+  | 'COOKIE_SESSION'
+  | 'MANUAL_IMPORT';
 
 type SolarmanMode = 'official' | 'web';
 type SolarmanRequestMethod = 'GET' | 'POST';
@@ -53,6 +58,8 @@ type SolarmanSession = {
   authHeader: string | null;
   cookieJar: string | null;
   expiresAt?: number | null;
+  authorizationScheme?: 'bearer' | 'raw' | null;
+  allowCookies?: boolean;
 };
 
 export type SolarmanPersistedSession = {
@@ -60,6 +67,8 @@ export type SolarmanPersistedSession = {
   token?: string | null;
   cookieJar?: string | null;
   expiresAt?: number | null;
+  authorizationScheme?: 'bearer' | 'raw' | null;
+  allowCookies?: boolean;
 };
 
 type TokenCacheValue = {
@@ -100,13 +109,22 @@ export class SolarmanClientService {
     const cacheKey = this.createCacheKey(credentials, mode, config);
 
     const token = session.token || null;
+    const authorizationScheme = session.authorizationScheme || null;
+    const allowCookies = session.allowCookies !== false;
     this.tokenCache.set(cacheKey, {
       session: {
         mode,
         token,
         authHeader:
-          mode === 'official' ? this.buildOfficialAuthorization(token) : token,
-        cookieJar: session.cookieJar || null,
+          mode === 'official'
+            ? this.buildOfficialAuthorization(token)
+            : authorizationScheme === 'bearer' && token
+              ? `Bearer ${token}`
+              : token,
+        cookieJar: allowCookies ? session.cookieJar || null : null,
+        expiresAt: session.expiresAt || null,
+        authorizationScheme,
+        allowCookies,
       },
       expiresAt:
         session.expiresAt && session.expiresAt > Date.now()
@@ -521,8 +539,15 @@ export class SolarmanClientService {
             mode,
             token: options.persistedSession.token || null,
             cookieJar: options.persistedSession.cookieJar || null,
+            expiresAt: options.persistedSession.expiresAt || null,
+            authorizationScheme: options.persistedSession.authorizationScheme || null,
+            allowCookies: options.persistedSession.allowCookies,
           },
-          mode === 'web' ? 'COOKIE_SESSION' : 'OFFICIAL_OPENAPI',
+          mode === 'web' && options.persistedSession.authorizationScheme === 'bearer'
+            ? 'WEB_OAUTH_REFRESH_TOKEN'
+            : mode === 'web'
+              ? 'COOKIE_SESSION'
+              : 'OFFICIAL_OPENAPI',
         );
       }
 
@@ -803,8 +828,14 @@ export class SolarmanClientService {
           token: options.persistedSession.token || null,
           cookieJar: options.persistedSession.cookieJar || null,
           expiresAt: options.persistedSession.expiresAt || null,
+          authorizationScheme: options.persistedSession.authorizationScheme || null,
+          allowCookies: options.persistedSession.allowCookies,
         },
-        mode === 'web' ? 'COOKIE_SESSION' : 'OFFICIAL_OPENAPI',
+        mode === 'web' && options.persistedSession.authorizationScheme === 'bearer'
+          ? 'WEB_OAUTH_REFRESH_TOKEN'
+          : mode === 'web'
+            ? 'COOKIE_SESSION'
+            : 'OFFICIAL_OPENAPI',
       );
     }
 
@@ -881,6 +912,9 @@ export class SolarmanClientService {
       throw new BadRequestException(
         'Chua co SOLARMAN_APP_ID va SOLARMAN_APP_SECRET de dang nhap official API.',
       );
+    }
+    if (!credentials.password) {
+      throw new BadRequestException('Chua co mat khau cho SOLARMAN official API.');
     }
 
     const passwordHash = this.sha256(credentials.password);
@@ -992,7 +1026,9 @@ export class SolarmanClientService {
         Accept: 'application/json, text/plain, */*',
         ...(mode === 'web' ? this.buildWebHeaders(config) : {}),
         ...(session?.authHeader ? { Authorization: session.authHeader } : {}),
-        ...(session?.cookieJar ? { Cookie: session.cookieJar } : {}),
+        ...(session?.allowCookies !== false && session?.cookieJar
+          ? { Cookie: session.cookieJar }
+          : {}),
       };
 
       let body: string | undefined;
@@ -1019,7 +1055,10 @@ export class SolarmanClientService {
       });
 
       const text = await response.text();
-      const cookieJar = this.extractCookieJar(response, session?.cookieJar || null);
+      const cookieJar =
+        session?.allowCookies === false
+          ? null
+          : this.extractCookieJar(response, session?.cookieJar || null);
       let parsedBody: Record<string, unknown> = {};
 
       if (text.trim()) {
@@ -1161,7 +1200,7 @@ export class SolarmanClientService {
         ? `${config.webLoginUrl}|${config.webStationListUrl}|${config.webMonthlyUrls.join(',')}|${config.webDefaultArea}|${config.webSystemCode}`
         : `${config.baseUrl}|${config.appId}`;
 
-    return `${mode}|${scope}|${credentials.usernameOrEmail}|${this.sha256(credentials.password)}`;
+    return `${mode}|${scope}|${credentials.connectionId || credentials.usernameOrEmail}|${this.sha256(credentials.password || '')}`;
   }
 
   private buildWebDeviceRequests(config: SolarmanBaseConfig, stationId: string): SolarmanRequestPlan[] {

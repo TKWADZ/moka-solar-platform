@@ -7,6 +7,7 @@ import { DeyeTelemetrySyncService } from '../deye-connections/deye-telemetry-syn
 import { LuxPowerConnectionsService } from '../luxpower-connections/luxpower-connections.service';
 import { MonthlyPvBillingsService } from '../monthly-pv-billings/monthly-pv-billings.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { SolarmanConnectionsService } from '../solarman-connections/solarman-connections.service';
 
 type SyncScope = 'REALTIME' | 'HISTORY' | 'DAY_CLOSE';
 type SyncTier = 'ACTIVE_VIEW' | 'ONLINE' | 'IDLE' | 'BACKOFF';
@@ -35,6 +36,7 @@ export class MonitorSyncService {
     private readonly deyeHistorySyncService: DeyeHistorySyncService,
     private readonly luxPowerConnectionsService: LuxPowerConnectionsService,
     private readonly monthlyPvBillingsService: MonthlyPvBillingsService,
+    private readonly solarmanConnectionsService: SolarmanConnectionsService,
   ) {}
 
   @Interval(60_000)
@@ -262,6 +264,19 @@ export class MonitorSyncService {
     }
 
     if (provider === 'SOLARMAN') {
+      if (system.solarmanConnection?.providerType === 'WEB_OAUTH_REFRESH_TOKEN') {
+        const snapshot = await this.solarmanConnectionsService.syncRealtimeSystem(
+          system.solarmanConnectionId,
+          system.id,
+        );
+        await this.storeRealtimeMetric(system.id, provider, snapshot);
+        return {
+          systemCode: system.systemCode,
+          provider,
+          monitorAt: snapshot.fetchedAt,
+        };
+      }
+
       const result = await this.energyRecordsService.syncFromSolarman(system.id, {
         stationId: system.monitoringPlantId || system.stationId,
       });
@@ -324,6 +339,22 @@ export class MonitorSyncService {
     }
 
     if (provider === 'SOLARMAN') {
+      if (system.solarmanConnection?.providerType === 'WEB_OAUTH_REFRESH_TOKEN') {
+        const result = await this.solarmanConnectionsService.syncNow(
+          system.solarmanConnectionId,
+          {
+            year,
+            stationIds: [system.monitoringPlantId || system.stationId],
+            createMissingSystems: false,
+          },
+        );
+        return {
+          provider,
+          monitorAt: result.connection.lastSuccessfulSyncAt || new Date().toISOString(),
+          billingSynced: result.syncedBillings > 0,
+        };
+      }
+
       const result = await this.energyRecordsService.syncFromSolarman(system.id, {
         stationId: system.monitoringPlantId || system.stationId,
         recordDate: this.startOfUtcDay(now).toISOString(),
@@ -731,6 +762,11 @@ export class MonitorSyncService {
         defaultDiscountAmount: true,
         deyeConnectionId: true,
         solarmanConnectionId: true,
+        solarmanConnection: {
+          select: {
+            providerType: true,
+          },
+        },
         luxPowerConnection: {
           select: {
             id: true,

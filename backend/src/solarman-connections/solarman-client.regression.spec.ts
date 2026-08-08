@@ -288,6 +288,7 @@ describe('SOLARMAN provider regression', () => {
       {} as any,
       {} as any,
       {} as any,
+      {} as any,
     );
     const serialized = (service as any).serializeConnection(
       {
@@ -298,6 +299,8 @@ describe('SOLARMAN provider regression', () => {
         passwordEncrypted: 'encrypted-password',
         accessToken: 'secret-access-token',
         refreshToken: 'secret-refresh-token',
+        accessTokenEncrypted: 'secret-encrypted-access-token',
+        refreshTokenEncrypted: 'secret-encrypted-refresh-token',
         cookieJar: { persisted: true },
         cookieJarEncrypted: 'secret-cookie-value',
         status: 'AUTH_REQUIRED',
@@ -311,8 +314,81 @@ describe('SOLARMAN provider regression', () => {
     assert.equal(serialized.accessTokenPreview, undefined);
     assert.equal(serialized.accessToken, undefined);
     assert.equal(serialized.refreshToken, undefined);
+    assert.equal(serialized.accessTokenEncrypted, undefined);
+    assert.equal(serialized.refreshTokenEncrypted, undefined);
     assert.equal(serialized.cookieJar, undefined);
     assert.equal(serialized.cookieJarEncrypted, undefined);
     assert.equal(serialized.statusSummary.authStatus, 'AUTH_REQUIRED');
+  });
+
+  it('drops password material and requires discovery when switching to web OAuth', async () => {
+    const existing = {
+      id: 'fixture-connection',
+      accountName: 'Fixture connection',
+      providerType: 'COOKIE_SESSION',
+      usernameOrEmail: 'fixture-user',
+      passwordEncrypted: 'fixture-legacy-encrypted-password',
+      status: 'ACTIVE',
+      accessToken: null,
+      refreshToken: null,
+      accessTokenEncrypted: null,
+      refreshTokenEncrypted: null,
+      accessTokenExpiresAt: null,
+      lastSuccessfulRefreshAt: null,
+      lastRefreshErrorCode: null,
+      lastRefreshErrorMessage: null,
+      reauthorizationRequiredAt: null,
+      cookieJar: null,
+      cookieJarEncrypted: null,
+      syncLogs: [],
+      systems: [],
+      debugSnapshots: [],
+    };
+    let updatedData: Record<string, unknown> = {};
+    let auditPayload: Record<string, unknown> = {};
+    let invalidatedConnectionId = '';
+    const prisma = {
+      solarmanConnection: {
+        findFirst: async () => existing,
+        update: async ({ data }: { data: Record<string, unknown> }) => {
+          updatedData = data;
+          return { ...existing, ...data };
+        },
+      },
+    };
+    const auditLogs = {
+      log: async ({ payload }: { payload: Record<string, unknown> }) => {
+        auditPayload = payload;
+      },
+    };
+    const tokenService = {
+      invalidate: (connectionId: string) => {
+        invalidatedConnectionId = connectionId;
+      },
+    };
+    const service = new SolarmanConnectionsService(
+      prisma as any,
+      config(),
+      auditLogs as any,
+      {} as any,
+      {} as any,
+      tokenService as any,
+    );
+
+    await service.update(
+      existing.id,
+      {
+        providerType: 'WEB_OAUTH_REFRESH_TOKEN',
+        password: 'fixture-hidden-password-must-not-persist',
+        status: 'VERIFIED',
+      },
+      'fixture-actor',
+    );
+
+    assert.equal(updatedData.passwordEncrypted, null);
+    assert.equal(updatedData.status, 'CONFIGURED');
+    assert.equal(auditPayload.passwordChanged, false);
+    assert.doesNotMatch(JSON.stringify(auditPayload), /fixture-hidden-password/);
+    assert.equal(invalidatedConnectionId, existing.id);
   });
 });

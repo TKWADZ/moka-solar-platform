@@ -4,11 +4,13 @@ import { SolarmanCookieSessionProvider } from './solarman-cookie-session.provide
 import { SolarmanManualImportProvider } from './solarman-manual-import.provider';
 import { SolarmanOfficialOpenApiProvider } from './solarman-official-openapi.provider';
 import { SolarmanProvider } from './solarman-provider.interface';
+import { SolarmanWebOAuthProvider } from './solarman-web-oauth.provider';
 
 @Injectable()
 export class SolarmanProviderRegistry {
   constructor(
     private readonly officialOpenApiProvider: SolarmanOfficialOpenApiProvider,
+    private readonly webOAuthProvider: SolarmanWebOAuthProvider,
     private readonly cookieSessionProvider: SolarmanCookieSessionProvider,
     private readonly manualImportProvider: SolarmanManualImportProvider,
   ) {}
@@ -17,6 +19,8 @@ export class SolarmanProviderRegistry {
     switch ((providerType || 'COOKIE_SESSION').trim().toUpperCase()) {
       case 'OFFICIAL_OPENAPI':
         return this.officialOpenApiProvider;
+      case 'WEB_OAUTH_REFRESH_TOKEN':
+        return this.webOAuthProvider;
       case 'MANUAL_IMPORT':
         return this.manualImportProvider;
       case 'COOKIE_SESSION':

@@ -11,7 +11,8 @@ import {
 
 export type SolarmanProviderCredentials = {
   usernameOrEmail: string;
-  password: string;
+  password?: string;
+  connectionId?: string;
 };
 
 export type SolarmanProviderRequestOptions = {

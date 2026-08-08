@@ -3,6 +3,7 @@ import { DeyeConnectionsModule } from '../deye-connections/deye-connections.modu
 import { EnergyRecordsModule } from '../energy-records/energy-records.module';
 import { LuxPowerConnectionsModule } from '../luxpower-connections/luxpower-connections.module';
 import { MonthlyPvBillingsModule } from '../monthly-pv-billings/monthly-pv-billings.module';
+import { SolarmanConnectionsModule } from '../solarman-connections/solarman-connections.module';
 import { MonitorSyncService } from './monitor-sync.service';
 
 @Module({
@@ -10,6 +11,7 @@ import { MonitorSyncService } from './monitor-sync.service';
     EnergyRecordsModule,
     DeyeConnectionsModule,
     LuxPowerConnectionsModule,
+    SolarmanConnectionsModule,
     MonthlyPvBillingsModule,
   ],
   providers: [MonitorSyncService],

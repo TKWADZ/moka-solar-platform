@@ -626,7 +626,17 @@ model SolarmanConnection {
   accountName          String
   providerType         String              @default("COOKIE_SESSION")
   usernameOrEmail      String
-  passwordEncrypted    String
+  passwordEncrypted    String?
+  accessTokenEncrypted String?
+  refreshTokenEncrypted String?
+  accessTokenExpiresAt DateTime?
+  lastSuccessfulRefreshAt DateTime?
+  lastRefreshErrorCode String?
+  lastRefreshErrorMessage String?
+  reauthorizationRequiredAt DateTime?
+  lastSuccessfulStationSyncAt DateTime?
+  lastDiscoveredStationCount Int?
+  // Deprecated plaintext fields retained only for a safe lazy migration.
   accessToken          String?
   refreshToken         String?
   cookieJar            Json?

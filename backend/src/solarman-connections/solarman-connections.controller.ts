@@ -17,6 +17,7 @@ import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { FeaturePlugin } from '../feature-plugins/feature-plugin.decorator';
 import { FeaturePluginGuard } from '../feature-plugins/feature-plugin.guard';
 import { CreateSolarmanConnectionDto } from './dto/create-solarman-connection.dto';
+import { AuthorizeSolarmanConnectionDto } from './dto/authorize-solarman-connection.dto';
 import { SyncSolarmanConnectionDto } from './dto/sync-solarman-connection.dto';
 import { UpdateSolarmanConnectionDto } from './dto/update-solarman-connection.dto';
 import { SolarmanConnectionsService } from './solarman-connections.service';
@@ -83,6 +84,21 @@ export class SolarmanConnectionsController {
   @Permissions('integrations.execute')
   testConnection(@Param('id') id: string, @CurrentUser() actor: AuthenticatedUser) {
     return this.solarmanConnectionsService.testConnection(id, actor.sub);
+  }
+
+  @Post(':id/authorize')
+  @Roles('SUPER_ADMIN', 'ADMIN')
+  @Permissions('integration.secrets.manage')
+  authorize(
+    @Param('id') id: string,
+    @Body() dto: AuthorizeSolarmanConnectionDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.solarmanConnectionsService.authorizeWebOAuth(
+      id,
+      dto.refreshToken,
+      actor.sub,
+    );
   }
 
   @Post(':id/sync')
