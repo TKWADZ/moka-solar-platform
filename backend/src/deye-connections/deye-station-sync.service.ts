@@ -154,7 +154,10 @@ export class DeyeStationSyncService {
       }
 
       const now = new Date();
-      const nextCapacity = station.installedCapacityKw ?? toNumber(targetSystem.capacityKwp);
+      const confirmedCapacity = toNumber(targetSystem.capacityKwp);
+      const nextCapacity = confirmedCapacity > 0
+        ? targetSystem.capacityKwp
+        : station.installedCapacityKw ?? confirmedCapacity;
       const latestMonitorAt = station.lastUpdateTime ? new Date(station.lastUpdateTime) : now;
       const primaryDevice =
         station.devices.find((device) => (device.deviceType || '').toUpperCase().includes('INVERTER')) ||
@@ -171,7 +174,7 @@ export class DeyeStationSyncService {
           stationId: station.stationId,
           stationName: station.stationName || targetSystem.name,
           capacityKwp: nextCapacity,
-          installedCapacityKwp: station.installedCapacityKw ?? nextCapacity,
+          installedCapacityKwp: station.installedCapacityKw ?? undefined,
           inverterBrand: targetSystem.inverterBrand || 'Deye',
           inverterModel:
             primaryDevice?.productId ||
@@ -179,14 +182,13 @@ export class DeyeStationSyncService {
             targetSystem.inverterModel,
           hasBattery: false,
           timeZone: station.timezone,
-          location: station.locationAddress ?? targetSystem.location,
-          locationAddress: station.locationAddress,
-          latitude: station.latitude,
-          longitude: station.longitude,
-          gridInterconnectionType: station.gridInterconnectionType,
-          stationType: station.stationType,
-          ownerName: station.ownerName,
-          startedAt: station.startedAt ? new Date(station.startedAt) : null,
+          locationAddress: station.locationAddress ?? undefined,
+          latitude: station.latitude ?? undefined,
+          longitude: station.longitude ?? undefined,
+          gridInterconnectionType: station.gridInterconnectionType ?? undefined,
+          stationType: station.stationType ?? undefined,
+          ownerName: station.ownerName ?? undefined,
+          startedAt: station.startedAt ? new Date(station.startedAt) : undefined,
           externalPayload: station.raw as any,
           currentMonthGenerationKwh: station.currentMonthGenerationKwh,
           currentYearGenerationKwh: station.currentYearGenerationKwh,
@@ -208,6 +210,8 @@ export class DeyeStationSyncService {
           } as any,
           latestMonitorAt,
           lastStationSyncAt: now,
+          providerLastSeenAt: now,
+          providerDisconnectedAt: null,
         },
       });
 
@@ -332,25 +336,24 @@ export class DeyeStationSyncService {
 
     const sharedData = {
       stationId: station.stationId,
-      stationName: station.stationName,
+      stationName: station.stationName ?? undefined,
       sourceSystem: 'DEYE',
-      installedCapacityKwp: station.installedCapacityKw,
+      installedCapacityKwp: station.installedCapacityKw ?? undefined,
       hasBattery: false,
       timeZone: station.timezone,
-      location: station.locationAddress,
-      locationAddress: station.locationAddress,
-      latitude: station.latitude,
-      longitude: station.longitude,
-      gridInterconnectionType: station.gridInterconnectionType,
-      stationType: station.stationType,
-      ownerName: station.ownerName,
-      startedAt: station.startedAt ? new Date(station.startedAt) : null,
+      locationAddress: station.locationAddress ?? undefined,
+      latitude: station.latitude ?? undefined,
+      longitude: station.longitude ?? undefined,
+      gridInterconnectionType: station.gridInterconnectionType ?? undefined,
+      stationType: station.stationType ?? undefined,
+      ownerName: station.ownerName ?? undefined,
+      startedAt: station.startedAt ? new Date(station.startedAt) : undefined,
       externalPayload: station.raw as any,
       deyeConnectionId: connection.id,
-      currentMonthGenerationKwh: station.currentMonthGenerationKwh,
-      currentYearGenerationKwh: station.currentYearGenerationKwh,
-      totalGenerationKwh: station.totalGenerationKwh,
-      currentGenerationPowerKw: station.currentGenerationPowerKw,
+      currentMonthGenerationKwh: station.currentMonthGenerationKwh ?? undefined,
+      currentYearGenerationKwh: station.currentYearGenerationKwh ?? undefined,
+      totalGenerationKwh: station.totalGenerationKwh ?? undefined,
+      currentGenerationPowerKw: station.currentGenerationPowerKw ?? undefined,
       latestMonitorSnapshot: {
         provider: 'DEYE',
         stationId: station.stationId,
@@ -365,8 +368,10 @@ export class DeyeStationSyncService {
         deviceModel: primaryDevice?.productId || primaryDevice?.deviceType || null,
         raw: station.raw,
       } as any,
-      latestMonitorAt,
+      latestMonitorAt: latestMonitorAt ?? undefined,
       lastStationSyncAt: new Date(),
+      providerLastSeenAt: new Date(),
+      providerDisconnectedAt: null,
     };
 
     if (existing) {
@@ -374,8 +379,6 @@ export class DeyeStationSyncService {
         where: { id: existing.id },
         data: {
           ...sharedData,
-          name: station.stationName || existing.name,
-          systemType: station.stationType || existing.systemType,
           capacityKwp: toNumber(existing.capacityKwp) > 0 ? existing.capacityKwp : nextCapacity,
           inverterBrand: existing.inverterBrand || 'Deye',
           inverterModel:

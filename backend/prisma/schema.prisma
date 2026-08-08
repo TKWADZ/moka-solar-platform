@@ -443,6 +443,8 @@ model SolarSystem {
   solarmanConnectionId String?
   solarmanConnection  SolarmanConnection? @relation(fields: [solarmanConnectionId], references: [id], onDelete: SetNull)
   luxPowerConnection  LuxPowerConnection?
+  luxPowerDiscoveryConnectionId String?
+  luxPowerDiscoveryConnection LuxPowerConnection? @relation("LuxPowerDiscoveredSystems", fields: [luxPowerDiscoveryConnectionId], references: [id], onDelete: SetNull)
   solarmanDebugSnapshots SolarmanDebugSnapshot[]
   luxPowerDebugSnapshots LuxPowerDebugSnapshot[]
   luxPowerNormalizedMetrics LuxPowerNormalizedMetric[]
@@ -462,6 +464,8 @@ model SolarSystem {
   lastSyncErrorStatus String?
   lastSyncErrorMessage String?
   lastSyncErrorAt     DateTime?
+  providerLastSeenAt  DateTime?
+  providerDisconnectedAt DateTime?
   nextRealtimeSyncAt  DateTime?
   nextHistorySyncAt   DateTime?
   installDate         DateTime?
@@ -487,6 +491,7 @@ model SolarSystem {
   @@index([customerId])
   @@index([deyeConnectionId])
   @@index([solarmanConnectionId])
+  @@index([luxPowerDiscoveryConnectionId])
   @@index([monitoringPlantId])
   @@index([status])
   @@index([deletedAt])
@@ -665,6 +670,7 @@ model LuxPowerConnection {
   customer              Customer?        @relation(fields: [customerId], references: [id], onDelete: SetNull)
   solarSystemId         String?          @unique
   solarSystem           SolarSystem?     @relation(fields: [solarSystemId], references: [id], onDelete: SetNull)
+  discoveredSystems     SolarSystem[]    @relation("LuxPowerDiscoveredSystems")
   contractId            String?
   contract              Contract?        @relation(fields: [contractId], references: [id], onDelete: SetNull)
   billingRuleLabel      String?

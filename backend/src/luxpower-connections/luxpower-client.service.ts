@@ -98,6 +98,15 @@ export type LuxPowerMonitoringBundle = {
   warnings: string[];
 };
 
+export type LuxPowerDiscoveredPlant = LuxPowerPlantRecord & {
+  inverters: LuxPowerInverterRecord[];
+  rawPayload: {
+    plant: Record<string, unknown>;
+    inverterList: unknown | null;
+  };
+  warning: string | null;
+};
+
 class LuxPowerSessionExpiredError extends Error {
   constructor(message = 'LuxPower session expired') {
     super(message);
@@ -157,6 +166,71 @@ export class LuxPowerClientService {
 
     return this.withSessionRetry(connection, async (session) => {
       return this.fetchMonitoringBundle(session, connection, { includeHistoryWindows: false });
+    });
+  }
+
+  async discoverPlants(connection: LuxPowerConnectionConfig) {
+    return this.withSessionRetry(connection, async (session) => {
+      const plantListPayload = await this.requestJson('/web/config/plant/list/viewer', {
+        session,
+        payload: {
+          page: 1,
+          rows: 200,
+          sort: 'createDate',
+          order: 'desc',
+          forSelect: true,
+        },
+        referer: session.referer,
+      });
+      const plants = parseLuxPowerPlants(plantListPayload);
+      const discovered: LuxPowerDiscoveredPlant[] = [];
+
+      for (const plant of plants) {
+        try {
+          const inverterListPayload = await this.requestJson('/web/config/inverter/list', {
+            session,
+            payload: {
+              plantId: plant.plantId,
+              page: 1,
+              rows: 200,
+              sort: 'createDate',
+              order: 'desc',
+            },
+            referer: session.referer,
+          });
+
+          discovered.push({
+            ...plant,
+            inverters: parseLuxPowerInverters(inverterListPayload),
+            rawPayload: {
+              plant: plant.raw,
+              inverterList: inverterListPayload,
+            },
+            warning: null,
+          });
+        } catch (error) {
+          discovered.push({
+            ...plant,
+            inverters: [],
+            rawPayload: {
+              plant: plant.raw,
+              inverterList: null,
+            },
+            warning:
+              error instanceof Error
+                ? error.message
+                : 'Khong the lay danh sach inverter cua plant LuxPower.',
+          });
+        }
+      }
+
+      return {
+        sessionMode: session.mode,
+        plants: discovered,
+        rawPayload: {
+          plantList: plantListPayload,
+        },
+      };
     });
   }
 

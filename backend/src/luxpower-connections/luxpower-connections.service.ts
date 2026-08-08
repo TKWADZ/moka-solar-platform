@@ -26,7 +26,6 @@ import { decryptSecret, encryptSecret } from '../common/helpers/secret.helper';
 import { MonthlyPvBillingsService } from '../monthly-pv-billings/monthly-pv-billings.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
-import { deriveSystemStatusFromMonitoring } from '../systems/system-status.util';
 import { CreateLuxPowerConnectionDto } from './dto/create-luxpower-connection.dto';
 import { SyncLuxPowerConnectionDto } from './dto/sync-luxpower-connection.dto';
 import { UpdateLuxPowerConnectionDto } from './dto/update-luxpower-connection.dto';
@@ -467,6 +466,41 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
 
       throw error;
     }
+  }
+
+  async discoverPlants(id: string, actorId?: string) {
+    const connection = await this.getConnectionOrThrow(id);
+    const result = await this.luxPowerClientService.discoverPlants(
+      this.toClientConfig(connection),
+    );
+    const now = new Date();
+
+    await this.prisma.luxPowerConnection.update({
+      where: { id },
+      data: {
+        status: 'ACTIVE',
+        authReadyAt: connection.authReadyAt || now,
+        lastLoginAt: result.sessionMode === 'LOGIN' ? now : connection.lastLoginAt,
+        lastError: null,
+      },
+    });
+
+    await this.auditLogsService.log({
+      userId: actorId,
+      action: 'LUXPOWER_PLANTS_DISCOVERED',
+      entityType: 'LuxPowerConnection',
+      entityId: id,
+      payload: {
+        plantCount: result.plants.length,
+        sessionMode: result.sessionMode,
+      },
+    });
+
+    return {
+      connection: await this.findOne(id),
+      sessionMode: result.sessionMode,
+      plants: result.plants,
+    };
   }
 
   async previewPipeline(
@@ -1145,11 +1179,8 @@ export class LuxPowerConnectionsService implements OnModuleInit, OnModuleDestroy
               lastBillingSyncAt: syncTime,
             }
           : {}),
-        status: deriveSystemStatusFromMonitoring({
-          currentStatus: system.status,
-          connectionStatus,
-          latestTelemetryAt: syncTime,
-        }),
+        providerLastSeenAt: syncTime,
+        providerDisconnectedAt: null,
         latestMonitorSnapshot: {
           ...existingSnapshot,
           provider: 'LUXPOWER',

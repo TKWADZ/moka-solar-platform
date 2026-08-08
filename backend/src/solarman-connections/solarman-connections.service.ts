@@ -337,6 +337,16 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
     }
   }
 
+  async discoverPlants(id: string, actorId?: string) {
+    const result = await this.testConnection(id, actorId);
+
+    return {
+      connection: result.connection,
+      stations: result.stations,
+      sampleDevices: result.sampleDevices,
+    };
+  }
+
   async syncNow(id: string, dto: SyncSolarmanConnectionDto, actorId?: string) {
     const connection = await this.getConnectionOrThrow(id);
     return this.syncSingleConnection(connection, dto, actorId, 'MANUAL_SYNC');
@@ -690,12 +700,12 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         where: { id: existing.id },
         data: {
           stationId: station.stationId,
-          stationName: station.stationName,
-          sourceSystem: station.sourceSystem,
-          hasBattery: station.hasBattery,
-          timeZone: station.timezone,
+          stationName: station.stationName ?? undefined,
+          sourceSystem: 'SOLARMAN',
+          hasBattery: station.hasBattery ?? undefined,
+          timeZone: station.timezone ?? undefined,
           externalPayload: station.raw as any,
-          installedCapacityKwp: station.installedCapacityKw,
+          installedCapacityKwp: station.installedCapacityKw ?? undefined,
           capacityKwp:
             toNumber(existing.capacityKwp) > 0
               ? existing.capacityKwp
@@ -714,22 +724,24 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
             lastUpdateTime: station.lastUpdateTime,
             raw: station.raw,
           } as any,
-          latestMonitorAt,
-          currentMonthGenerationKwh: station.generationMonthKwh,
-          currentYearGenerationKwh: station.generationYearKwh,
-          totalGenerationKwh: station.generationTotalKwh,
-          currentGenerationPowerKw: station.generationPowerKw,
+          latestMonitorAt: latestMonitorAt ?? undefined,
+          currentMonthGenerationKwh: station.generationMonthKwh ?? undefined,
+          currentYearGenerationKwh: station.generationYearKwh ?? undefined,
+          totalGenerationKwh: station.generationTotalKwh ?? undefined,
+          currentGenerationPowerKw: station.generationPowerKw ?? undefined,
+          providerLastSeenAt: new Date(),
+          providerDisconnectedAt: null,
         },
       });
     }
 
-    if (!createMissingSystems || !connection.customerId) {
+    if (!createMissingSystems) {
       return null;
     }
 
     return this.prisma.solarSystem.create({
       data: {
-        customerId: connection.customerId,
+        customerId: connection.customerId || null,
         systemCode: generateCode('SYS-SLRM'),
         name: station.stationName || `SOLARMAN ${station.stationId}`,
         systemType: station.powerType || 'PV',
@@ -741,7 +753,7 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
         monitoringPlantId: station.stationId,
         stationId: station.stationId,
         stationName: station.stationName,
-        sourceSystem: station.sourceSystem,
+        sourceSystem: 'SOLARMAN',
         hasBattery: station.hasBattery,
         timeZone: station.timezone,
         externalPayload: station.raw as any,
@@ -765,6 +777,8 @@ export class SolarmanConnectionsService implements OnModuleInit, OnModuleDestroy
           raw: station.raw,
         } as any,
         latestMonitorAt,
+        providerLastSeenAt: new Date(),
+        providerDisconnectedAt: null,
         status: 'ACTIVE',
       },
     });

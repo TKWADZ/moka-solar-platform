@@ -12,15 +12,23 @@ import { CurrentUser } from '../common/decorators/current-user.decorator';
 import { AuthenticatedUser } from '../common/types/authenticated-user.type';
 import { FeaturePlugin } from '../feature-plugins/feature-plugin.decorator';
 import { FeaturePluginGuard } from '../feature-plugins/feature-plugin.guard';
+import { AssignSystemCustomerDto } from './dto/assign-system-customer.dto';
+import { DiscoverProviderPlantsDto } from './dto/discover-provider-plants.dto';
+import { ImportProviderPlantsDto } from './dto/import-provider-plants.dto';
+import { LinkImportedSystemDto } from './dto/link-imported-system.dto';
+import { ProviderPlantDiscoveryService } from './provider-discovery/provider-plant-discovery.service';
 
 @Controller('systems')
 @FeaturePlugin('systems')
 @UseGuards(JwtAuthGuard, RolesGuard, FeaturePluginGuard)
 export class SystemsController {
-  constructor(private readonly systemsService: SystemsService) {}
+  constructor(
+    private readonly systemsService: SystemsService,
+    private readonly providerDiscoveryService: ProviderPlantDiscoveryService,
+  ) {}
 
   @Get()
-  @Roles('SUPER_ADMIN', 'ADMIN', 'STAFF')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')
   findAll() {
     return this.systemsService.findAll();
   }
@@ -29,6 +37,32 @@ export class SystemsController {
   @Roles('CUSTOMER')
   findMine(@CurrentUser() user: AuthenticatedUser) {
     return this.systemsService.findMine(user.customerId!);
+  }
+
+  @Get('provider-discovery/connections')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')
+  listProviderConnections() {
+    return this.providerDiscoveryService.listConnections();
+  }
+
+  @Post('provider-discovery/preview')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')
+  discoverProviderPlants(@Body() dto: DiscoverProviderPlantsDto) {
+    return this.providerDiscoveryService.discoverPlants(dto.provider, dto.connectionId);
+  }
+
+  @Post('provider-discovery/import')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
+  importProviderPlants(
+    @Body() dto: ImportProviderPlantsDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.providerDiscoveryService.importPlants(
+      dto.provider,
+      dto.connectionId,
+      dto.externalPlantIds,
+      { userId: actor.sub },
+    );
   }
 
   @Post('dashboard-presence')
@@ -41,25 +75,49 @@ export class SystemsController {
   }
 
   @Get(':id')
-  @Roles('SUPER_ADMIN', 'ADMIN', 'STAFF')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')
   findOne(@Param('id') id: string) {
     return this.systemsService.findOne(id);
   }
 
   @Post()
-  @Roles('SUPER_ADMIN', 'ADMIN', 'STAFF')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')
   create(@Body() dto: CreateSystemDto, @CurrentUser() actor: AuthenticatedUser) {
     return this.systemsService.create(dto, actor.sub);
   }
 
   @Patch(':id')
-  @Roles('SUPER_ADMIN', 'ADMIN', 'STAFF')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')
   update(
     @Param('id') id: string,
     @Body() dto: UpdateSystemDto,
     @CurrentUser() actor: AuthenticatedUser,
   ) {
     return this.systemsService.update(id, dto, actor.sub);
+  }
+
+  @Patch(':id/assign-customer')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER', 'STAFF')
+  assignCustomer(
+    @Param('id') id: string,
+    @Body() dto: AssignSystemCustomerDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.providerDiscoveryService.assignCustomer(id, dto.customerId, actor.sub);
+  }
+
+  @Post(':id/link-imported-system')
+  @Roles('SUPER_ADMIN', 'ADMIN', 'MANAGER')
+  linkImportedSystem(
+    @Param('id') id: string,
+    @Body() dto: LinkImportedSystemDto,
+    @CurrentUser() actor: AuthenticatedUser,
+  ) {
+    return this.providerDiscoveryService.linkImportedSystem(
+      id,
+      dto.targetSystemId,
+      actor.sub,
+    );
   }
 
   @Post(':id/deye-preview')

@@ -45,7 +45,20 @@ export class SystemsService {
           orderBy: [{ year: 'desc' }, { month: 'desc' }],
           take: 24,
         },
+        deyeConnection: {
+          select: { id: true, accountName: true, status: true },
+        },
+        solarmanConnection: {
+          select: { id: true, accountName: true, status: true },
+        },
         luxPowerConnection: {
+          select: {
+            id: true,
+            accountName: true,
+            status: true,
+          },
+        },
+        luxPowerDiscoveryConnection: {
           select: {
             id: true,
             accountName: true,
@@ -89,7 +102,20 @@ export class SystemsService {
             servicePackage: true,
           },
         },
+        deyeConnection: {
+          select: { id: true, accountName: true, status: true },
+        },
+        solarmanConnection: {
+          select: { id: true, accountName: true, status: true },
+        },
         luxPowerConnection: {
+          select: {
+            id: true,
+            accountName: true,
+            status: true,
+          },
+        },
+        luxPowerDiscoveryConnection: {
           select: {
             id: true,
             accountName: true,
@@ -134,7 +160,20 @@ export class SystemsService {
             servicePackage: true,
           },
         },
+        deyeConnection: {
+          select: { id: true, accountName: true, status: true },
+        },
+        solarmanConnection: {
+          select: { id: true, accountName: true, status: true },
+        },
         luxPowerConnection: {
+          select: {
+            id: true,
+            accountName: true,
+            status: true,
+          },
+        },
+        luxPowerDiscoveryConnection: {
           select: {
             id: true,
             accountName: true,
@@ -240,11 +279,11 @@ export class SystemsService {
         panelModel: dto.panelModel,
         inverterBrand: dto.inverterBrand,
         inverterModel: dto.inverterModel,
-        monitoringProvider: dto.monitoringProvider,
-        monitoringPlantId: dto.monitoringPlantId,
-        stationId: dto.stationId,
-        stationName: dto.stationName,
-        sourceSystem: dto.sourceSystem,
+        monitoringProvider: null,
+        monitoringPlantId: null,
+        stationId: null,
+        stationName: null,
+        sourceSystem: 'MANUAL',
         defaultUnitPrice: dto.defaultUnitPrice,
         defaultVatRate: normalizedVatRate,
         defaultTaxAmount: dto.defaultTaxAmount,
@@ -269,7 +308,7 @@ export class SystemsService {
 
     await this.auditLogsService.log({
       userId: actorId,
-      action: 'SOLAR_SYSTEM_CREATED',
+      action: 'SOLAR_SYSTEM_MANUAL_CREATED',
       entityType: 'SolarSystem',
       entityId: system.id,
       payload: dto as unknown as Record<string, unknown>,
@@ -287,6 +326,7 @@ export class SystemsService {
           : undefined;
 
     const current = await this.findOne(id);
+    const isManualSystem = !current.sourceSystem || current.sourceSystem === 'MANUAL';
 
     if (dto.customerId && dto.customerId !== current.customerId) {
       await this.ensureCustomerExists(dto.customerId);
@@ -305,17 +345,13 @@ export class SystemsService {
         name: dto.name,
         systemType: dto.systemType,
         capacityKwp: dto.capacityKwp ?? undefined,
-        installedCapacityKwp: dto.capacityKwp ?? undefined,
+        installedCapacityKwp:
+          isManualSystem && dto.capacityKwp !== undefined ? dto.capacityKwp : undefined,
         panelCount: dto.panelCount,
         panelBrand: dto.panelBrand,
         panelModel: dto.panelModel,
         inverterBrand: dto.inverterBrand,
         inverterModel: dto.inverterModel,
-        monitoringProvider: dto.monitoringProvider,
-        monitoringPlantId: dto.monitoringPlantId,
-        stationId: dto.stationId,
-        stationName: dto.stationName,
-        sourceSystem: dto.sourceSystem,
         defaultUnitPrice: dto.defaultUnitPrice,
         defaultVatRate: normalizedVatRate,
         defaultTaxAmount: dto.defaultTaxAmount,
@@ -549,9 +585,33 @@ export class SystemsService {
 
   private serializeSystem(system: any) {
     const binding = this.buildMonitorBinding(system);
+    const publicSystem = { ...system };
+    delete publicSystem.externalPayload;
+
+    const customer = system.customer
+      ? {
+          ...system.customer,
+          user: system.customer.user
+            ? {
+                id: system.customer.user.id,
+                fullName: system.customer.user.fullName,
+                email: system.customer.user.email,
+                avatarUrl: system.customer.user.avatarUrl,
+                phone: system.customer.user.phone,
+                role: system.customer.user.role
+                  ? {
+                      code: system.customer.user.role.code,
+                      name: system.customer.user.role.name,
+                    }
+                  : undefined,
+              }
+            : null,
+        }
+      : system.customer;
 
     return {
-      ...system,
+      ...publicSystem,
+      customer,
       capacityKwp: Number(system.capacityKwp || 0),
       installedCapacityKwp:
         system.installedCapacityKwp !== null && system.installedCapacityKwp !== undefined
@@ -598,13 +658,17 @@ export class SystemsService {
           ? Number(system.longitude)
           : null,
       devices:
-        system.devices?.map((device: any) => ({
-          ...device,
-          collectionTime:
-            device.collectionTime !== null && device.collectionTime !== undefined
-              ? Number(device.collectionTime)
-              : null,
-        })) || [],
+        system.devices?.map((device: any) => {
+          const publicDevice = { ...device };
+          delete publicDevice.externalPayload;
+          return {
+            ...publicDevice,
+            collectionTime:
+              device.collectionTime !== null && device.collectionTime !== undefined
+                ? Number(device.collectionTime)
+                : null,
+          };
+        }) || [],
       status:
         deriveSystemStatusFromMonitoring({
           currentStatus: system.status,
@@ -717,7 +781,7 @@ export class SystemsService {
     }
 
     if (provider === 'LUXPOWER') {
-      return system.luxPowerConnection?.id
+      return system.luxPowerConnection?.id || system.luxPowerDiscoveryConnection?.id
         ? { ready: true, message: null }
         : {
             ready: false,
