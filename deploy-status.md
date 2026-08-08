@@ -11,7 +11,7 @@
 - SOLARMAN scope: Existing official OpenAPI remains preferred; only the current Business web origin and verified device-list fallback path were updated
 - security review: Changed-file secret/PII scan passed; no raw HAR, cookie, token, password, customer address, personal email, or phone was added
 - dependency warning: Existing backend production dependency tree reports 17 advisories (9 moderate, 7 high, 1 critical); automatic force-upgrades were not applied because they include breaking NestJS changes and are outside this provider patch
-- approval requested or not: No
+- approval requested or not: Yes
 - approved or not: No
 - deployed or not: No
 - production changed: No
