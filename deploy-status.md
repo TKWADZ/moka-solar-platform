@@ -1,6 +1,6 @@
 # Deploy Status
 
-## SOLARMAN advisory-lock hotfix (local only)
+## SOLARMAN advisory-lock hotfix (deployed)
 
 - latest task: Fix Prisma runtime failure when PostgreSQL `pg_advisory_xact_lock` returns the unsupported `void` type
 - root cause: Prisma could not deserialize the raw `void` column before the refresh/station sync operation ran
@@ -10,8 +10,10 @@
 - typecheck/build status: Backend typecheck and production build passed
 - database change: None; no migration required
 - approval requested or not: Yes
-- approved or not: No
-- deployed or not: No
+- approved or not: Yes
+- deployed or not: Yes, commit `bff1760d2146e05ca36ed5f6f1bf51b0710122af` via GitHub Actions run `31244449382`
+- production verification: Homepage `200`, `/admin/solarman` `200`, `/api/health` status `ok`, database `up`, and public workflow verification passed
+- production changed: Yes, backend SQL result casting only; no schema migration or production data change
 - rollback target if needed: `a2a1503d97b7b44eb4fb754e3791828ca4477068`
 
 ## SOLARMAN Web OAuth release candidate (local only)
