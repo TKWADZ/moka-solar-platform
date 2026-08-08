@@ -95,6 +95,10 @@ The probe invokes only the verified login, profile, station-type, station-page, 
 
 The 2026-08-08 read-only local probe succeeded without browser cookies or CAPTCHA: profile HTTP `200`, provider status `00000`, one station type, eight unique stations, eight successful detail responses, seven online stations, one offline station, and all eight stations carrying current-day and total-generation fields. The earlier seven-plant expectation is stale because the authorized account now returns eight plants. No plant names, addresses, credentials, session values, or raw payloads were retained.
 
+## Isolated VPS proof
+
+The same implementation commit was verified from a temporary VPS worktree on 2026-08-08. The read-only probe returned profile HTTP `200`, provider status `00000`, one station type, eight unique stations, eight successful detail responses, seven online stations, one offline station, and day/total-generation fields for all eight stations. The cleanup trap removed the temporary worktree after the successful probe. No PM2 process was restarted, no production environment file was read or modified, no database or migration command ran, and the production checkout remained unchanged.
+
 ## PLANT_OWNER behavior
 
 The current account role is compatible with empty `orgId`, `permissions`, and `permissionList`. Discovery validates that a role identity exists but does not require organization or permission arrays to be populated.

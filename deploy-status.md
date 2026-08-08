@@ -1,6 +1,6 @@
 # Deploy Status
 
-## SEMS+ live discovery candidate (local proven, VPS pending)
+## SEMS+ live discovery candidate (local/VPS proven, awaiting approval)
 
 - latest task: Verify current GoodWe SEMS+ login/session and read-only plant discovery before production activation
 - branch: `fix/sems-plus-live-discovery`
@@ -10,9 +10,11 @@
 - test status: Passed 82/82 backend unit/regression tests; Prisma validate/generate, backend typecheck/build, and frontend production build with 51 routes all passed
 - integration test status: Staff-auth e2e skipped because this isolated worktree has no `TEST_DATABASE_URL`; no production database was used
 - secret scan status: Passed changed-tree scan; no credential, token, JWT, private key, HAR, cookie jar, or session artifact found
-- VPS probe status: Not run yet
+- VPS probe status: Passed from an isolated temporary worktree; HTTP `200`, provider status `00000`, 8 unique plants, 8/8 station details, 7 online, 1 offline, and 8 plants with day/total generation fields
+- production impact: None; the VPS probe did not restart PM2, read or modify production `.env`, access the database, run a migration, or change the production checkout
+- implementation commit: `5a7ba0917c338c182fa57b26cefcfcc2c1bd74fc`
 - database change: None; no migration
-- approval requested or not: No
+- approval requested or not: Yes
 - approved or not: No
 - deployed or not: No
 - rollback target if needed: `51ab749fe0bc238c53363b1c89fa503d82e3f5a2`
