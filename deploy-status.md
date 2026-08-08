@@ -7,16 +7,17 @@
 - import preview status: 1 reviewed `AT001` row in `Import ready`, 7 rows in `Needs review`, 64 daily debug rows; unlinked and offline/zero-only plants remain blocked
 - linkage safety: `Import ready` now requires an explicitly approved `stationId -> systemCode` mapping; fuzzy name matching is not used by the preview generator
 - production linkage review: User approved the SEMS+ plant link to `AT001`; the other 7 plants remain unlinked
-- database write status: No database writes performed
-- billing status: Not synced; grid import remains separate from consumption and no zero-only provider row is accepted
+- database write status: Production import completed for exactly 1 `AT001` monthly record for `08/2026`; the other 7 SEMS+ plants were not uploaded
+- billing status: Provisional `ESTIMATED` billing was synchronized from 415.1 kWh PV; grid import remains separate from consumption and no consumption value was invented
 - unit test status: Passed 26/26
 - typecheck status: Passed backend `npm run typecheck`
 - Prisma status: Schema valid and Prisma Client generated successfully; no migration was created or applied
 - build status: Passed backend `npm run build` and frontend `npm run build` (51 routes)
-- approval requested or not: No; production deployment/import is not ready until station-to-system/customer/contract mapping is verified
-- approved or not: No
-- deployed or not: No
-- production changed: No
-- remaining input: Review the regenerated `AT001` import row and provide mappings for any remaining SEMS+ plants before any production upload
+- approval requested or not: Yes, specifically for the reviewed `AT001` data row
+- approved or not: Yes; the user corrected and approved the link to `AT001`
+- deployed or not: No code deployment; one approved production data import completed
+- production changed: Yes, data only; `AT001` now has the `08/2026` SEMS+ visible-report record and provisional billing
+- remaining input: Provide reviewed mappings for any of the remaining 7 SEMS+ plants before another production upload
+- production data rollback note: If the `AT001` mapping is later rejected, remove or correct only the `AT001` `08/2026` operational record and its linked estimate; do not perform a bulk rollback
 - unattended sync prerequisite: Sanitized SEMS+ API documentation/HAR for plant list, overview, devices, realtime flow, daily/monthly history, and session expiry; endpoint paths must not be guessed
 - rollback target if needed: `7ea065d1863edc5a7381f8a989a50ae5b96d5ce4`
