@@ -168,8 +168,8 @@ Production-ready MVP for a Tesla-inspired solar energy SaaS tailored to Vietnam.
   - `total_amount = subtotal_amount + tax_amount - discount_amount`
 - Supported connection modes:
   - `official` via `SOLARMAN_APP_ID` + `SOLARMAN_APP_SECRET`
-  - `web` via `SOLARMAN_WEB_LOGIN_URL`, `SOLARMAN_WEB_STATION_LIST_URL`, `SOLARMAN_WEB_MONTHLY_URL`
-  - `auto` prefers web mode when `SOLARMAN_WEB_*` is configured, then falls back to official API
+  - legacy `web` uses only an already-persisted session; the backend does not submit passwords or handle Turnstile
+  - `auto` prefers Official OpenAPI whenever App ID/App Secret are configured
 - Additional env vars:
   - `SOLARMAN_MONTHLY_ENDPOINTS`
   - `SOLARMAN_PREFERRED_MODE`
@@ -179,22 +179,20 @@ Production-ready MVP for a Tesla-inspired solar energy SaaS tailored to Vietnam.
   - `SOLARMAN_WEB_MONTHLY_ENDPOINTS`
   - `SOLARMAN_WEB_ORIGIN`
   - `SOLARMAN_WEB_REFERER`
-  - `SOLARMAN_WEB_EXTRA_HEADERS`
+  - `SOLARMAN_WEB_EXTRA_HEADERS` (non-secret headers only; auth/cookie/CSRF/Turnstile headers are rejected)
   - `SOLARMAN_WEB_DEFAULT_AREA` (`AS` for Vietnam / international Asia by default)
   - `SOLARMAN_WEB_SYSTEM_CODE` (`SOLARMAN` by default)
   - `SOLARMAN_WEB_LOCALE`
   - `SOLARMAN_WEB_CLIENT_VERSION`
   - `SOLARMAN_SYNC_INTERVAL_MINUTES`
   - `SOLARMAN_SETTINGS_SECRET`
-- Web mode now replays the SOLARMAN customer portal flow more closely:
-  - preflight GET to the login page to collect cookies
-  - `application/x-www-form-urlencoded` login to `/oauth2-s/oauth/token`
-  - `grant_type=mdc_password`
-  - `clear_text_pwd` + MD5 password hash
-  - `log-*` XHR headers and Asia area defaults for Vietnam
-  - station search via `/maintain-s/operating/station/search`
-  - monthly history via `/maintain-s/history/power/{stationId}/record` and `/stats/{type}` candidates
-- If your SOLARMAN account still returns HTTP `412`, it likely requires extra slider/captcha XHR fields from the browser. In that case, copy the exact DevTools requests into `SOLARMAN_WEB_*` / `SOLARMAN_WEB_EXTRA_HEADERS` and the backend can replay them without mock data
+- Business web request contracts verified from the current first-party bundle:
+  - station search: POST `/maintain-s/operating/station/search` with an empty JSON body and pagination in query parameters
+  - device list: POST `/maintain-s/power/system/deviceList`
+  - daily billing history: GET `/maintain-s/history/power/{stationId}/stats/month?year=...&month=...`
+  - monthly billing history: GET `/maintain-s/history/power/{stationId}/stats/year?year=...`
+- HTTP `412` is treated as `AUTH_REQUIRED`. The backend stops immediately, does not retry password login, does not copy browser authorization artifacts, and does not attempt to bypass Turnstile.
+- The current bundle contains an OAuth refresh-token flow, but cookie-independent refresh and VPS use are not yet proven. `WEB_OAUTH_REFRESH_TOKEN` remains disabled until that decision test passes.
 
 ## 2. Database Schema
 

@@ -11,7 +11,7 @@ The browser tooling did not expose request/response event bodies. URLs and metho
 | Mode | Base | Status |
 | --- | --- | --- |
 | Official OpenAPI | `https://globalapi.solarmanpv.com` | Existing implementation preserved and preferred whenever App ID/App Secret are configured |
-| Business web fallback | `https://home.solarmanpv.com` | Default origin and device-list endpoint updated to the current first-party bundle |
+| Business web fallback | `https://home.solarmanpv.com` | Manual authorization boundary; unattended refresh is not enabled |
 | Manual import | Local file/import flow | Preserved |
 
 ## Existing official OpenAPI contract
@@ -52,22 +52,69 @@ The official token request sends a SHA-256 password hash, keeps AppSecret server
 | Alarm detail | POST | `/maintain-s/operating/alert/detail` |
 | Alarm timeline | POST | `/maintain-s/operating/alert/timeline` |
 
+### Verified request shapes
+
+- Station search sends an empty JSON object and query parameters `order.direction=DESC`, `order.property=id`, `page`, and `size`. The response exposes `total` and `data`.
+- Device list sends `order.direction=ASC`, `order.property=device_id`, and `stationId`. The response exposes `total` and `data`.
+- Daily aggregate history uses `GET /maintain-s/history/power/{stationId}/stats/month` with `year` and `month` query parameters.
+- Monthly aggregate history uses `GET /maintain-s/history/power/{stationId}/stats/year` with a `year` query parameter.
+- Realtime day records use `GET /maintain-s/history/power/{stationId}/record` with `year`, `month`, and `day`; this endpoint is not used as billing history.
+- Aggregate response fields verified from the first-party renderer are `generationValue`, `useValue`, `gridValue`, `buyValue`, `chargeValue`, and `dischargeValue`; their chart unit is kWh.
+- Realtime response fields include `generationPower`, `usePower`, `gridPower`, `buyPower`, `batterySoc`, `chargePower`, `dischargePower`, and `dateTime`; power values are rendered as W-to-kW conversions and are not used for monthly billing.
+
+### Refresh contract visible in the first-party bundle
+
+The frontend calls POST `/oauth2-s/oauth/token` as `application/x-www-form-urlencoded` with these field names only:
+
+- `grant_type=refresh_token`
+- `refresh_token`
+- `client_id=test`
+- `system`
+- `area`
+- `origin_id` (empty is supported by the client code when no visitor ID is present)
+
+It reads `access_token` and an optional rotated `refresh_token`, refreshes before expiry, and sends normal API requests with `Authorization: Bearer ...`. No token value or browser storage value was read during this audit.
+
 ## Session behavior
 
-- Normal requests reuse the existing server-side provider session/token cache.
-- A 401/403/session-expiry response invalidates the cached session and allows exactly one re-authentication attempt.
-- A second rejection is returned as a provider error; no infinite retry loop exists.
+- Official OpenAPI requests reuse the server-side token cache and may re-authenticate exactly once after a recoverable 401/403.
+- Legacy Business web requests may reuse an already-persisted session, but the backend never submits the account password to the web OAuth endpoint.
+- HTTP 401/403/412 in Business web mode stops immediately with `AUTH_REQUIRED`; there is no password retry loop.
+- HTTP 412 response content is not copied into provider logs.
 - Official OpenAPI remains the preferred mode when its credentials are configured.
-- Provider credentials and session artifacts are never returned by the unified Systems discovery API.
+- Provider credentials, token previews, and session artifacts are never returned by frontend APIs.
+
+## Decision status
+
+The code-level refresh contract is verified, but the account-level decision test is still pending:
+
+- Refresh-token presence in the real authorized response: not inspected.
+- Refresh without browser cookies: not proven.
+- Refreshed access token accepted by station search from the backend/VPS: not proven.
+- Selected unattended provider mode: none. `WEB_OAUTH_REFRESH_TOKEN` was not implemented.
+
+Until all three checks pass, the safe outcomes remain Official OpenAPI, manual import, or an explicitly approved human-authorized collector.
+
+### Safe decision-test command
+
+After the operator manually logs in and completes Turnstile in an isolated browser profile, run:
+
+```bash
+cd backend
+npm run solarman:test-refresh-decision
+```
+
+The command asks for the refresh token through a hidden interactive prompt. It never accepts the token as a CLI argument or environment variable, never writes it to disk, never prints it, and sends no Cookie header. It then asks for an optional plant-name marker, performs the verified refresh grant, and performs the verified station-search request. Output is limited to HTTP status, token-presence booleans, station count, plant-match boolean, and the Outcome 1 decision.
+
+Run the same command directly on the VPS to prove the VPS egress path. Do not paste the token into shell history, chat, logs, `.env`, or a GitHub secret. This command is a decision test only; it does not enable a provider mode or save credentials.
 
 ## Still required
 
 Before changing the existing history mapping or enabling additional Business web fields, capture sanitized request and response examples for:
 
-- Station search and device-list request bodies and pagination.
-- Realtime PV/load/grid/battery response fields and verified units.
-- Daily/monthly/yearly history query values, date formats, timezone behavior, and response units.
+- Sanitized account/station/device/history response examples for parser regression fixtures.
+- Confirmed timezone semantics for aggregate day/month boundaries.
 - Alarm pagination and provider error schema.
-- Naturally observed access-token expiry and refresh response fields.
+- A manual, isolated authorization decision test proving whether refresh is independent of browser cookies and accepted from the VPS.
 
 The integration must not replay browser requests or persist cookies from the interactive browser session. Remote-control and write endpoints are out of scope.
