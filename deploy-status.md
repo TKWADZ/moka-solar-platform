@@ -1,5 +1,20 @@
 # Deploy Status
 
+## SEMS+ provider discovery timeout hotfix (approved for deployment)
+
+- latest task: Allow the unified Systems screen to finish current GoodWe SEMS+ plant discovery without changing the verified provider adapter
+- root cause: The frontend aborted every API request after 8 seconds while SEMS+ discovery fetches profile, station list, and detail data for all 8 plants
+- local fix: Provider preview/import requests now use a dedicated 60-second timeout; all other API requests retain the existing 8-second timeout
+- provider behavior: GoodWe endpoints, session handling, mappings, read-only scope, and import safeguards are unchanged
+- local test status: Passed frontend production build with 51 routes, backend build/typecheck, and 82/82 backend unit/regression tests
+- secret scan status: Passed changed-tree scan; no credential, token, cookie, session, or private key was added
+- database change: None; no migration
+- approval requested or not: Yes
+- approved or not: Yes
+- deployed or not: Pending this hotfix release
+- production import status: Not started; plant import remains an explicit separate operator action
+- rollback target if needed: `9dc63ca7bfd9a1929168d0ec96a995f20fc6e0fc`
+
 ## SEMS+ live discovery integration (deployed)
 
 - latest task: Verify current GoodWe SEMS+ login/session and read-only plant discovery before production activation

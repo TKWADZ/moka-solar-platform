@@ -241,7 +241,12 @@ const SESSION_KEY = 'moka_solar_session';
 const MARKETING_PAGES_KEY = 'moka_solar_marketing_pages';
 const WEBSITE_SETTINGS_KEY = 'moka_solar_website_settings';
 const API_TIMEOUT_MS = 8000;
+const PROVIDER_DISCOVERY_TIMEOUT_MS = 60_000;
 const AUTH_REFRESH_PATH = '/auth/refresh';
+
+type ApiFetchOptions = RequestInit & {
+  timeoutMs?: number;
+};
 
 let refreshSessionPromise: Promise<SessionPayload | null> | null = null;
 
@@ -419,24 +424,25 @@ const demoSessions = Object.fromEntries(
   }
 >;
 
-export async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
+export async function apiFetch<T>(path: string, options?: ApiFetchOptions): Promise<T> {
+  const { timeoutMs: requestTimeoutMs = API_TIMEOUT_MS, ...requestOptions } = options || {};
   const token = getAccessToken();
   const canAttemptRefresh =
     typeof window !== 'undefined' && !path.startsWith('/auth/');
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), API_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), requestTimeoutMs);
 
   let response: Response;
 
   try {
     const isFormDataBody =
-      typeof FormData !== 'undefined' && options?.body instanceof FormData;
+      typeof FormData !== 'undefined' && requestOptions.body instanceof FormData;
 
     response = await fetch(`${getApiBaseUrl()}${path}`, {
-      ...options,
+      ...requestOptions,
       headers: {
-        ...(options?.headers || {}),
+        ...(requestOptions.headers || {}),
         ...(!isFormDataBody ? { 'Content-Type': 'application/json' } : {}),
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
@@ -461,14 +467,14 @@ export async function apiFetch<T>(path: string, options?: RequestInit): Promise<
 
     if (nextSession?.accessToken) {
       const retryController = new AbortController();
-      const retryTimeout = setTimeout(() => retryController.abort(), API_TIMEOUT_MS);
+      const retryTimeout = setTimeout(() => retryController.abort(), requestTimeoutMs);
 
       try {
         response = await fetch(`${getApiBaseUrl()}${path}`, {
-          ...options,
+          ...requestOptions,
           headers: {
-            ...(options?.headers || {}),
-            ...(typeof FormData !== 'undefined' && options?.body instanceof FormData
+            ...(requestOptions.headers || {}),
+            ...(typeof FormData !== 'undefined' && requestOptions.body instanceof FormData
               ? {}
               : { 'Content-Type': 'application/json' }),
             Authorization: `Bearer ${nextSession.accessToken}`,
@@ -1713,6 +1719,7 @@ export async function discoverProviderPlantsRequest(payload: {
   return apiFetch<ProviderPlantDiscoveryResponse>('/systems/provider-discovery/preview', {
     method: 'POST',
     body: JSON.stringify(payload),
+    timeoutMs: PROVIDER_DISCOVERY_TIMEOUT_MS,
   });
 }
 
@@ -1730,6 +1737,7 @@ export async function importProviderPlantsRequest(payload: {
   }>('/systems/provider-discovery/import', {
     method: 'POST',
     body: JSON.stringify(payload),
+    timeoutMs: PROVIDER_DISCOVERY_TIMEOUT_MS,
   });
 }
 
