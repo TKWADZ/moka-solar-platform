@@ -3,20 +3,21 @@
 ## Current release candidate
 
 - latest task: Redesign Admin Systems from manual-first to provider-discovery-first
-- local implementation status: Complete; unified discovery adapters, import/upsert, assignment, safe linking, disconnected state, manual fallback, and import-first UI are staged
-- database migration: `20260808163000_provider_plant_discovery` created locally; not applied to production
+- local implementation status: Complete and deployed; unified discovery adapters, import/upsert, assignment, safe linking, disconnected state, manual fallback, and import-first UI are live
+- database migration: `20260808163000_provider_plant_discovery` applied to production by the approved deploy workflow
 - unit test status: Passed 41/41, including 15 provider-discovery/import and API-boundary safety tests
 - typecheck status: Passed backend `npm run typecheck`
-- Prisma status: Schema valid and Prisma Client generated; migration created locally only
+- Prisma status: Schema valid, Prisma Client generated, and production migration completed successfully
 - build status: Passed backend `npm run build` and frontend `npm run build` (51 routes)
 - security review: Provider/user credentials and raw provider/device payloads are excluded from Systems API responses; changed-file secret scan passed
 - local browser status: Next.js started on `http://127.0.0.1:3100` without console errors; protected `/admin/systems` correctly redirected to login because this clean worktree has no local authenticated backend/session
+- production verification: GitHub Actions run `31232660231` passed; public health checks and the 5-minute stability observation passed; authenticated `/admin/systems` shows the provider-first workflow without console errors
 - approval requested or not: Yes
-- approved or not: No
-- deployed or not: No
-- production changed: No
+- approved or not: Yes
+- deployed or not: Yes, commit `ce1fafdd244ddfc8949f0511937d620c08c1466f`
+- production changed: Yes, additive schema migration and Admin Systems workflow only
 - remaining input: Sanitized SEMS+ request contract is still required before enabling SEMS+ account discovery
-- rollback target if needed: `89a8b9a7e68db69f0da3c1243dcfba6f76cdd139`
+- rollback target if needed: `5c12c7265cbcb55ee5348a5b7d53eb64bb608fc6`
 
 ## Previous SEMS+ reviewed import
 
