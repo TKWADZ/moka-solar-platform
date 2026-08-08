@@ -1,4 +1,4 @@
-import { promptHidden, promptText } from '../common/cli/interactive-prompt';
+import { promptHidden, promptText, readCliOption } from '../common/cli/interactive-prompt';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -76,8 +76,9 @@ async function main() {
   if (!refreshToken) {
     throw new Error('Refresh token is required.');
   }
+  const configuredPlantMarker = readCliOption('expected-plant-marker');
   const expectedPlantMarker = (
-    await promptText('Expected plant name marker (optional)')
+    configuredPlantMarker ?? (await promptText('Expected plant name marker (optional)'))
   )
     .trim()
     .toLowerCase();

@@ -107,6 +107,8 @@ npm run solarman:test-refresh-decision
 
 The command asks for the refresh token through a hidden interactive prompt. It never accepts the token as a CLI argument or environment variable, never writes it to disk, never prints it, and sends no Cookie header. It then asks for an optional plant-name marker, performs the verified refresh grant, and performs the verified station-search request. Output is limited to HTTP status, token-presence booleans, station count, plant-match boolean, and the Outcome 1 decision.
 
+For an operator-controlled proof, pass the non-secret plant marker explicitly so the refresh token remains the only interactive input: `npm run solarman:test-refresh-decision -- --expected-plant-marker=VP`.
+
 On Windows, run the command in Windows Terminal or a standard PowerShell console. Paste into the hidden prompt with Ctrl+Shift+V, right-click paste, or Shift+Insert. Windows PowerShell ISE is unsupported because it does not provide the raw interactive TTY required by the hidden prompt.
 
 Run the same command directly on the VPS to prove the VPS egress path. Do not paste the token into shell history, chat, logs, `.env`, or a GitHub secret. This command is a decision test only; it does not enable a provider mode or save credentials.
