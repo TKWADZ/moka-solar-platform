@@ -25,6 +25,13 @@ export class ProviderDiscoveryRegistry {
     return this.adapters.map((adapter) => adapter.capability);
   }
 
+  async listConnections() {
+    const groups = await Promise.all(
+      this.adapters.map((adapter) => adapter.listConnections?.() || Promise.resolve([])),
+    );
+    return groups.flat();
+  }
+
   resolve(provider: DiscoveryProvider) {
     const adapter = this.adapters.find((candidate) => candidate.provider === provider);
     if (!adapter) {

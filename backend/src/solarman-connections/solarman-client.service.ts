@@ -583,7 +583,7 @@ export class SolarmanClientService {
 
     const defaultWebOrigin =
       (this.configService.get<string>('SOLARMAN_WEB_ORIGIN') || '').trim() ||
-      'https://globalhome.solarmanpv.com';
+      'https://home.solarmanpv.com';
     const defaultWebReferer =
       (this.configService.get<string>('SOLARMAN_WEB_REFERER') || '').trim() ||
       `${defaultWebOrigin}/login`;
@@ -596,10 +596,7 @@ export class SolarmanClientService {
     const webDeviceListUrls = (
       this.configService.get<string>('SOLARMAN_WEB_DEVICE_LIST_URLS') ||
       this.configService.get<string>('SOLARMAN_WEB_DEVICE_LIST_URL') ||
-      [
-        `${defaultWebOrigin}/maintain-s/operating/device/search`,
-        `${defaultWebOrigin}/maintain-s/operating/station/device/search`,
-      ].join(',')
+      `${defaultWebOrigin}/maintain-s/power/system/deviceList`
     )
       .split(',')
       .map((item) => item.trim())
@@ -700,9 +697,9 @@ export class SolarmanClientService {
           ? 'web'
           : preferredModeRaw === 'official'
             ? 'official'
-            : webAvailable
-              ? 'web'
-              : 'official',
+            : officialAvailable
+              ? 'official'
+              : 'web',
     };
   }
 

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { DeyeConnectionsModule } from '../deye-connections/deye-connections.module';
 import { LuxPowerConnectionsModule } from '../luxpower-connections/luxpower-connections.module';
 import { SolarmanConnectionsModule } from '../solarman-connections/solarman-connections.module';
+import { SemsPlusModule } from '../sems-plus/sems-plus.module';
 import { DeyePlantDiscoveryAdapter } from './provider-discovery/deye-plant-discovery.adapter';
 import { LuxPowerPlantDiscoveryAdapter } from './provider-discovery/luxpower-plant-discovery.adapter';
 import { ProviderDiscoveryRegistry } from './provider-discovery/provider-discovery.registry';
@@ -11,7 +12,12 @@ import { SolarmanPlantDiscoveryAdapter } from './provider-discovery/solarman-pla
 import { SystemsController } from './systems.controller';
 import { SystemsService } from './systems.service';
 @Module({
-  imports: [DeyeConnectionsModule, SolarmanConnectionsModule, LuxPowerConnectionsModule],
+  imports: [
+    DeyeConnectionsModule,
+    SolarmanConnectionsModule,
+    LuxPowerConnectionsModule,
+    SemsPlusModule,
+  ],
   controllers: [SystemsController],
   providers: [
     SystemsService,

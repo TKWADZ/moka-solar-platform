@@ -25,7 +25,7 @@ export class ProviderPlantDiscoveryService {
   }
 
   async listConnections() {
-    const [deye, solarman, luxPower] = await Promise.all([
+    const [deye, solarman, luxPower, adapterConnections] = await Promise.all([
       this.prisma.deyeConnection.findMany({
         where: { deletedAt: null },
         select: {
@@ -61,6 +61,7 @@ export class ProviderPlantDiscoveryService {
         },
         orderBy: { accountName: 'asc' },
       }),
+      this.registry.listConnections(),
     ]);
 
     return {
@@ -91,6 +92,7 @@ export class ProviderPlantDiscoveryService {
           lastSuccessfulSyncAt: item.lastSyncTime,
           lastError: item.lastError,
         })),
+        ...adapterConnections,
       ],
     };
   }

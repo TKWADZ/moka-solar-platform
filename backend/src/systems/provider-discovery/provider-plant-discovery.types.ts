@@ -15,6 +15,16 @@ export type ProviderDiscoveryCapability = {
   missingRequirements?: string[];
 };
 
+export type ProviderDiscoveryConnection = {
+  provider: DiscoveryProvider;
+  id: string;
+  name: string;
+  status: string;
+  mode?: string | null;
+  lastSuccessfulSyncAt?: Date | string | null;
+  lastError?: string | null;
+};
+
 export type DiscoveredDevice = {
   externalDeviceId: string | null;
   serialNumber: string;
@@ -49,5 +59,6 @@ export type DiscoveredPlant = {
 export interface ProviderPlantDiscoveryAdapter {
   readonly provider: DiscoveryProvider;
   readonly capability: ProviderDiscoveryCapability;
+  listConnections?(): Promise<ProviderDiscoveryConnection[]>;
   listPlants(connectionId: string): Promise<DiscoveredPlant[]>;
 }
