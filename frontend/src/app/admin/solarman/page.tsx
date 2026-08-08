@@ -1,16 +1,18 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Bug,
   Plus,
   RefreshCw,
   SatelliteDish,
+  ShieldCheck,
   Trash2,
   Zap,
 } from 'lucide-react';
 import { SectionCard } from '@/components/section-card';
 import {
+  authorizeSolarmanConnectionRequest,
   createSolarmanConnectionRequest,
   deleteSolarmanConnectionRequest,
   getSolarmanConnectionRequest,
@@ -21,9 +23,11 @@ import {
   testSolarmanConnectionRequest,
   updateSolarmanConnectionRequest,
 } from '@/lib/api';
+import { getSession, hasPermission } from '@/lib/auth';
 import { cn, formatCurrency, formatDateTime, formatNumber } from '@/lib/utils';
 import {
   CustomerRecord,
+  SessionPayload,
   SolarmanConnectionRecord,
   SolarmanDeviceRecord,
   SolarmanStationRecord,
@@ -57,6 +61,12 @@ const connectionStatusOptions = [
 
 const providerTypeOptions = [
   {
+    value: 'WEB_OAUTH_REFRESH_TOKEN',
+    label: 'Web OAuth Refresh Token',
+    description:
+      'Khuyến nghị: xác thực một lần sau khi đăng nhập thủ công; backend tự xoay token, không dùng cookie hay mật khẩu để đăng nhập lại.',
+  },
+  {
     value: 'COOKIE_SESSION',
     label: 'CookieSessionProvider',
     description:
@@ -77,7 +87,7 @@ const providerTypeOptions = [
 function emptyForm(): ConnectionFormState {
   return {
     accountName: '',
-    providerType: 'COOKIE_SESSION',
+    providerType: 'WEB_OAUTH_REFRESH_TOKEN',
     usernameOrEmail: '',
     password: '',
     customerId: '',
@@ -129,7 +139,11 @@ function validateForm(form: ConnectionFormState, mode: 'create' | 'edit') {
     errors.usernameOrEmail = 'Vui lòng nhập tài khoản SOLARMAN.';
   }
 
-  if (mode === 'create' && !form.password.trim()) {
+  if (
+    mode === 'create' &&
+    form.providerType !== 'WEB_OAUTH_REFRESH_TOKEN' &&
+    !form.password.trim()
+  ) {
     errors.password = 'Vui lòng nhập mật khẩu SOLARMAN.';
   }
 
@@ -169,6 +183,7 @@ function statusBadge(status: string) {
 }
 
 export default function AdminSolarmanPage() {
+  const [session, setSession] = useState<SessionPayload | null>(null);
   const [connections, setConnections] = useState<SolarmanConnectionRecord[]>([]);
   const [customers, setCustomers] = useState<CustomerRecord[]>([]);
   const [logs, setLogs] = useState<SolarmanSyncLogRecord[]>([]);
@@ -186,8 +201,11 @@ export default function AdminSolarmanPage() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [authorizing, setAuthorizing] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const refreshTokenInputRef = useRef<HTMLInputElement>(null);
+  const canManageSecrets = hasPermission(session, 'integration.secrets.manage');
 
   const selectedConnection = useMemo(
     () => connections.find((item) => item.id === selectedId) || null,
@@ -260,6 +278,7 @@ export default function AdminSolarmanPage() {
   }
 
   useEffect(() => {
+    setSession(getSession());
     loadData()
       .catch((nextError) => {
         setError(
@@ -375,7 +394,9 @@ export default function AdminSolarmanPage() {
       accountName: form.accountName.trim(),
       providerType: form.providerType,
       usernameOrEmail: form.usernameOrEmail.trim(),
-      ...(form.password.trim() ? { password: form.password.trim() } : {}),
+      ...(form.providerType !== 'WEB_OAUTH_REFRESH_TOKEN' && form.password.trim()
+        ? { password: form.password.trim() }
+        : {}),
       ...(form.customerId ? { customerId: form.customerId } : {}),
       ...(form.defaultUnitPrice.trim()
         ? { defaultUnitPrice: Number(form.defaultUnitPrice) }
@@ -393,10 +414,7 @@ export default function AdminSolarmanPage() {
     setSaving(true);
     try {
       if (mode === 'create') {
-        const created = await createSolarmanConnectionRequest({
-          ...payload,
-          password: form.password.trim(),
-        });
+        const created = await createSolarmanConnectionRequest(payload);
         await loadData(created.id);
         setMode('edit');
         setMessage('Đã lưu connection SOLARMAN mới.');
@@ -439,6 +457,48 @@ export default function AdminSolarmanPage() {
       );
     } finally {
       setTesting(false);
+    }
+  }
+
+  async function handleAuthorize() {
+    if (!selectedConnection || !canManageSecrets) {
+      setError('Bạn không có quyền cập nhật thông tin xác thực SOLARMAN.');
+      return;
+    }
+
+    let refreshToken = refreshTokenInputRef.current?.value.trim() || '';
+    if (!refreshToken) {
+      setError('Hãy dán refresh token SOLARMAN mới vào ô xác thực.');
+      return;
+    }
+
+    setAuthorizing(true);
+    setMessage('');
+    setError('');
+    try {
+      const result = await authorizeSolarmanConnectionRequest(
+        selectedConnection.id,
+        refreshToken,
+      );
+      setStations(result.stations);
+      setSampleDevices(result.sampleDevices || []);
+      setSyncStations([]);
+      await loadData(selectedConnection.id);
+      setMessage(
+        `Xác thực thành công. Đã phát hiện ${formatNumber(result.stations.length)} station và cập nhật danh mục hệ thống.`,
+      );
+    } catch (nextError) {
+      setError(
+        nextError instanceof Error
+          ? nextError.message
+          : 'Không thể xác thực SOLARMAN.',
+      );
+    } finally {
+      refreshToken = '';
+      if (refreshTokenInputRef.current) {
+        refreshTokenInputRef.current.value = '';
+      }
+      setAuthorizing(false);
     }
   }
 
@@ -768,17 +828,27 @@ export default function AdminSolarmanPage() {
             </div>
 
             <div className="grid gap-4 md:grid-cols-2">
-              <label className="grid gap-2 text-sm text-slate-300">
-                <span>{mode === 'create' ? 'Mật khẩu SOLARMAN' : 'Đổi mật khẩu SOLARMAN'}</span>
-                <input
-                  type="password"
-                  className={cn('portal-field', fieldErrors.password && 'border-rose-300/40')}
-                  value={form.password}
-                  onChange={(event) => updateField('password', event.target.value)}
-                  placeholder={mode === 'create' ? 'Nhập mật khẩu customer account' : 'Để trống nếu giữ nguyên'}
-                />
-                {fieldErrors.password ? <span className="text-xs text-rose-300">{fieldErrors.password}</span> : null}
-              </label>
+              {form.providerType === 'WEB_OAUTH_REFRESH_TOKEN' ? (
+                <div className="portal-card-soft p-4 text-sm text-slate-300">
+                  <p className="font-semibold text-white">Không dùng mật khẩu tự động</p>
+                  <p className="mt-2 leading-6 text-slate-400">
+                    Đăng nhập SOLARMAN thủ công trong trình duyệt, sau đó xác thực một lần bằng
+                    refresh token ở phần bên dưới.
+                  </p>
+                </div>
+              ) : (
+                <label className="grid gap-2 text-sm text-slate-300">
+                  <span>{mode === 'create' ? 'Mật khẩu SOLARMAN' : 'Đổi mật khẩu SOLARMAN'}</span>
+                  <input
+                    type="password"
+                    className={cn('portal-field', fieldErrors.password && 'border-rose-300/40')}
+                    value={form.password}
+                    onChange={(event) => updateField('password', event.target.value)}
+                    placeholder={mode === 'create' ? 'Nhập mật khẩu customer account' : 'Để trống nếu giữ nguyên'}
+                  />
+                  {fieldErrors.password ? <span className="text-xs text-rose-300">{fieldErrors.password}</span> : null}
+                </label>
+              )}
 
               <label className="grid gap-2 text-sm text-slate-300">
                 <span>Khách hàng mặc định</span>
@@ -880,6 +950,101 @@ export default function AdminSolarmanPage() {
               />
             </label>
 
+            {selectedConnection &&
+            mode === 'edit' &&
+            selectedConnection.providerType === 'WEB_OAUTH_REFRESH_TOKEN' ? (
+              <div className="rounded-[24px] border border-emerald-300/20 bg-emerald-400/[0.06] p-5">
+                <div className="flex flex-wrap items-start justify-between gap-3">
+                  <div>
+                    <p className="flex items-center gap-2 text-base font-semibold text-white">
+                      <ShieldCheck className="h-5 w-5 text-emerald-200" />
+                      Xác thực SOLARMAN
+                    </p>
+                    <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">
+                      Đăng nhập và hoàn tất Turnstile thủ công trên SOLARMAN. Dán refresh token mới
+                      một lần; backend mã hóa ngay và không lưu cookie trình duyệt.
+                    </p>
+                  </div>
+                  <span
+                    className={cn(
+                      'rounded-full border px-3 py-1 text-xs font-semibold',
+                      statusBadge(selectedConnection.status),
+                    )}
+                  >
+                    {selectedConnection.status}
+                  </span>
+                </div>
+
+                <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                  <div className="portal-card-soft p-3">
+                    <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Ủy quyền</p>
+                    <p className="mt-2 text-sm font-semibold text-white">
+                      {selectedConnection.hasStoredRefreshToken ? 'Đã mã hóa' : 'Chưa có'}
+                    </p>
+                  </div>
+                  <div className="portal-card-soft p-3">
+                    <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Refresh gần nhất</p>
+                    <p className="mt-2 text-sm font-semibold text-white">
+                      {selectedConnection.lastSuccessfulRefreshAt
+                        ? formatDateTime(selectedConnection.lastSuccessfulRefreshAt)
+                        : 'Chưa có'}
+                    </p>
+                  </div>
+                  <div className="portal-card-soft p-3">
+                    <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Station sync</p>
+                    <p className="mt-2 text-sm font-semibold text-white">
+                      {selectedConnection.lastSuccessfulStationSyncAt
+                        ? formatDateTime(selectedConnection.lastSuccessfulStationSyncAt)
+                        : 'Chưa có'}
+                    </p>
+                  </div>
+                  <div className="portal-card-soft p-3">
+                    <p className="text-xs uppercase tracking-[0.16em] text-slate-500">Station phát hiện</p>
+                    <p className="mt-2 text-sm font-semibold text-white">
+                      {formatNumber(selectedConnection.lastDiscoveredStationCount || 0)}
+                    </p>
+                  </div>
+                </div>
+
+                {selectedConnection.lastRefreshErrorMessage ? (
+                  <p className="mt-4 rounded-[16px] border border-rose-300/15 bg-rose-400/10 px-4 py-3 text-sm text-rose-100">
+                    {selectedConnection.lastRefreshErrorCode || 'REFRESH_ERROR'}: {' '}
+                    {selectedConnection.lastRefreshErrorMessage}
+                  </p>
+                ) : null}
+
+                {canManageSecrets ? (
+                  <div className="mt-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_auto] md:items-end">
+                    <label className="grid gap-2 text-sm text-slate-300">
+                      <span>Refresh token dùng một lần</span>
+                      <input
+                        ref={refreshTokenInputRef}
+                        type="password"
+                        name="solarman-one-time-authorization"
+                        autoComplete="new-password"
+                        maxLength={16384}
+                        className="portal-field"
+                        placeholder="Dán token mới rồi xác thực"
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      className="btn-primary"
+                      disabled={authorizing}
+                      onClick={() => void handleAuthorize()}
+                    >
+                      <ShieldCheck className="h-4 w-4" />
+                      {authorizing ? 'Đang xác thực...' : 'Xác thực SOLARMAN'}
+                    </button>
+                  </div>
+                ) : (
+                  <p className="mt-4 text-sm text-slate-400">
+                    Chỉ Super Admin hoặc Admin có quyền quản lý secret mới được cập nhật xác thực.
+                  </p>
+                )}
+              </div>
+            ) : null}
+
             {selectedConnection && mode === 'edit' ? (
               <div className="grid gap-3 md:grid-cols-4">
                 <div className="portal-card-soft p-4">
@@ -895,9 +1060,19 @@ export default function AdminSolarmanPage() {
                   </p>
                 </div>
                 <div className="portal-card-soft p-4">
-                  <p className="text-sm text-slate-400">Mật khẩu đã lưu</p>
+                  <p className="text-sm text-slate-400">
+                    {selectedConnection.providerType === 'WEB_OAUTH_REFRESH_TOKEN'
+                      ? 'Refresh token'
+                      : 'Mật khẩu đã lưu'}
+                  </p>
                   <p className="mt-2 text-lg font-semibold text-white">
-                    {selectedConnection.hasStoredPassword ? 'Đã mã hóa' : 'Chưa có'}
+                    {selectedConnection.providerType === 'WEB_OAUTH_REFRESH_TOKEN'
+                      ? selectedConnection.hasStoredRefreshToken
+                        ? 'Đã mã hóa'
+                        : 'Chưa có'
+                      : selectedConnection.hasStoredPassword
+                        ? 'Đã mã hóa'
+                        : 'Chưa có'}
                   </p>
                 </div>
               </div>

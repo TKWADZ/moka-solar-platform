@@ -1720,7 +1720,12 @@ export type SolarmanDebugSnapshotRecord = {
 export type SolarmanConnectionRecord = {
   id: string;
   accountName: string;
-  providerType?: 'OFFICIAL_OPENAPI' | 'COOKIE_SESSION' | 'MANUAL_IMPORT' | string;
+  providerType?:
+    | 'OFFICIAL_OPENAPI'
+    | 'WEB_OAUTH_REFRESH_TOKEN'
+    | 'COOKIE_SESSION'
+    | 'MANUAL_IMPORT'
+    | string;
   usernameOrEmail: string | null;
   customerId?: string | null;
   defaultUnitPrice?: number | null;
@@ -1730,10 +1735,18 @@ export type SolarmanConnectionRecord = {
   status: string;
   lastSyncTime?: string | null;
   lastSuccessfulSyncAt?: string | null;
+  accessTokenExpiresAt?: string | null;
+  lastSuccessfulRefreshAt?: string | null;
+  lastSuccessfulStationSyncAt?: string | null;
+  lastDiscoveredStationCount?: number | null;
+  lastRefreshErrorCode?: string | null;
+  lastRefreshErrorMessage?: string | null;
+  reauthorizationRequiredAt?: string | null;
   lastErrorCode?: string | null;
   lastErrorMessage?: string | null;
   notes?: string | null;
   hasStoredPassword?: boolean;
+  hasStoredRefreshToken?: boolean;
   hasPersistedCookieSession?: boolean;
   manualImportSummary?: {
     captureCount: number;
@@ -1767,7 +1780,15 @@ export type SolarmanConnectionRecord = {
     lastFailureMessage?: string | null;
     providerType?: string | null;
     authBridgeReady?: boolean;
+    authorizationReady?: boolean;
     authStatus?: string | null;
+    accessTokenExpiresAt?: string | null;
+    lastSuccessfulRefreshAt?: string | null;
+    lastSuccessfulStationSyncAt?: string | null;
+    lastDiscoveredStationCount?: number | null;
+    lastRefreshErrorCode?: string | null;
+    lastRefreshErrorMessage?: string | null;
+    reauthorizationRequiredAt?: string | null;
     manualImportReady?: boolean;
     manualImportMessage?: string | null;
     lastErrorCode?: string | null;

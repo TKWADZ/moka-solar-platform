@@ -1964,7 +1964,7 @@ export async function createSolarmanConnectionRequest(payload: {
   accountName: string;
   providerType?: string;
   usernameOrEmail: string;
-  password: string;
+  password?: string;
   customerId?: string;
   defaultUnitPrice?: number;
   defaultVatRate?: number;
@@ -2106,6 +2106,13 @@ export async function testSolarmanConnectionRequest(id: string) {
       };
     });
   }
+}
+
+export async function authorizeSolarmanConnectionRequest(id: string, refreshToken: string) {
+  return apiFetch<SolarmanTestResponse>(`/solarman-connections/${id}/authorize`, {
+    method: 'POST',
+    body: JSON.stringify({ refreshToken }),
+  });
 }
 
 export async function syncSolarmanConnectionRequest(

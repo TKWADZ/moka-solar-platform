@@ -1,27 +1,33 @@
 # Deploy Status
 
-## SOLARMAN HTTP 412 investigation (local only)
+## SOLARMAN Web OAuth release candidate (local only)
 
-- latest task: Verify whether the current SOLARMAN Business OAuth refresh flow can support unattended read-only sync after manual Turnstile authorization
+- latest task: Implement VPS-proven SOLARMAN Business OAuth refresh-token sync after manual Turnstile authorization
 - browser/session safety: Existing authorized SOLARMAN tab was preserved; no logout, cookie read, browser-storage read, password read, token read, raw HAR capture, or customer payload commit occurred
 - verified public contract: Refresh grant field names, Bearer usage, station search, device list, realtime day record, daily aggregate, and yearly aggregate routes/request shapes were verified from the current first-party bundle
-- current decision: Local Outcome 1 is proven without browser cookies (`refresh=200`, rotated refresh token returned, station search `200`, four stations, expected plant matched); VPS proof is still pending and `WEB_OAUTH_REFRESH_TOKEN` remains unimplemented
+- current decision: Outcome 1 is proven locally and from an isolated VPS worktree (`refresh=200`, rotated refresh token returned, station search `200`, four stations, expected plant matched)
+- provider mode: `WEB_OAUTH_REFRESH_TOKEN` implemented locally with encrypted token storage, proactive refresh, atomic rotation and PostgreSQL advisory locking per connection
+- authorization UX: Super Admin/Admin one-time token submission; Manager/Staff never see the secret input; connection becomes `VERIFIED` only after station discovery
+- discovery behavior: all returned stations are upserted by provider + station ID; repeated discovery is idempotent and Moka-owned customer/contract/pricing fields are preserved
 - local safety patch: Legacy web password login and retry-on-412 were removed from the normal path; Business web 401/403/412 now stops as `AUTH_REQUIRED`; Official OpenAPI retains a single safe auth retry
 - data mapping: Verified aggregate fields now map `generationValue`, `useValue`, `buyValue`, `gridValue`, `chargeValue`, and `dischargeValue`; rows missing PV production are discarded instead of stored as zero
 - token safety: SOLARMAN token previews were removed from frontend APIs/UI; configurable Authorization/Cookie/CSRF/Turnstile headers are rejected
 - decision-test tool: `cd backend && npm run solarman:test-refresh-decision`; secret input is hidden, memory-only, and never accepted through CLI args/env/files
 - hidden prompt safety: Configurable limit with a 16,384-character default; SOLARMAN explicitly uses 16,384 and accepts multi-character paste chunks without silent truncation
 - Windows terminal support: Windows Terminal/standard PowerShell paste is documented; PowerShell ISE is unsupported for raw hidden input
-- unit test status: Passed 67/67 backend unit/regression tests, including 12 hidden-prompt cases and an exact 903-character fake token
+- unit/regression test status: Passed 76/76, including SOLARMAN OAuth, Deye, LuxPower, provider discovery, billing safety, Zalo safety and auth tests
 - typecheck status: Passed backend `npm run typecheck`
-- Prisma status: Schema valid and Prisma Client generated with a process-only validation URL; no migration was created or applied
-- build status: Passed backend build and frontend production build (51 routes)
+- Prisma status: Schema validated and client generated; additive migration `20260808190000_solarman_web_oauth_refresh_token` created locally but not applied
+- build status: Backend build passed; frontend production build passed (51 routes)
+- integration test status: Staff-auth e2e skipped because this isolated workspace has no `TEST_DATABASE_URL`; no production database was used
+- secret scan status: Passed changed-tree checks; no long token/JWT pattern, HAR, session state, proof output, cookie or raw credential artifact found
 - approval requested or not: No
 - approved or not: No
 - deployed or not: No
 - production changed: No
-- remaining manual input: Run the same probe from an isolated VPS worktree using a newly issued refresh token entered only through hidden TTY; the token consumed by the local probe must never be reused
-- rollback target if needed: `f09b96ee2b85e81f59f08132f62d25a37b96905b`
+- production proof safety: Production checkout unchanged, no PM2 restart, no database/environment modification, and temporary VPS worktree removed
+- remaining manual input: None for implementation; a new token is needed only when an authorized admin performs the eventual production authorization
+- rollback target if needed: `03a661e905a6f54b4b52a4af195243739a3cb479`
 
 ## Current provider integration candidate
 

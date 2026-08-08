@@ -11,7 +11,8 @@ The browser tooling did not expose request/response event bodies. URLs and metho
 | Mode | Base | Status |
 | --- | --- | --- |
 | Official OpenAPI | `https://globalapi.solarmanpv.com` | Existing implementation preserved and preferred whenever App ID/App Secret are configured |
-| Business web fallback | `https://home.solarmanpv.com` | Manual authorization boundary; unattended refresh is not enabled |
+| Web OAuth refresh token | `https://home.solarmanpv.com` | Verified locally and from isolated VPS egress; encrypted rotating refresh-token mode implemented |
+| Business cookie session | `https://home.solarmanpv.com` | Legacy compatibility only; no password or CAPTCHA automation |
 | Manual import | Local file/import flow | Preserved |
 
 ## Existing official OpenAPI contract
@@ -79,6 +80,8 @@ It reads `access_token` and an optional rotated `refresh_token`, refreshes befor
 
 - Official OpenAPI requests reuse the server-side token cache and may re-authenticate exactly once after a recoverable 401/403.
 - Legacy Business web requests may reuse an already-persisted session, but the backend never submits the account password to the web OAuth endpoint.
+- `WEB_OAUTH_REFRESH_TOKEN` sends no Cookie header, refreshes proactively, stores both tokens encrypted, and atomically saves a rotated refresh token.
+- A PostgreSQL advisory transaction lock keyed by connection ID prevents two PM2 workers from consuming the same rotating refresh token.
 - HTTP 401/403/412 in Business web mode stops immediately with `AUTH_REQUIRED`; there is no password retry loop.
 - HTTP 412 response content is not copied into provider logs.
 - Official OpenAPI remains the preferred mode when its credentials are configured.
@@ -86,15 +89,17 @@ It reads `access_token` and an optional rotated `refresh_token`, refreshes befor
 
 ## Decision status
 
-The account-level local decision test succeeded without browser cookies:
+The account-level decision test succeeded without browser cookies on both the local machine and an isolated VPS worktree:
 
 - Refresh response: HTTP 200 with an access token and a rotated refresh token.
 - Station search with the refreshed bearer token: HTTP 200 with four station rows and the expected plant match.
 - The token used by the local probe was treated as consumed and was not retained or committed.
-- VPS egress and station discovery: not yet proven.
-- Selected unattended provider mode: none. `WEB_OAUTH_REFRESH_TOKEN` was not implemented.
+- VPS refresh response: HTTP 200 with access token and rotated refresh token.
+- VPS station search: HTTP 200 with four station rows and the expected plant match.
+- The production checkout, PM2 processes, database, and environment were not modified by the proof.
+- Selected unattended provider mode: `WEB_OAUTH_REFRESH_TOKEN`.
 
-Until the VPS check also passes, the safe production modes remain Official OpenAPI, legacy compatibility, and manual import.
+This implementation remains local on the investigation branch until explicit deployment approval.
 
 ### Safe decision-test command
 
@@ -120,6 +125,6 @@ Before changing the existing history mapping or enabling additional Business web
 - Sanitized account/station/device/history response examples for parser regression fixtures.
 - Confirmed timezone semantics for aggregate day/month boundaries.
 - Alarm pagination and provider error schema.
-- An isolated VPS decision test using a newly issued refresh token entered only through hidden TTY.
+- Sanitized samples for any provider response shape not covered by the current station/device/history fixtures.
 
 The integration must not replay browser requests or persist cookies from the interactive browser session. Remote-control and write endpoints are out of scope.
