@@ -7,6 +7,9 @@ import {
   AiActionRunResult,
   AdminDashboardData,
   AdminSystemRecord,
+  ProviderDiscoveryBootstrap,
+  ProviderDiscoveryProvider,
+  ProviderPlantDiscoveryResponse,
   CustomerStatus,
   ContactInquiryRecord,
   ContentPost,
@@ -1697,6 +1700,57 @@ export async function listAdminSystemsRequest() {
   } catch (error) {
     return fallbackOrThrow(error, () => demoSystemRecords);
   }
+}
+
+export async function listProviderDiscoveryConnectionsRequest() {
+  return apiFetch<ProviderDiscoveryBootstrap>('/systems/provider-discovery/connections');
+}
+
+export async function discoverProviderPlantsRequest(payload: {
+  provider: ProviderDiscoveryProvider;
+  connectionId: string;
+}) {
+  return apiFetch<ProviderPlantDiscoveryResponse>('/systems/provider-discovery/preview', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function importProviderPlantsRequest(payload: {
+  provider: ProviderDiscoveryProvider;
+  connectionId: string;
+  externalPlantIds: string[];
+}) {
+  return apiFetch<{
+    provider: ProviderDiscoveryProvider;
+    connectionId: string;
+    discovered: number;
+    imported: number;
+    disconnected: number;
+  }>('/systems/provider-discovery/import', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function assignSystemCustomerRequest(systemId: string, customerId: string) {
+  return apiFetch<AdminSystemRecord>(`/systems/${systemId}/assign-customer`, {
+    method: 'PATCH',
+    body: JSON.stringify({ customerId }),
+  });
+}
+
+export async function linkImportedSystemRequest(
+  importedSystemId: string,
+  targetSystemId: string,
+) {
+  return apiFetch<{ success: boolean; systemId: string; archivedImportedSystemId: string }>(
+    `/systems/${importedSystemId}/link-imported-system`,
+    {
+      method: 'POST',
+      body: JSON.stringify({ targetSystemId }),
+    },
+  );
 }
 
 export async function reportSystemDashboardPresenceRequest(systemIds: string[], pageKey?: string) {

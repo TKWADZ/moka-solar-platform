@@ -1,5 +1,25 @@
 # Deploy Status
 
+## Current release candidate
+
+- latest task: Redesign Admin Systems from manual-first to provider-discovery-first
+- local implementation status: Complete; unified discovery adapters, import/upsert, assignment, safe linking, disconnected state, manual fallback, and import-first UI are staged
+- database migration: `20260808163000_provider_plant_discovery` created locally; not applied to production
+- unit test status: Passed 41/41, including 15 provider-discovery/import and API-boundary safety tests
+- typecheck status: Passed backend `npm run typecheck`
+- Prisma status: Schema valid and Prisma Client generated; migration created locally only
+- build status: Passed backend `npm run build` and frontend `npm run build` (51 routes)
+- security review: Provider/user credentials and raw provider/device payloads are excluded from Systems API responses; changed-file secret scan passed
+- local browser status: Next.js started on `http://127.0.0.1:3100` without console errors; protected `/admin/systems` correctly redirected to login because this clean worktree has no local authenticated backend/session
+- approval requested or not: Yes
+- approved or not: No
+- deployed or not: No
+- production changed: No
+- remaining input: Sanitized SEMS+ request contract is still required before enabling SEMS+ account discovery
+- rollback target if needed: `89a8b9a7e68db69f0da3c1243dcfba6f76cdd139`
+
+## Previous SEMS+ reviewed import
+
 - latest task: Capture authorized, visible SEMS+ plant/device/monthly report data and prepare a safe Moka operational-data import preview
 - local capture status: Passed; 8 plants captured from rendered SEMS+ pages without reading credentials, cookies, browser storage, authorization headers, tokens, or network response bodies
 - private capture: `imports/sems-plus/capture-2026-08-08.json` (Git ignored)

@@ -1156,6 +1156,24 @@ export type AdminSystemRecord = {
   defaultDiscountAmount?: number | null;
   deyeConnectionId?: string | null;
   solarmanConnectionId?: string | null;
+  deyeConnection?: {
+    id: string;
+    accountName: string;
+    status: string;
+  } | null;
+  solarmanConnection?: {
+    id: string;
+    accountName: string;
+    status: string;
+  } | null;
+  luxPowerDiscoveryConnectionId?: string | null;
+  providerLastSeenAt?: string | null;
+  providerDisconnectedAt?: string | null;
+  luxPowerDiscoveryConnection?: {
+    id: string;
+    accountName: string;
+    status: string;
+  } | null;
   latestMonitorSnapshot?: MonitorSnapshot | Record<string, unknown> | null;
   latestMonitorAt?: string | null;
   lastStationSyncAt?: string | null;
@@ -1195,6 +1213,80 @@ export type AdminSystemRecord = {
   devices?: DeviceRecord[];
   monthlyEnergyRecords?: MonthlyEnergyRecordRecord[];
   monitorSyncLogs?: SystemMonitorSyncLogRecord[];
+};
+
+export type ProviderDiscoveryProvider = 'DEYE' | 'SOLARMAN' | 'LUXPOWER' | 'SEMS_PORTAL';
+
+export type ProviderDiscoveryCapability = {
+  provider: ProviderDiscoveryProvider;
+  discovery: 'AVAILABLE' | 'UNAVAILABLE';
+  import: 'AVAILABLE' | 'MANUAL_BINDING_ONLY' | 'UNAVAILABLE';
+  message: string;
+  missingRequirements?: string[];
+};
+
+export type ProviderConnectionSummary = {
+  provider: ProviderDiscoveryProvider;
+  id: string;
+  name: string;
+  status: string;
+  mode?: string | null;
+  lastSuccessfulSyncAt?: string | null;
+  lastError?: string | null;
+};
+
+export type DiscoveredProviderPlant = {
+  provider: ProviderDiscoveryProvider;
+  connectionId: string;
+  externalPlantId: string;
+  externalPlantName?: string | null;
+  installedCapacityKwp?: number | null;
+  location?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  timezone?: string | null;
+  status?: string | null;
+  currentPowerKw?: number | null;
+  todayGenerationKwh?: number | null;
+  monthGenerationKwh?: number | null;
+  yearGenerationKwh?: number | null;
+  totalGenerationKwh?: number | null;
+  providerUpdatedAt?: string | null;
+  devices: Array<{
+    externalDeviceId?: string | null;
+    serialNumber: string;
+    deviceType?: string | null;
+    model?: string | null;
+    status?: string | null;
+    providerUpdatedAt?: string | null;
+  }>;
+  importState:
+    | 'NEW'
+    | 'IMPORTED_UNASSIGNED'
+    | 'ASSIGNED'
+    | 'ALREADY_LINKED'
+    | 'CONFLICT'
+    | 'SYNC_ERROR'
+    | 'DISCONNECTED';
+  linkedSystem?: {
+    id: string;
+    systemCode: string;
+    name: string;
+    customerId?: string | null;
+  } | null;
+  conflictSystems?: Array<{ id: string; systemCode: string; name: string }>;
+};
+
+export type ProviderDiscoveryBootstrap = {
+  capabilities: ProviderDiscoveryCapability[];
+  connections: ProviderConnectionSummary[];
+};
+
+export type ProviderPlantDiscoveryResponse = {
+  provider: ProviderDiscoveryProvider;
+  connectionId: string;
+  capability: ProviderDiscoveryCapability;
+  plants: DiscoveredProviderPlant[];
 };
 
 export type ContentPostStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';

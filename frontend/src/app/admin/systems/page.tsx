@@ -1,8 +1,12 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, ReceiptText, RefreshCw, Trash2 } from 'lucide-react';
+import { ReceiptText, RefreshCw, Trash2 } from 'lucide-react';
 import { MonthlyPvBillingTable } from '@/components/monthly-pv-billing-table';
+import {
+  ProviderSystemBindingActions,
+  ProviderSystemImportCenter,
+} from '@/components/provider-system-import-center';
 import { SectionCard } from '@/components/section-card';
 import { useSystemDashboardPresence } from '@/hooks/use-system-dashboard-presence';
 import {
@@ -77,6 +81,16 @@ type MonthlyFormState = {
 
 type SystemFieldErrors = Partial<Record<keyof SystemFormState, string>>;
 type MonthlyFieldErrors = Partial<Record<keyof MonthlyFormState, string>>;
+type SystemListFilter = 'ALL' | 'UNASSIGNED' | 'ASSIGNED' | 'ERROR' | 'MANUAL' | 'DISCONNECTED';
+
+const systemFilters: Array<{ value: SystemListFilter; label: string }> = [
+  { value: 'ALL', label: 'Tất cả' },
+  { value: 'UNASSIGNED', label: 'Chưa gán khách hàng' },
+  { value: 'ASSIGNED', label: 'Đã gán' },
+  { value: 'ERROR', label: 'Lỗi đồng bộ' },
+  { value: 'MANUAL', label: 'Hệ thống thủ công' },
+  { value: 'DISCONNECTED', label: 'Đã ngắt kết nối' },
+];
 
 const providerOptions = [
   {
@@ -283,6 +297,28 @@ function sourceLabel(value?: string | null) {
   return value || 'Nội bộ / thủ công';
 }
 
+function connectionLabel(system: AdminSystemRecord) {
+  if (system.deyeConnection) return system.deyeConnection.accountName;
+  if (system.solarmanConnection) return system.solarmanConnection.accountName;
+  if (system.luxPowerDiscoveryConnection) return system.luxPowerDiscoveryConnection.accountName;
+  if (system.deyeConnectionId) return `Deye · ${system.deyeConnectionId.slice(-8)}`;
+  if (system.solarmanConnectionId) return `SOLARMAN · ${system.solarmanConnectionId.slice(-8)}`;
+  if (system.luxPowerDiscoveryConnectionId) return `LuxPower · ${system.luxPowerDiscoveryConnectionId.slice(-8)}`;
+  return system.sourceSystem === 'MANUAL' ? 'Không áp dụng' : 'Chưa có kết nối';
+}
+
+function systemMatchesFilter(system: AdminSystemRecord, filter: SystemListFilter) {
+  const imported = Boolean(system.sourceSystem && system.sourceSystem !== 'MANUAL');
+  if (filter === 'UNASSIGNED') return imported && !system.customer;
+  if (filter === 'ASSIGNED') return Boolean(system.customer);
+  if (filter === 'ERROR') return system.lastSyncStatus === 'ERROR' || Boolean(system.lastSyncErrorMessage);
+  if (filter === 'MANUAL') return !system.sourceSystem || system.sourceSystem === 'MANUAL';
+  if (filter === 'DISCONNECTED') {
+    return Boolean(system.providerDisconnectedAt) || system.lastSyncStatus === 'DISCONNECTED';
+  }
+  return true;
+}
+
 function syncStatusLabel(system: AdminSystemRecord | null) {
   if (!system) return 'Chưa cấu hình';
   if (!system.monitorBindingReady) return 'Chưa cấu hình kết nối';
@@ -314,6 +350,7 @@ export default function AdminSystemsPage() {
   const [selectedId, setSelectedId] = useState('');
   const [mode, setMode] = useState<'create' | 'edit'>('edit');
   const [search, setSearch] = useState('');
+  const [systemFilter, setSystemFilter] = useState<SystemListFilter>('ALL');
   const [form, setForm] = useState<SystemFormState>(emptyForm());
   const [monthlyForm, setMonthlyForm] = useState<MonthlyFormState>(emptyMonthlyForm());
   const [editingMonthlyId, setEditingMonthlyId] = useState('');
@@ -360,24 +397,25 @@ export default function AdminSystemsPage() {
 
   const filteredSystems = useMemo(() => {
     const keyword = search.trim().toLowerCase();
-    if (!keyword) return systems;
-    return systems.filter((system) =>
-      [
-        system.systemCode,
-        system.name,
-        system.stationName,
-        system.sourceSystem,
-        system.systemType,
-        system.location,
-        system.customer?.companyName,
-        system.customer?.user?.fullName,
-      ]
-        .filter(Boolean)
-        .join(' ')
-        .toLowerCase()
-        .includes(keyword),
-    );
-  }, [systems, search]);
+    return systems.filter((system) => {
+      if (!systemMatchesFilter(system, systemFilter)) return false;
+      if (!keyword) return true;
+      return [
+          system.systemCode,
+          system.name,
+          system.stationName,
+          system.sourceSystem,
+          system.systemType,
+          system.location,
+          system.customer?.companyName,
+          system.customer?.user?.fullName,
+        ]
+          .filter(Boolean)
+          .join(' ')
+          .toLowerCase()
+          .includes(keyword);
+    });
+  }, [systems, search, systemFilter]);
 
   const monthlySummary = useMemo(() => {
     const totalPv = monthlyRecords.reduce((sum, record) => sum + record.pvGenerationKwh, 0);
@@ -568,10 +606,6 @@ export default function AdminSystemsPage() {
       ...(form.panelModel.trim() ? { panelModel: form.panelModel.trim() } : {}),
       ...(form.inverterBrand.trim() ? { inverterBrand: form.inverterBrand.trim() } : {}),
       ...(form.inverterModel.trim() ? { inverterModel: form.inverterModel.trim() } : {}),
-      monitoringProvider: form.monitoringProvider,
-      ...(form.monitoringPlantId.trim()
-        ? { monitoringPlantId: form.monitoringPlantId.trim() }
-        : {}),
       ...(form.defaultUnitPrice.trim()
         ? { defaultUnitPrice: Number(form.defaultUnitPrice) }
         : {}),
@@ -908,21 +942,35 @@ export default function AdminSystemsPage() {
 
   return (
     <div className="space-y-5">
-      <div className="grid gap-4 md:grid-cols-3">
+      <ProviderSystemImportCenter onChanged={() => refreshData()} onStartManual={startCreate} />
+
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
         <div className="portal-card p-5">
-          <p className="text-sm text-slate-400">Hệ thống đang quản lý</p>
+          <p className="text-sm text-slate-400">Tổng hệ thống</p>
           <p className="mt-3 text-3xl font-semibold text-white">{systems.length}</p>
         </div>
         <div className="portal-card p-5">
-          <p className="text-sm text-slate-400">Đã gắn monitor</p>
+          <p className="text-sm text-slate-400">Chưa gán khách hàng</p>
           <p className="mt-3 text-3xl font-semibold text-white">
-            {systems.filter((item) => item.monitoringPlantId).length}
+            {systems.filter((item) => systemMatchesFilter(item, 'UNASSIGNED')).length}
           </p>
         </div>
         <div className="portal-card p-5">
-          <p className="text-sm text-slate-400">Có snapshot gần nhất</p>
+          <p className="text-sm text-slate-400">Đã gán</p>
           <p className="mt-3 text-3xl font-semibold text-white">
-            {systems.filter((item) => item.latestMonitorAt).length}
+            {systems.filter((item) => systemMatchesFilter(item, 'ASSIGNED')).length}
+          </p>
+        </div>
+        <div className="portal-card p-5">
+          <p className="text-sm text-slate-400">Đang lỗi đồng bộ</p>
+          <p className="mt-3 text-3xl font-semibold text-white">
+            {systems.filter((item) => systemMatchesFilter(item, 'ERROR')).length}
+          </p>
+        </div>
+        <div className="portal-card p-5">
+          <p className="text-sm text-slate-400">Hệ thống thủ công</p>
+          <p className="mt-3 text-3xl font-semibold text-white">
+            {systems.filter((item) => systemMatchesFilter(item, 'MANUAL')).length}
           </p>
         </div>
       </div>
@@ -931,14 +979,27 @@ export default function AdminSystemsPage() {
         <SectionCard title="Danh mục hệ thống" eyebrow="Tạo mới, tìm kiếm và chọn hồ sơ" dark>
           <div className="grid gap-4">
             <div className="flex flex-wrap gap-3">
-              <button type="button" className="btn-primary" onClick={startCreate}>
-                <Plus className="h-4 w-4" />
-                Tạo hệ thống
-              </button>
               <button type="button" className="btn-ghost" onClick={() => void refreshData()}>
                 <RefreshCw className="h-4 w-4" />
                 Tải lại
               </button>
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-1">
+              {systemFilters.map((filter) => (
+                <button
+                  key={filter.value}
+                  type="button"
+                  onClick={() => setSystemFilter(filter.value)}
+                  className={cn(
+                    'shrink-0 rounded-full border px-4 py-2 text-xs font-semibold transition',
+                    systemFilter === filter.value
+                      ? 'border-cyan-300/40 bg-cyan-300/15 text-cyan-100'
+                      : 'border-white/10 bg-white/[0.03] text-slate-300 hover:bg-white/[0.07]',
+                  )}
+                >
+                  {filter.label}
+                </button>
+              ))}
             </div>
             <label className="grid gap-2 text-sm text-slate-300">
               <span>Tìm kiếm nhanh</span>
@@ -956,60 +1017,82 @@ export default function AdminSystemsPage() {
                   const snapshot = asSnapshot(system.latestMonitorSnapshot);
 
                   return (
-                    <button
+                    <article
                       key={system.id}
-                      type="button"
-                      onClick={() => startEdit(system.id)}
                       className={cn(
-                        'w-full rounded-[24px] border px-4 py-4 text-left transition',
+                        'rounded-[24px] border px-4 py-4 transition',
                         selected
                           ? 'border-white/20 bg-white text-slate-950'
-                          : 'border-white/10 bg-white/5 text-white hover:bg-white/10',
+                          : 'border-white/10 bg-white/5 text-white hover:bg-white/[0.07]',
                       )}
                     >
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
-                            {system.systemCode}
-                          </p>
-                          <p className="mt-2 truncate text-lg font-semibold">{system.name}</p>
-                          <p
+                      <button type="button" className="w-full text-left" onClick={() => startEdit(system.id)}>
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-[11px] uppercase tracking-[0.22em] text-slate-500">
+                              {system.systemCode}
+                            </p>
+                            <p className="mt-2 truncate text-lg font-semibold">{system.name}</p>
+                            <p className={cn('mt-1 text-sm', selected ? 'text-slate-600' : 'text-slate-400')}>
+                              {system.customer?.companyName ||
+                                system.customer?.user?.fullName ||
+                                'Chưa gán khách hàng'}
+                            </p>
+                          </div>
+                          <span
                             className={cn(
-                              'mt-1 text-sm',
-                              selected ? 'text-slate-600' : 'text-slate-400',
+                              'rounded-full px-3 py-1 text-xs font-semibold',
+                              selected ? 'bg-slate-950 text-white' : 'bg-emerald-400/15 text-emerald-300',
                             )}
                           >
-                            {system.customer?.companyName ||
-                              system.customer?.user?.fullName ||
-                              'Khách hàng chưa gắn'}
-                          </p>
+                            {system.providerDisconnectedAt || system.lastSyncStatus === 'DISCONNECTED'
+                              ? 'DISCONNECTED'
+                              : system.customer
+                                ? 'ASSIGNED'
+                                : system.sourceSystem === 'MANUAL'
+                                  ? 'MANUAL'
+                                  : 'IMPORTED_UNASSIGNED'}
+                          </span>
                         </div>
-                        <span
+                        <div
                           className={cn(
-                            'rounded-full px-3 py-1 text-xs font-semibold',
-                            selected
-                              ? 'bg-slate-950 text-white'
-                              : 'bg-emerald-400/15 text-emerald-300',
+                            'mt-4 grid gap-2 text-sm sm:grid-cols-2',
+                            selected ? 'text-slate-700' : 'text-slate-300',
                           )}
                         >
-                          {system.status}
-                        </span>
+                          <p>Công suất xác nhận: {formatNumber(system.capacityKwp, 'kWp')}</p>
+                          <p>
+                            Công suất provider:{' '}
+                            {typeof system.installedCapacityKwp === 'number'
+                              ? formatNumber(system.installedCapacityKwp, 'kWp')
+                              : '—'}
+                          </p>
+                          <p>Nguồn: {sourceLabel(system.sourceSystem)}</p>
+                          <p>Kết nối: {connectionLabel(system)}</p>
+                          <p>Plant/station: {system.stationName || 'Chưa có tên'}</p>
+                          <p>ID ngoài: {system.stationId || system.monitoringPlantId || '—'}</p>
+                          <p>PV hiện tại: {metric(snapshot?.currentPvKw ?? system.currentGenerationPowerKw, 'kW')}</p>
+                          <p>Thiết bị: {formatNumber(system.devices?.length || 0)}</p>
+                          <p className="sm:col-span-2">
+                            Sync thành công: {system.lastSuccessfulSyncAt ? formatDateTime(system.lastSuccessfulSyncAt) : 'Chưa có'}
+                          </p>
+                        </div>
+                      </button>
+                      {system.lastSyncErrorMessage ? (
+                        <p className={cn('mt-3 rounded-[14px] px-3 py-2 text-xs', selected ? 'bg-rose-50 text-rose-700' : 'bg-rose-300/10 text-rose-200')}>
+                          {system.lastSyncErrorMessage}
+                        </p>
+                      ) : null}
+                      <div className="mt-4 border-t border-current/10 pt-3">
+                        <ProviderSystemBindingActions
+                          system={system}
+                          systems={systems}
+                          customers={customers}
+                          onChanged={() => refreshData()}
+                          onView={() => startEdit(system.id)}
+                        />
                       </div>
-                      <div
-                        className={cn(
-                          'mt-4 grid gap-2 text-sm sm:grid-cols-2',
-                          selected ? 'text-slate-700' : 'text-slate-300',
-                        )}
-                      >
-                        <p>Công suất: {formatNumber(system.capacityKwp, 'kWp')}</p>
-                        <p>Loại: {system.systemType || 'Chưa phân loại'}</p>
-                        <p>Nguồn: {sourceLabel(system.sourceSystem)}</p>
-                        <p>Monitor: {providerLabel(system.monitoringProvider)}</p>
-                        <p>Station: {system.stationId || 'Chưa gán'}</p>
-                        <p>PV hiện tại: {metric(snapshot?.currentPvKw, 'kW')}</p>
-                        <p>Thiết bị: {formatNumber(system.devices?.length || 0)}</p>
-                      </div>
-                    </button>
+                    </article>
                   );
                 })
               ) : (
@@ -1023,15 +1106,20 @@ export default function AdminSystemsPage() {
 
         <div className="space-y-5">
           <SectionCard
-            title={mode === 'create' ? 'Tạo hệ thống mới' : 'Chỉnh sửa hệ thống'}
+            title={mode === 'create' ? 'Tạo hệ thống thủ công' : 'Chỉnh sửa hệ thống'}
             eyebrow={
               mode === 'create'
-                ? 'Tạo hồ sơ lắp đặt và cấu hình monitor'
-                : 'Cập nhật hồ sơ tài sản và monitor'
+                ? 'Phương án dự phòng khi provider chưa hỗ trợ discovery'
+                : 'Cập nhật thông tin do Moka Solar quản lý'
             }
             dark
           >
             <form onSubmit={onSubmit} className="grid gap-4">
+              {mode === 'create' ? (
+                <div className="rounded-[18px] border border-amber-300/20 bg-amber-300/10 px-4 py-3 text-sm leading-6 text-amber-100">
+                  Hệ thống tạo tại đây sẽ có nguồn MANUAL và bắt buộc gán khách hàng. Không nhập credential hoặc giả lập provider trong hồ sơ này.
+                </div>
+              ) : null}
               <div className="grid gap-4 md:grid-cols-2">
                 <label className="grid gap-2 text-sm text-slate-300">
                   <span>Khách hàng liên kết</span>
@@ -1366,6 +1454,8 @@ export default function AdminSystemsPage() {
             </form>
           </SectionCard>
 
+          {false ? (
+          <>
           <SectionCard title="Giám sát inverter" eyebrow="Xem trước và đồng bộ monitor" dark>
             <div className="grid gap-4">
               <div className="grid gap-3 md:grid-cols-2">
@@ -1449,7 +1539,32 @@ export default function AdminSystemsPage() {
               </div>
             </div>
           </SectionCard>
+          </>
+          ) : selectedSystem && selectedSystem.sourceSystem !== 'MANUAL' ? (
+            <SectionCard title="Liên kết inverter" eyebrow="Thông tin do provider quản lý" dark>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="portal-card-soft p-4">
+                  <p className="text-sm text-slate-400">Provider / kết nối</p>
+                  <p className="mt-2 font-semibold text-white">
+                    {sourceLabel(selectedSystem.sourceSystem)} · {connectionLabel(selectedSystem)}
+                  </p>
+                </div>
+                <div className="portal-card-soft p-4">
+                  <p className="text-sm text-slate-400">Plant / station</p>
+                  <p className="mt-2 break-words font-semibold text-white">
+                    {selectedSystem.stationName || selectedSystem.stationId || 'Chưa có'}
+                  </p>
+                </div>
+                <div className="portal-card-soft p-4 sm:col-span-2">
+                  <p className="text-sm leading-6 text-slate-300">
+                    Credential và token chỉ được quản lý tại trang kết nối provider. Trang hệ thống chỉ hiển thị binding đã lưu và dữ liệu đồng bộ an toàn.
+                  </p>
+                </div>
+              </div>
+            </SectionCard>
+          ) : null}
 
+          {false ? (
           <SectionCard
             title="Deye OpenAPI"
             eyebrow="Xem trước station, chọn inverter và đồng bộ vào system hiện tại"
@@ -1622,6 +1737,7 @@ export default function AdminSystemsPage() {
               </div>
             )}
           </SectionCard>
+          ) : null}
         </div>
       </div>
 
