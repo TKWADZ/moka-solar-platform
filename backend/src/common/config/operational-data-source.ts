@@ -36,6 +36,10 @@ export function classifyOperationalSource(source?: string | null): OperationalSo
 }
 
 export function buildOperationalSourceLabel(source?: string | null) {
+  if (String(source || '').trim().toUpperCase() === 'SEMS_PLUS_VISIBLE_REPORT') {
+    return 'Báo cáo SEMS+';
+  }
+
   switch (classifyOperationalSource(source)) {
     case 'MANUAL':
       return 'Nhập tay';

@@ -1,3 +1,5 @@
+import { parseSemsPlusLocalizedNumber } from './sems-plus-visible-report.mapper';
+
 export type SemsPlusRecord = Record<string, unknown>;
 
 export type SemsPlusLegacyMapperInput = {
@@ -115,15 +117,9 @@ function readString(source: SemsPlusRecord, keys: readonly string[]) {
 
 function readNumber(source: SemsPlusRecord, keys: readonly string[]) {
   for (const key of keys) {
-    const value = source[key];
-    if (typeof value === 'number' && Number.isFinite(value)) {
-      return value;
-    }
-    if (typeof value === 'string' && value.trim()) {
-      const parsed = Number(value);
-      if (Number.isFinite(parsed)) {
-        return parsed;
-      }
+    const parsed = parseSemsPlusLocalizedNumber(source[key]);
+    if (parsed !== null) {
+      return parsed;
     }
   }
   return null;

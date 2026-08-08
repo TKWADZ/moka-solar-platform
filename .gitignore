@@ -44,6 +44,10 @@ temp/
 deploy-bundles/
 *.zip
 
+# Authorized browser captures can contain customer/provider identifiers.
+imports/sems-plus/*
+!imports/sems-plus/README.md
+
 # Uploaded media and proofs
 backend/storage/media/**
 backend/storage/payment-proofs/**
