@@ -12,8 +12,8 @@ export class SolarmanConnectionLockService {
   ) {
     return this.prisma.$transaction(
       async (transaction) => {
-        await transaction.$queryRaw(
-          Prisma.sql`SELECT pg_advisory_xact_lock(hashtext('moka-solarman-refresh'), hashtext(${connectionId}))`,
+        await transaction.$queryRaw<Array<{ lock_result: string | null }>>(
+          Prisma.sql`SELECT pg_advisory_xact_lock(hashtext('moka-solarman-refresh'), hashtext(${connectionId}))::text AS lock_result`,
         );
         return operation(transaction);
       },

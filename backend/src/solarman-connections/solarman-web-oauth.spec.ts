@@ -2,6 +2,7 @@ import * as assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { ConfigService } from '@nestjs/config';
 import { decryptSolarmanSecret, encryptSolarmanSecret } from './solarman-secret.crypto';
+import { SolarmanConnectionLockService } from './solarman-connection-lock.service';
 import { SolarmanWebOAuthClient, SolarmanWebOAuthRefreshError } from './solarman-web-oauth.client';
 import { SolarmanWebOAuthProvider } from './solarman-web-oauth.provider';
 import { SolarmanWebOAuthTokenService } from './solarman-web-oauth-token.service';
@@ -101,6 +102,30 @@ function tokenHarness(options: {
 }
 
 describe('SOLARMAN web OAuth refresh-token mode', () => {
+  it('casts the PostgreSQL advisory-lock result away from the unsupported void type', async () => {
+    let queryText = '';
+    const transaction = {
+      $queryRaw: async (query: { strings?: readonly string[] }) => {
+        queryText = query.strings?.join('?') || '';
+        return [{ lock_result: '' }];
+      },
+    };
+    const prisma = {
+      $transaction: async (operation: (tx: typeof transaction) => Promise<unknown>) =>
+        operation(transaction),
+    };
+    const service = new SolarmanConnectionLockService(prisma as any);
+
+    const result = await service.withRefreshLock('fixture-connection', async (tx) => {
+      assert.equal(tx, transaction);
+      return 'locked';
+    });
+
+    assert.equal(result, 'locked');
+    assert.match(queryText, /pg_advisory_xact_lock/);
+    assert.match(queryText, /::text AS lock_result/);
+  });
+
   it('refreshes without Cookie or browser authentication headers', async () => {
     const originalFetch = globalThis.fetch;
     let captured: RequestInit | undefined;

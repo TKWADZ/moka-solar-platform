@@ -1,5 +1,19 @@
 # Deploy Status
 
+## SOLARMAN advisory-lock hotfix (local only)
+
+- latest task: Fix Prisma runtime failure when PostgreSQL `pg_advisory_xact_lock` returns the unsupported `void` type
+- root cause: Prisma could not deserialize the raw `void` column before the refresh/station sync operation ran
+- local fix: Cast the advisory-lock result to PostgreSQL `text`; locking scope and token behavior remain unchanged
+- focused test status: Passed 9/9 SOLARMAN OAuth tests, including a regression assertion for the SQL cast
+- full test status: Passed 77/77 backend unit/regression tests
+- typecheck/build status: Backend typecheck and production build passed
+- database change: None; no migration required
+- approval requested or not: Yes
+- approved or not: No
+- deployed or not: No
+- rollback target if needed: `a2a1503d97b7b44eb4fb754e3791828ca4477068`
+
 ## SOLARMAN Web OAuth release candidate (local only)
 
 - latest task: Implement VPS-proven SOLARMAN Business OAuth refresh-token sync after manual Turnstile authorization
