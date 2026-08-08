@@ -17,17 +17,19 @@
 - Windows terminal support: Windows Terminal/standard PowerShell paste is documented; PowerShell ISE is unsupported for raw hidden input
 - unit/regression test status: Passed 76/76, including SOLARMAN OAuth, Deye, LuxPower, provider discovery, billing safety, Zalo safety and auth tests
 - typecheck status: Passed backend `npm run typecheck`
-- Prisma status: Schema validated and client generated; additive migration `20260808190000_solarman_web_oauth_refresh_token` created locally but not applied
+- Prisma status: Schema validated and client generated; additive migration `20260808190000_solarman_web_oauth_refresh_token` applied successfully in production
 - build status: Backend build passed; frontend production build passed (51 routes)
 - integration test status: Staff-auth e2e skipped because this isolated workspace has no `TEST_DATABASE_URL`; no production database was used
 - secret scan status: Passed changed-tree checks; no long token/JWT pattern, HAR, session state, proof output, cookie or raw credential artifact found
-- approval requested or not: No
-- approved or not: No
-- deployed or not: No
-- production changed: No
+- approval requested or not: Yes
+- approved or not: Yes
+- deployed or not: Yes, commit `a2a1503d97b7b44eb4fb754e3791828ca4477068` via GitHub Actions run `31243079350`
+- production changed: Yes, additive SOLARMAN OAuth schema and application release only; no existing billing/customer data reset
+- production stack: PM2; backend and frontend remained online with zero restarts through 10 observations over 5 minutes
+- production verification: Homepage `200`, `/admin/solarman` `200`, `/api/health` status `ok`, database `up`, and public workflow checks passed
 - production proof safety: Production checkout unchanged, no PM2 restart, no database/environment modification, and temporary VPS worktree removed
 - remaining manual input: None for implementation; a new token is needed only when an authorized admin performs the eventual production authorization
-- rollback target if needed: `03a661e905a6f54b4b52a4af195243739a3cb479`
+- rollback target if needed: `f09b96ee2b85e81f59f08132f62d25a37b96905b` (the additive database columns may remain safely in place)
 
 ## Current provider integration candidate
 
