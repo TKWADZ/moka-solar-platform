@@ -4,21 +4,24 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 
 export type SemsPlusCredentialOverrides = {
   account?: string | null;
   password?: string | null;
   portalUrl?: string | null;
+  region?: string | null;
+};
+
+export type SemsPlusRequestMetadata = {
+  endpoint: string;
+  httpStatus: number;
+  providerCode: string | null;
 };
 
 export type SemsPlusSession = {
   apiBaseUrl: string;
-  uid: string;
-  token: string;
-  timestamp: string | number;
-  client: string;
-  version: string;
+  tokenDocument: Record<string, unknown>;
   language: string;
 };
 
@@ -53,7 +56,15 @@ const AUTH_ERROR_CODES = new Set(['C0602', 'C0607', '100002']);
 const SUCCESS_CODES = new Set(['00000', '0']);
 
 export class SemsPlusAuthenticationError extends Error {
-  constructor(message = 'SEMS+ authentication expired or was rejected.') {
+  constructor(
+    message = 'SEMS+ authentication expired or was rejected.',
+    readonly diagnostics: {
+      endpoint?: string;
+      httpStatus?: number;
+      providerCode?: string | null;
+      sessionCreated?: boolean;
+    } = {},
+  ) {
     super(message);
     this.name = 'SemsPlusAuthenticationError';
   }
@@ -62,6 +73,7 @@ export class SemsPlusAuthenticationError extends Error {
 @Injectable()
 export class SemsPlusSessionManager {
   private readonly sessionCache = new Map<string, CachedSession>();
+  private readonly deviceId = randomUUID();
 
   constructor(private readonly configService: ConfigService) {}
 
@@ -97,14 +109,11 @@ export class SemsPlusSessionManager {
   async request(
     session: SemsPlusSession,
     request: SemsPlusRequest,
+    onResponse?: (metadata: SemsPlusRequestMetadata) => void,
   ): Promise<Record<string, unknown>> {
     this.assertReadOnlyRequest(request);
     const tokenDocument = JSON.stringify({
-      uid: session.uid,
-      timestamp: session.timestamp,
-      token: session.token,
-      client: session.client,
-      version: session.version,
+      ...session.tokenDocument,
       language: session.language,
     });
 
@@ -113,6 +122,7 @@ export class SemsPlusSessionManager {
       request,
       tokenDocument,
       session.language,
+      onResponse,
     );
   }
 
@@ -170,6 +180,10 @@ export class SemsPlusSessionManager {
         message: 'SEMS+ login succeeded but did not return a usable session.',
         provider: 'SEMS_PORTAL',
         errorCategory: 'SCHEMA_CHANGED',
+        endpoint: '/web/sems/sems-user/api/v1/auth/cross-login',
+        httpStatus: 200,
+        providerCode: response.code === undefined ? null : String(response.code),
+        sessionCreated: false,
       });
     }
 
@@ -179,21 +193,11 @@ export class SemsPlusSessionManager {
       credentials.regionApiUrl;
 
     return {
-      apiBaseUrl: this.normalizeAllowedOrigin(apiCandidate, 'SEMS+ API URL'),
-      uid,
-      token,
-      timestamp:
-        this.readString(data, ['timestamp']) ||
-        this.readString(response, ['timestamp']) ||
-        Date.now(),
-      client:
-        this.readString(data, ['client']) ||
-        this.readString(response, ['client']) ||
-        'semsPlusWeb',
-      version:
-        this.readString(data, ['version']) ||
-        this.readString(response, ['version']) ||
-        '',
+      apiBaseUrl: this.resolveProviderApiOrigin(apiCandidate, credentials.regionApiUrl),
+      // SEMS+ stores the complete cross-login data object and signs that exact
+      // document on later requests. Dropping provider-added fields invalidates
+      // an otherwise valid session (provider code C0602).
+      tokenDocument: { ...data },
       language:
         this.readString(data, ['language']) ||
         this.readString(response, ['language']) ||
@@ -206,6 +210,7 @@ export class SemsPlusSessionManager {
     request: SemsPlusRequest,
     tokenDocument: string,
     language: string,
+    onResponse?: (metadata: SemsPlusRequestMetadata) => void,
   ) {
     let lastError: unknown = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
@@ -215,6 +220,7 @@ export class SemsPlusSessionManager {
           request,
           tokenDocument,
           language,
+          onResponse,
         );
       } catch (error) {
         lastError = error;
@@ -230,6 +236,7 @@ export class SemsPlusSessionManager {
     request: SemsPlusRequest,
     tokenDocument: string,
     language: string,
+    onResponse?: (metadata: SemsPlusRequestMetadata) => void,
   ): Promise<Record<string, unknown>> {
     this.normalizeAllowedOrigin(url, 'SEMS+ request URL');
     const controller = new AbortController();
@@ -247,10 +254,13 @@ export class SemsPlusSessionManager {
         headers: {
           Accept: 'application/json, text/plain, */*',
           ...(request.method === 'POST' ? { 'Content-Type': 'application/json' } : {}),
+          'Access-Control-Allow-Origin': '*',
           token: tokenDocument,
           'X-Signature': this.encodeSignature(tokenDocument),
+          neutral: '0',
           currentLang: language,
-          uuid: randomUUID(),
+          traceparent: this.createTraceparent(),
+          uuid: this.deviceId,
           os: 'MokaSolar Backend',
           brand: 'MokaSolar',
         },
@@ -259,11 +269,30 @@ export class SemsPlusSessionManager {
       });
 
       const text = await response.text();
-      const payload = this.parseJson(text);
+      const sessionCreated =
+        request.path !== '/web/sems/sems-user/api/v1/auth/cross-login';
+      const payload = this.parseJson(
+        text,
+        request.path,
+        response.status,
+        sessionCreated,
+      );
       const code = payload.code === undefined ? null : String(payload.code);
+      const metadata = {
+        endpoint: request.path,
+        httpStatus: response.status,
+        providerCode: code,
+      };
+      onResponse?.(metadata);
 
       if (response.status === 401 || response.status === 403 || (code && AUTH_ERROR_CODES.has(code))) {
-        throw new SemsPlusAuthenticationError();
+        throw new SemsPlusAuthenticationError(
+          'SEMS+ authentication expired or was rejected.',
+          {
+            ...metadata,
+            sessionCreated,
+          },
+        );
       }
 
       if (!response.ok) {
@@ -271,6 +300,10 @@ export class SemsPlusSessionManager {
           message: `SEMS+ request failed with HTTP ${response.status}.`,
           provider: 'SEMS_PORTAL',
           statusCode: response.status,
+          httpStatus: response.status,
+          providerCode: code,
+          endpoint: request.path,
+          sessionCreated,
           errorCategory: response.status === 429 ? 'RATE_LIMITED' : 'PROVIDER_ERROR',
         });
       }
@@ -280,6 +313,10 @@ export class SemsPlusSessionManager {
           message: 'SEMS+ rejected the read-only request.',
           provider: 'SEMS_PORTAL',
           code,
+          providerCode: code,
+          httpStatus: response.status,
+          endpoint: request.path,
+          sessionCreated,
           errorCategory: 'PROVIDER_ERROR',
         });
       }
@@ -297,6 +334,9 @@ export class SemsPlusSessionManager {
         message: 'SEMS+ request failed before a valid response was received.',
         provider: 'SEMS_PORTAL',
         errorCategory: 'PROVIDER_ERROR',
+        endpoint: request.path,
+        sessionCreated:
+          request.path !== '/web/sems/sems-user/api/v1/auth/cross-login',
         detail: error instanceof Error ? error.name : 'Unknown network error',
       });
     } finally {
@@ -338,7 +378,7 @@ export class SemsPlusSessionManager {
       );
     }
 
-    const region = String(this.configService.get('SEMS_PLUS_REGION') || 'hk')
+    const region = String(overrides.region ?? this.configService.get('SEMS_PLUS_REGION') ?? 'hk')
       .trim()
       .toLowerCase();
     const regionApiUrl = REGION_APIS[region];
@@ -388,6 +428,15 @@ export class SemsPlusSessionManager {
     return parsed.origin;
   }
 
+  private resolveProviderApiOrigin(candidate: string, configuredRegionApiUrl: string) {
+    try {
+      return this.normalizeAllowedOrigin(candidate, 'SEMS+ API URL');
+    } catch {
+      // Never follow an unexpected login-response host; stay on the selected official region.
+      return this.normalizeAllowedOrigin(configuredRegionApiUrl, 'SEMS+ regional API URL');
+    }
+  }
+
   private readAccount() {
     return (
       this.configService.get<string>('SEMS_PLUS_ACCOUNT') ||
@@ -425,6 +474,10 @@ export class SemsPlusSessionManager {
     return Buffer.from(`${hash}@${timestamp}`, 'utf8').toString('base64');
   }
 
+  private createTraceparent() {
+    return `00-${randomBytes(16).toString('hex')}-${randomBytes(8).toString('hex')}-01`;
+  }
+
   private cacheKey(credentials: ResolvedCredentials) {
     const secretFingerprint = createHash('sha256')
       .update(`${credentials.account}\n${credentials.password}`, 'utf8')
@@ -432,7 +485,12 @@ export class SemsPlusSessionManager {
     return `${credentials.portalUrl}|${credentials.regionApiUrl}|${secretFingerprint}`;
   }
 
-  private parseJson(text: string) {
+  private parseJson(
+    text: string,
+    endpoint: string,
+    httpStatus: number,
+    sessionCreated: boolean,
+  ) {
     try {
       return JSON.parse(text || '{}') as Record<string, unknown>;
     } catch {
@@ -440,6 +498,9 @@ export class SemsPlusSessionManager {
         message: 'SEMS+ returned an invalid JSON response.',
         provider: 'SEMS_PORTAL',
         errorCategory: 'SCHEMA_CHANGED',
+        endpoint,
+        httpStatus,
+        sessionCreated,
       });
     }
   }

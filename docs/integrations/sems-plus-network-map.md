@@ -19,6 +19,8 @@ The browser tooling available for this review did not expose request/response ev
 
 The login password field is Base64-encoded MD5 output, matching the current SEMS+ login bundle. Secret values are never returned to the Moka frontend or included in errors.
 
+The frontend stores the complete data object returned by `cross-login`, then sends that complete object in the `token` header with the active language overlaid. Reconstructing a reduced token document causes provider code `C0602`; the backend now mirrors the complete in-memory document and never logs or persists it.
+
 ## Verified read-only requests
 
 | Purpose | Method | Path |
@@ -63,15 +65,35 @@ The implemented unattended discovery uses only login, profile, station types, st
 
 Discovery first requests all station types, paginates every type, deduplicates by plant ID, and then enriches each plant with station detail. A failed detail request does not remove the base-list plant, including offline plants.
 
+## Safe live discovery probe
+
+Run the read-only probe from an interactive Windows Terminal/PowerShell or a normal Linux TTY:
+
+```bash
+cd backend
+npm run sems-plus:test-discovery
+```
+
+The command prompts for the account, region, an optional expected plant-name marker, and a hidden password. Account/password values are not accepted through command arguments, environment variables, source files, or temporary files. The CLI passes the in-memory values through the existing `SemsPlusSessionManager` credential override path and clears its local references after completion.
+
+Only sanitized counts and provider statuses are printed. Plant names, addresses, coordinates, account identifiers, encoded passwords, session identifiers, token documents, and signature values are never printed. The expected marker is reported only as matched, not matched, or not checked. Windows PowerShell ISE is unsupported because its console does not provide the raw TTY behavior required for hidden input.
+
+The probe invokes only the verified login, profile, station-type, station-page, and station-detail requests. It does not import systems, write database data, restart services, or call a remote-control endpoint.
+
 ## Sanitized response fields used
 
 - Identity: `id`, with compatibility aliases `plantId` and `stationId`.
 - Name: `name`, `plantName`, or `stationName`.
-- Capacity: `installedPower` in kWp only where the returned value is numeric.
-- Energy: `productionToday` and `productionTotal` in kWh, based on current SEMS+ UI labels and supplied sanitized field observations.
+- Current SEMS+ capacity: `installedCapacity` in W, normalized to kWp by dividing by 1,000. Legacy `installedPower`/`installedCapacityKwp` values remain supported as already-normalized kWp.
+- Current SEMS+ energy: `proToday` and `proTotal` in Wh, normalized to kWh by dividing by 1,000. Legacy `productionToday` and `productionTotal` remain supported as already-normalized kWh.
+- Status codes verified from the current first-party renderer: `0=OFFLINE`, `1=RUNNING`, `2=FAULT`, `3=WAITING`, and `11=CONSTRUCTING`.
 - Metadata: `status`, `timeZone`, location coordinates/address, and provider update time where present.
-- `pSystem` is deliberately not mapped because its unit has not yet been confirmed in a sanitized response fixture.
+- The first-party renderer declares `psystem` in W, but it remains deliberately unmapped from `currentPowerKw` until a sanitized value-to-UI comparison fixture completes the requested unit verification.
 - Missing energy remains `null`; it is never converted to zero.
+
+## Local live proof
+
+The 2026-08-08 read-only local probe succeeded without browser cookies or CAPTCHA: profile HTTP `200`, provider status `00000`, one station type, eight unique stations, eight successful detail responses, seven online stations, one offline station, and all eight stations carrying current-day and total-generation fields. The earlier seven-plant expectation is stale because the authorized account now returns eight plants. No plant names, addresses, credentials, session values, or raw payloads were retained.
 
 ## PLANT_OWNER behavior
 

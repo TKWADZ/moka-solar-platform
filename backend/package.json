@@ -23,6 +23,7 @@
     "deye:sync-monthly-history": "ts-node src/deye-connections/deye.cli.ts sync-monthly-history",
     "deye:sync-all": "ts-node src/deye-connections/deye.cli.ts sync-all",
     "sems-plus:prepare-import": "ts-node src/energy-records/sems-plus-visible-report.cli.ts",
+    "sems-plus:test-discovery": "ts-node src/sems-plus/sems-plus-live-discovery.cli.ts",
     "solarman:test-refresh-decision": "ts-node src/solarman-connections/solarman-refresh-decision.cli.ts"
   },
   "dependencies": {

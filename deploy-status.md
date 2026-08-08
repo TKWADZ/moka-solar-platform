@@ -1,5 +1,22 @@
 # Deploy Status
 
+## SEMS+ live discovery candidate (local proven, VPS pending)
+
+- latest task: Verify current GoodWe SEMS+ login/session and read-only plant discovery before production activation
+- branch: `fix/sems-plus-live-discovery`
+- local probe status: Passed; HTTP `200`, provider status `00000`, 8 unique plants, 8/8 station details, 7 online, 1 offline, and 8 plants with day/total generation fields
+- mapping status: Current `installedCapacity`, `proToday`, `proTotal`, and numeric station status fields are normalized; missing values remain `null`; `psystem` remains intentionally unmapped
+- secret handling: Credentials were entered only through hidden interactive input; no credential, token, session document, raw HAR, customer name, or address was stored
+- test status: Passed 82/82 backend unit/regression tests; Prisma validate/generate, backend typecheck/build, and frontend production build with 51 routes all passed
+- integration test status: Staff-auth e2e skipped because this isolated worktree has no `TEST_DATABASE_URL`; no production database was used
+- secret scan status: Passed changed-tree scan; no credential, token, JWT, private key, HAR, cookie jar, or session artifact found
+- VPS probe status: Not run yet
+- database change: None; no migration
+- approval requested or not: No
+- approved or not: No
+- deployed or not: No
+- rollback target if needed: `51ab749fe0bc238c53363b1c89fa503d82e3f5a2`
+
 ## SOLARMAN station timestamp/power hotfix (deployed)
 
 - latest task: Fix `AUTHORIZE_WEB_OAUTH` system creation failure caused by a Unix-seconds `lastUpdateTime`

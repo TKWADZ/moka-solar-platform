@@ -6,19 +6,19 @@
       {
         "id": "plant-fixture-online",
         "name": "Fixture Online Plant",
-        "status": "RUNNING",
-        "installedPower": 12.5,
-        "productionToday": 18.4,
-        "productionTotal": 8200.5,
-        "pSystem": 4.8,
+        "status": 1,
+        "installedCapacity": 12500,
+        "proToday": 18400,
+        "proTotal": 8200500,
+        "psystem": 4800,
         "timeZone": "UTC+07:00"
       },
       {
         "id": "plant-fixture-offline",
         "name": "Fixture Offline Plant",
-        "status": "OFFLINE",
-        "installedPower": 6.2,
-        "productionTotal": 3100,
+        "status": 0,
+        "installedCapacity": 6200,
+        "proTotal": 3100000,
         "timeZone": "UTC+07:00"
       }
     ]

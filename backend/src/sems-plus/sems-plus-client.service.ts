@@ -2,6 +2,7 @@ import { BadGatewayException, BadRequestException, Injectable } from '@nestjs/co
 import { ConfigService } from '@nestjs/config';
 import {
   SemsPlusCredentialOverrides,
+  SemsPlusRequestMetadata,
   SemsPlusSession,
   SemsPlusSessionManager,
 } from './sems-plus-session.manager';
@@ -25,6 +26,20 @@ export type SemsPlusDiscoveryResult = {
   plants: ParsedSemsPlusPlant[];
   fullPlantList: SemsPlusRecord[];
   stationOverview: SemsPlusRecord[];
+  diagnostics: {
+    profileHttpStatus: number | null;
+    profileProviderStatus: string | null;
+    roleKey: string | null;
+    userType: string | null;
+    hasOrgId: boolean;
+    permissionsCount: number;
+    stationTypeCount: number;
+    fullStationRowsReturned: number;
+    uniqueStationIdsReturned: number;
+    stationDetailSuccessCount: number;
+    stationDetailFailureCount: number;
+    finalMergedPlantCount: number;
+  };
 };
 
 @Injectable()
@@ -55,9 +70,12 @@ export class SemsPlusClientService {
     overrides: SemsPlusCredentialOverrides = {},
   ): Promise<SemsPlusDiscoveryResult> {
     return this.sessionManager.withSession(overrides, async (session) => {
+      let profileRequest: SemsPlusRequestMetadata | null = null;
       const profilePayload = await this.sessionManager.request(session, {
         method: 'GET',
         path: '/web/sems/sems-user/api/v1/user/get-user',
+      }, (metadata) => {
+        profileRequest = metadata;
       });
       const profile = parseSemsPlusProfile(profilePayload);
       if (!profile.roleKey) {
@@ -65,13 +83,20 @@ export class SemsPlusClientService {
           message: 'SEMS+ profile response is missing its role identity.',
           provider: 'SEMS_PORTAL',
           errorCategory: 'SCHEMA_CHANGED',
+          endpoint: '/web/sems/sems-user/api/v1/user/get-user',
+          httpStatus: profileRequest?.httpStatus ?? 200,
+          providerCode: profileRequest?.providerCode ?? null,
+          sessionCreated: true,
         });
       }
       // PLANT_OWNER legitimately has no orgId and may have empty permission arrays.
 
+      let stationTypeRequest: SemsPlusRequestMetadata | null = null;
       const typePayload = await this.sessionManager.request(session, {
         method: 'GET',
         path: '/sems/sems-dashboard-web/api/front/page/getStationType',
+      }, (metadata) => {
+        stationTypeRequest = metadata;
       });
       const stationTypes = parseSemsPlusStationTypes(typePayload);
       if (!stationTypes.length) {
@@ -79,18 +104,24 @@ export class SemsPlusClientService {
           message: 'SEMS+ station type response did not match the verified schema.',
           provider: 'SEMS_PORTAL',
           errorCategory: 'SCHEMA_CHANGED',
+          endpoint: '/sems/sems-dashboard-web/api/front/page/getStationType',
+          httpStatus: stationTypeRequest?.httpStatus ?? null,
+          providerCode: stationTypeRequest?.providerCode ?? null,
+          sessionCreated: true,
         });
       }
 
       const fullPlantList: SemsPlusRecord[] = [];
+      let lastStationPageRequest: SemsPlusRequestMetadata | null = null;
       for (const stationTypeEnum of stationTypes) {
-        fullPlantList.push(
-          ...(await this.fetchStationPages(session, stationTypeEnum)),
-        );
+        const stationPages = await this.fetchStationPages(session, stationTypeEnum);
+        fullPlantList.push(...stationPages.rows);
+        lastStationPageRequest = stationPages.lastRequest ?? lastStationPageRequest;
       }
 
       const deduplicated = mergeSemsPlusPlantRecords(fullPlantList, []);
       const stationOverview: SemsPlusRecord[] = [];
+      let stationDetailFailureCount = 0;
       for (const plant of deduplicated) {
         const plantId = readPlantId(plant);
         if (!plantId) continue;
@@ -106,6 +137,7 @@ export class SemsPlusClientService {
         } catch (error) {
           if (this.sessionManager.isAuthenticationError(error)) throw error;
           // A detail failure must not remove an offline plant from the account-level list.
+          stationDetailFailureCount += 1;
         }
       }
 
@@ -118,6 +150,10 @@ export class SemsPlusClientService {
           message: 'SEMS+ returned no parseable plants.',
           provider: 'SEMS_PORTAL',
           errorCategory: 'SCHEMA_CHANGED',
+          endpoint: '/sems/sems-dashboard-web/api/front/page/stationPage',
+          httpStatus: lastStationPageRequest?.httpStatus ?? null,
+          providerCode: lastStationPageRequest?.providerCode ?? null,
+          sessionCreated: true,
         });
       }
 
@@ -126,6 +162,20 @@ export class SemsPlusClientService {
         plants,
         fullPlantList: deduplicated,
         stationOverview,
+        diagnostics: {
+          profileHttpStatus: profileRequest?.httpStatus ?? null,
+          profileProviderStatus: profileRequest?.providerCode ?? null,
+          roleKey: profile.roleKey,
+          userType: profile.userType,
+          hasOrgId: Boolean(profile.orgId),
+          permissionsCount: profile.permissions.length + profile.permissionList.length,
+          stationTypeCount: stationTypes.length,
+          fullStationRowsReturned: fullPlantList.length,
+          uniqueStationIdsReturned: deduplicated.length,
+          stationDetailSuccessCount: stationOverview.length,
+          stationDetailFailureCount,
+          finalMergedPlantCount: plants.length,
+        },
       };
     });
   }
@@ -154,6 +204,7 @@ export class SemsPlusClientService {
       ? Math.max(1, Math.min(1000, Math.trunc(configuredSize)))
       : 200;
     const rows: SemsPlusRecord[] = [];
+    let lastRequest: SemsPlusRequestMetadata | null = null;
     let current = 1;
     let total = Number.POSITIVE_INFINITY;
 
@@ -171,6 +222,8 @@ export class SemsPlusClientService {
           phone: null,
           unifiedTextSearch: null,
         },
+      }, (metadata) => {
+        lastRequest = metadata;
       });
       const page = parseSemsPlusStationPage(payload);
       rows.push(...page.rows);
@@ -179,6 +232,6 @@ export class SemsPlusClientService {
       current += 1;
     }
 
-    return rows;
+    return { rows, lastRequest };
   }
 }

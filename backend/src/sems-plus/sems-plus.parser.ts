@@ -69,6 +69,7 @@ export function parseSemsPlusProfile(payload: SemsPlusRecord) {
   const merged = { ...profile, ...info };
   return {
     roleKey: readString(merged, ['roleKey', 'roleCode', 'userIdentity', 'userType']),
+    userType: readString(merged, ['userType', 'userIdentity']),
     orgId: readString(merged, ['orgId']),
     permissions: Array.isArray(merged.permissions) ? merged.permissions : [],
     permissionList: Array.isArray(merged.permissionList) ? merged.permissionList : [],
@@ -96,22 +97,52 @@ export function parseSemsPlusPlant(row: SemsPlusRecord): ParsedSemsPlusPlant | n
   const plantId = readPlantId(row);
   if (!plantId) return null;
 
+  const installedCapacityKwp =
+    readNumber(row, ['installedPower', 'installedCapacityKwp']) ??
+    divideByThousand(readNumber(row, ['installedCapacity']));
+  const todayGenerationKwh =
+    readNumber(row, ['productionToday']) ??
+    divideByThousand(readNumber(row, ['proToday']));
+  const totalGenerationKwh =
+    readNumber(row, ['productionTotal']) ??
+    divideByThousand(readNumber(row, ['proTotal']));
+
   return {
     plantId,
     plantName: readString(row, ['name', 'plantName', 'stationName']),
-    installedCapacityKwp: readNumber(row, ['installedPower', 'installedCapacityKwp']),
+    installedCapacityKwp,
     location: readString(row, ['stationAddress', 'address', 'location']),
     latitude: readNumber(row, ['latitude', 'lat']),
     longitude: readNumber(row, ['longitude', 'lng', 'lon']),
     timezone: readString(row, ['timeZone', 'timezone']),
-    status: readString(row, ['status', 'stationStatus', 'runningStatus']),
-    todayGenerationKwh: readNumber(row, ['productionToday']),
-    totalGenerationKwh: readNumber(row, ['productionTotal']),
+    status: normalizeStationStatus(
+      readString(row, ['status', 'stationStatus', 'runningStatus']),
+    ),
+    todayGenerationKwh,
+    totalGenerationKwh,
     providerUpdatedAt: normalizeDateTime(
       readString(row, ['updateTime', 'lastUpdateTime', 'dataTime']),
     ),
     raw: row,
   };
+}
+
+function divideByThousand(value: number | null) {
+  return value === null ? null : value / 1000;
+}
+
+function normalizeStationStatus(value: string | null) {
+  if (!value) return null;
+  const normalized = value.trim().toUpperCase();
+  return (
+    {
+      '0': 'OFFLINE',
+      '1': 'RUNNING',
+      '2': 'FAULT',
+      '3': 'WAITING',
+      '11': 'CONSTRUCTING',
+    }[normalized] || normalized
+  );
 }
 
 export function readPlantId(row: SemsPlusRecord) {
