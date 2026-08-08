@@ -12,9 +12,10 @@
 - security review: Changed-file secret/PII scan passed; no raw HAR, cookie, token, password, customer address, personal email, or phone was added
 - dependency warning: Existing backend production dependency tree reports 17 advisories (9 moderate, 7 high, 1 critical); automatic force-upgrades were not applied because they include breaking NestJS changes and are outside this provider patch
 - approval requested or not: Yes
-- approved or not: No
-- deployed or not: No
-- production changed: No
+- approved or not: Yes
+- deployed or not: Yes, commit `bc02e079e51c1ca727edbbda330f31a24429de4a` via GitHub Actions run `31235062498`
+- production verification: Passed SSH deploy, PM2 restart, database health, 10 stability observations over 5 minutes, and public endpoint checks
+- production changed: Yes, provider integration code/config only; no Prisma migration or production data change
 - rollback target if needed: `4eda4d41f2bfa5f5c3c030309351dd16bb25ebde`
 
 ## Current release candidate
