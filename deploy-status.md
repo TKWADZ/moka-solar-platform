@@ -4,9 +4,9 @@
 - local capture status: Passed; 8 plants captured from rendered SEMS+ pages without reading credentials, cookies, browser storage, authorization headers, tokens, or network response bodies
 - private capture: `imports/sems-plus/capture-2026-08-08.json` (Git ignored)
 - generated preview: `imports/sems-plus/moka-preview-2026-08-08.xlsx` (Git ignored)
-- import preview status: 0 rows in `Import ready`, 8 rows in `Needs review`, 64 daily debug rows; unlinked and offline/zero-only plants are blocked
+- import preview status: 1 reviewed `AT001` row in `Import ready`, 7 rows in `Needs review`, 64 daily debug rows; unlinked and offline/zero-only plants remain blocked
 - linkage safety: `Import ready` now requires an explicitly approved `stationId -> systemCode` mapping; fuzzy name matching is not used by the preview generator
-- production linkage review: 1 possible `AT002` match needs user approval; the other 7 plants remain unlinked and no mapping file has been approved
+- production linkage review: User approved the SEMS+ plant link to `AT001`; the other 7 plants remain unlinked
 - database write status: No database writes performed
 - billing status: Not synced; grid import remains separate from consumption and no zero-only provider row is accepted
 - unit test status: Passed 26/26
@@ -17,6 +17,6 @@
 - approved or not: No
 - deployed or not: No
 - production changed: No
-- remaining input: Approve or reject the proposed `AT002` station link, then provide reviewed mappings for any remaining SEMS+ plants before generating an uploadable workbook
+- remaining input: Review the regenerated `AT001` import row and provide mappings for any remaining SEMS+ plants before any production upload
 - unattended sync prerequisite: Sanitized SEMS+ API documentation/HAR for plant list, overview, devices, realtime flow, daily/monthly history, and session expiry; endpoint paths must not be guessed
 - rollback target if needed: `7ea065d1863edc5a7381f8a989a50ae5b96d5ce4`
