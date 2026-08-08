@@ -163,6 +163,11 @@ link_shared_env() {
       env_backup_dir="$backup_root/env-backups"
       ensure_dir "$env_backup_dir"
       cp -a "$target_path" "$env_backup_dir/$shared_name.bak"
+      if ! cmp -s "$target_path" "$shared_path"; then
+        echo "Refusing to replace a divergent environment file at $target_path." >&2
+        echo "Reconcile it with $shared_path before deploying again." >&2
+        return 1
+      fi
       rm -f "$target_path"
     elif [ -L "$target_path" ]; then
       rm -f "$target_path"

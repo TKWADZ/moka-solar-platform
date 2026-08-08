@@ -1,6 +1,20 @@
 # Deploy Status
 
-## SEMS+ provider discovery timeout hotfix (approved for deployment)
+## SEMS+ shared environment persistence guard (approved for deployment)
+
+- latest task: Prevent future deploys from silently replacing a newer canonical backend environment with an older shared environment
+- root cause: An atomic environment update replaced the canonical `backend/.env` symlink with a regular file; the next multi-site deploy relinked the older shared file and discarded the divergent configuration
+- local fix: The multi-site preparation script now backs up and rejects divergent environment files instead of replacing either copy
+- recovery status: Restored all 7 SEMS+ keys from deploy backup `20260808-205020` into the canonical shared backend environment without printing secret values
+- recovery verification: Backend health is `ok`; Admin Systems reports one configured GoodWe SEMS+ connection
+- guard test status: Passed `ENV_DIVERGENCE_GUARD_OK`; both divergent source and shared files remained unchanged and a backup copy was created
+- database change: None; no migration
+- approval requested or not: Yes
+- approved or not: Yes
+- deployed or not: Pending this environment-safety release
+- rollback target if needed: `dc54e344c0d3157a5e4c805761632e627553591f`
+
+## SEMS+ provider discovery timeout hotfix (deployed)
 
 - latest task: Allow the unified Systems screen to finish current GoodWe SEMS+ plant discovery without changing the verified provider adapter
 - root cause: The frontend aborted every API request after 8 seconds while SEMS+ discovery fetches profile, station list, and detail data for all 8 plants
@@ -11,7 +25,8 @@
 - database change: None; no migration
 - approval requested or not: Yes
 - approved or not: Yes
-- deployed or not: Pending this hotfix release
+- deployed or not: Yes, commit `dc54e344c0d3157a5e4c805761632e627553591f` via GitHub Actions run `31260472833`
+- production verification: Workflow passed SSH deploy, 5-minute stability observation, and public endpoint checks; authenticated preview discovered all 8 SEMS+ plants without timeout
 - production import status: Not started; plant import remains an explicit separate operator action
 - rollback target if needed: `9dc63ca7bfd9a1929168d0ec96a995f20fc6e0fc`
 
