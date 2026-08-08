@@ -21,9 +21,11 @@
 - secret/PII scan: Passed 25 changed/untracked files; no private key, JWT, long opaque token, personal email, phone, HAR, cookie jar or session-state artifact found
 - approval requested or not: Yes, code deployment requested after local verification; production data cleanup remains a separate approval gate
 - approved or not: Yes, user explicitly approved code deployment
-- deployed or not: In progress
+- deployed or not: Yes, commit `f10179b9c3e73dd1951cfdde9626ef5f356fe64f` via GitHub Actions run `31266126160`
 - production cleanup applied: No
 - rollback target if needed: `cceef75c28873e05d87609476a4ed9b5b54954eb`; production data cleanup is not part of this deployment
+- production verification: Workflow completed SSH deploy, backup/build/restart, 5-minute stability observation and public checks; independent checks returned HTTP 200 for `/`, `/about`, `/privacy`, `/robots.txt` and `/api/health`, with backend `status=ok` and database `up`
+- redirect verification: HTTP and `www` both return 301 to `https://mokasolar.com/`
 
 ## SEMS+ shared environment persistence guard (deployed)
 
